@@ -4885,13 +4885,19 @@ const faceWeights =
 )
       : null;
 
-  const { geometry: subdivided } = await subdivide(
+  const { geometry: subdivided, faceParentId } = await subdivide(
     currentGeometry,
     slot.settings.refineLength,
     () => {},
     faceWeights
   );
-
+console.log(
+  'Subdivision parent map:',
+  slot.name,
+  faceParentId ? faceParentId.length : 'NO faceParentId',
+  'sub tris:',
+  subdivided.attributes.position.count / 3
+);
   const displaced = await applyDisplacement(
     subdivided,
     slot.activeMapEntry.imageData,
