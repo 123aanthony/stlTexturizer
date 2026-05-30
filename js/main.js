@@ -177,6 +177,7 @@ function saveActiveSlotState() {
   if (!slot) return;
 
   slot.activeMapEntry = activeMapEntry;
+  //saveTextureSlotsToStorage();
   slot.excludedFaces = excludedFaces;
   slot.settings = cloneSettings();
 }
@@ -1140,7 +1141,24 @@ activeTextureSlotId = btn.dataset.slot;
 const slot = getActiveTextureSlot();
 
 restoreSlotState(slot);
+//saveTextureSlotsToStorage();
+function serializeTextureSlots() {
+  return textureSlots.map(slot => ({
+    id: slot.id,
+    name: slot.name,
+    activeMapName: slot.activeMapEntry ? slot.activeMapEntry.name : null,
+    excludedFaces: Array.from(slot.excludedFaces || []),
+    settings: slot.settings || {}
+  }));
+}
 
+function saveTextureSlotsToStorage() {
+  saveActiveSlotState();
+  sessionStorage.setItem(
+    'diorama-texture-slots',
+    JSON.stringify(serializeTextureSlots())
+  );
+}
 console.log('Switched texture slot:', activeTextureSlotId);
     console.log('Active texture slot:', activeTextureSlotId);
   });
@@ -1176,6 +1194,7 @@ async function selectPreset(idx, swatchEl, applyDefaults = true) {
     const slot = getActiveTextureSlot();
     if (slot) {
       slot.activeMapEntry = entry;
+      //saveTextureSlotsToStorage();
     }
 
     updatePreview();
