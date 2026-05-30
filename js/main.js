@@ -136,7 +136,67 @@ const settings = {
   regularizeAggressiveNormalDeg: 25,
   regularizeSecondPassMul:   1.1,
 };
+function updateSettingsUIFromSettings() {
+  mappingSelect.value = settings.mappingMode;
 
+  scaleUSlider.value = scaleToPos(settings.scaleU);
+  scaleVSlider.value = scaleToPos(settings.scaleV);
+  scaleUVal.value = settings.scaleU;
+  scaleVVal.value = settings.scaleV;
+
+  offsetUSlider.value = settings.offsetU;
+  offsetVSlider.value = settings.offsetV;
+  offsetUVal.value = settings.offsetU.toFixed(2);
+  offsetVVal.value = settings.offsetV.toFixed(2);
+
+  rotationSlider.value = settings.rotation;
+  rotationVal.value = Math.round(settings.rotation);
+
+  amplitudeSlider.value = settings.textureHeight;
+  amplitudeVal.value = settings.textureHeight.toFixed(2);
+
+  textureSmoothingSlider.value = settings.textureSmoothing;
+  textureSmoothingVal.value = settings.textureSmoothing;
+
+  refineLenSlider.value = settings.refineLength;
+  refineLenVal.value = settings.refineLength.toFixed(2);
+
+  maxTriSlider.value = settings.maxTriangles;
+  maxTriVal.value = settings.maxTriangles.toLocaleString();
+
+  invertDisplacementCheckbox.checked = settings.invertDisplacement;
+  lockScaleBtn.classList.toggle('active', settings.lockScale);
+  lockScaleBtn.setAttribute('aria-pressed', String(settings.lockScale));
+}
+function cloneSettings() {
+  return { ...settings };
+}
+
+function saveActiveSlotState() {
+  const slot = getActiveTextureSlot();
+  if (!slot) return;
+
+  slot.activeMapEntry = activeMapEntry;
+  slot.excludedFaces = excludedFaces;
+  slot.settings = cloneSettings();
+}
+
+function restoreSlotState(slot) {
+  if (!slot) return;
+
+  activeMapEntry = slot.activeMapEntry || null;
+  excludedFaces = slot.excludedFaces || new Set();
+
+  if (slot.settings) {
+    Object.assign(settings, slot.settings);
+  }
+
+  activeMapName.textContent = activeMapEntry ? activeMapEntry.name : 'No map selected';
+
+  updateSettingsUIFromSettings();
+  refreshExclusionOverlay();
+  updatePreview();
+}
 // ── Canvas filter support (Safari / iOS WebView don't support ctx.filter) ────
 const CANVAS_FILTER_SUPPORTED = 'filter' in CanvasRenderingContext2D.prototype;
 
@@ -1073,22 +1133,15 @@ document.querySelectorAll('.texture-tab').forEach(btn => {
     });
 
     btn.classList.add('active');
+saveActiveSlotState();
+
 activeTextureSlotId = btn.dataset.slot;
-excludedFaces = getActiveTextureSlot().excludedFaces;
+
 const slot = getActiveTextureSlot();
 
-if (slot && slot.activeMapEntry) {
-  activeMapEntry = slot.activeMapEntry;
-  activeMapName.textContent = slot.activeMapEntry.name;
-  updatePreview();
+restoreSlotState(slot);
 
-  console.log('Restored preset for slot:', slot.name, slot.activeMapEntry.name);
-} else {
-  activeMapEntry = null;
-  activeMapName.textContent = 'No map selected';
-  console.log('Empty texture slot:', activeTextureSlotId);
-}
-
+console.log('Switched texture slot:', activeTextureSlotId);
     console.log('Active texture slot:', activeTextureSlotId);
   });
 });
