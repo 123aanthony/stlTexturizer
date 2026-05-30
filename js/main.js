@@ -2349,7 +2349,7 @@ function buildSubTriangleMask(faceParentId, assignedFaces) {
       faceParentId[subTri];
 
 mask[subTri] =
-  assignedFaces.has(parentTri) ? 0 : 1;
+  assignedFaces.has(parentTri) ? 1 : 0;
   }
 
   return mask;
@@ -4919,15 +4919,18 @@ console.log(
   'sub tris:',
   subdivided.attributes.position.count / 3
 );
-  const displaced = await applyDisplacement(
-    subdivided,
-    slot.activeMapEntry.imageData,
-    slot.activeMapEntry.width,
-    slot.activeMapEntry.height,
-    slot.settings,
-    currentBounds,
-    () => {}
-  );
+ const displaced = await applyDisplacement(
+  subdivided,
+  slot.activeMapEntry.imageData,
+  slot.activeMapEntry.width,
+  slot.activeMapEntry.height,
+  {
+    ...slot.settings,
+    faceMask
+  },
+  currentBounds,
+  () => {}
+);
 
   subdivided.dispose();
 
