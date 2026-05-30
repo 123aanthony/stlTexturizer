@@ -27,6 +27,29 @@ let currentGeometry   = null;   // original loaded geometry
 let currentBounds     = null;   // bounds of the original geometry
 let currentStlName    = 'model'; // base filename of the loaded STL (no extension)
 let activeMapEntry    = null;   // { name, texture, imageData, width, height, isCustom? }
+// ─────────────────────────────────────────────
+// Diorama multi-texture slots (POC V1)
+// ─────────────────────────────────────────────
+
+const TEXTURE_SLOT_DEFS = [
+  { id: 'stone', name: 'Stone' },
+  { id: 'wood',  name: 'Wood'  },
+  { id: 'metal', name: 'Metal' },
+  { id: 'roof',  name: 'Roof'  }
+];
+
+let textureSlots = TEXTURE_SLOT_DEFS.map(slot => ({
+  ...slot,
+  activeMapEntry: null,
+  excludedFaces: new Set(),
+  settings: {}
+}));
+
+let activeTextureSlotId = 'stone';
+
+function getActiveTextureSlot() {
+  return textureSlots.find(s => s.id === activeTextureSlotId);
+}
 let _lastCustomMap    = null;   // most recent uploaded/imported custom-map entry, kept across preset switches so the thumbnail can re-activate it
 let previewMaterial   = null;
 let isExporting       = false;
