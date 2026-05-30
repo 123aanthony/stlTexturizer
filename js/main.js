@@ -63,7 +63,7 @@ let _falloffDirty      = true;   // recompute falloff on next updateFaceMask
 let _falloffGeometry   = null;   // geometry the falloff was last computed for
 
 // ── Exclusion state ───────────────────────────────────────────────────────────
-let excludedFaces      = new Set();   // triangle indices in currentGeometry
+let excludedFaces      = getActiveTextureSlot().excludedFaces;   // triangle indices in currentGeometry
 let triangleAdjacency  = null;        // Array from buildAdjacency
 let triangleCentroids  = null;        // Float32Array from buildAdjacency
 let triangleFaceNormals = null;       // Float32Array — local-space unit face normal per tri
@@ -1073,8 +1073,21 @@ document.querySelectorAll('.texture-tab').forEach(btn => {
     });
 
     btn.classList.add('active');
+activeTextureSlotId = btn.dataset.slot;
+excludedFaces = getActiveTextureSlot().excludedFaces;
+const slot = getActiveTextureSlot();
 
-    activeTextureSlotId = btn.dataset.slot;
+if (slot && slot.activeMapEntry) {
+  activeMapEntry = slot.activeMapEntry;
+  activeMapName.textContent = slot.activeMapEntry.name;
+  updatePreview();
+
+  console.log('Restored preset for slot:', slot.name, slot.activeMapEntry.name);
+} else {
+  activeMapEntry = null;
+  activeMapName.textContent = 'No map selected';
+  console.log('Empty texture slot:', activeTextureSlotId);
+}
 
     console.log('Active texture slot:', activeTextureSlotId);
   });
@@ -1106,6 +1119,12 @@ async function selectPreset(idx, swatchEl, applyDefaults = true) {
   // If full texture is already loaded, use it directly
   if (entry.texture) {
     activeMapEntry = entry;
+
+    const slot = getActiveTextureSlot();
+    if (slot) {
+      slot.activeMapEntry = entry;
+    }
+
     updatePreview();
     return;
   }
@@ -1117,6 +1136,12 @@ async function selectPreset(idx, swatchEl, applyDefaults = true) {
     if (gen !== _selectGeneration) return;   // user clicked another preset meanwhile
     PRESETS[idx] = { ...entry, ...full };
     activeMapEntry = PRESETS[idx];
+
+    const slot = getActiveTextureSlot();
+    if (slot) {
+      slot.activeMapEntry = PRESETS[idx];
+    }
+
     swatchEl.classList.remove('preset-loading-full');
     updatePreview();
   } catch (err) {
