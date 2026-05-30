@@ -1061,6 +1061,25 @@ loadAllThumbnails().then(thumbs => {
   }
 }).catch(err => console.error('Failed to load thumbnails:', err));
 
+// ─────────────────────────────────────────────
+// Texture tabs UI
+// ─────────────────────────────────────────────
+
+document.querySelectorAll('.texture-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+
+    document.querySelectorAll('.texture-tab').forEach(b => {
+      b.classList.remove('active');
+    });
+
+    btn.classList.add('active');
+
+    activeTextureSlotId = btn.dataset.slot;
+
+    console.log('Active texture slot:', activeTextureSlotId);
+  });
+});
+
 // ── Preset grid ───────────────────────────────────────────────────────────────
 
 function resetTextureSmoothing() {
