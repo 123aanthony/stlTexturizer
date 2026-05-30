@@ -182,8 +182,13 @@ function saveActiveSlotState() {
   if (activeMapEntry?.isCustom) {
     slot.customMapEntry = activeMapEntry;
   }
-  slot.excludedFaces = excludedFaces;
+
+  // IMPORTANT:
+  // Store copies, not the live Set reference.
+  // Otherwise switching slots can make several slots share the same mutable selection.
+  slot.excludedFaces = new Set(excludedFaces);
   slot.assignedFaces = new Set(excludedFaces);
+
   slot.settings = cloneSettings();
 }
 
@@ -1206,6 +1211,189 @@ document.getElementById('save-slots-btn')?.addEventListener('click', () => {
   console.log('Saved texture slots:', serialized);
 
 });
+
+// ─────────────────────────────────────────────
+// Material profile save/load (.stltprofile)
+// Profiles keep slot textures + settings, but not face selections.
+// ─────────────────────────────────────────────
+
+function _installProfileButtons() {
+  const anchor = document.getElementById('save-slots-btn');
+  if (!anchor || document.getElementById('save-profile-btn')) return;
+
+  const saveBtn = document.createElement('button');
+  saveBtn.id = 'save-profile-btn';
+  saveBtn.className = 'secondary-btn';
+  saveBtn.type = 'button';
+  saveBtn.textContent = 'Save Profile';
+
+  const loadBtn = document.createElement('button');
+  loadBtn.id = 'load-profile-btn';
+  loadBtn.className = 'secondary-btn';
+  loadBtn.type = 'button';
+  loadBtn.textContent = 'Load Profile';
+
+  const input = document.createElement('input');
+  input.id = 'load-profile-input';
+  input.type = 'file';
+  input.accept = '.stltprofile,application/json';
+  input.style.display = 'none';
+
+  anchor.insertAdjacentElement('afterend', input);
+  anchor.insertAdjacentElement('afterend', loadBtn);
+  anchor.insertAdjacentElement('afterend', saveBtn);
+
+  saveBtn.addEventListener('click', saveMaterialProfileToFile);
+  loadBtn.addEventListener('click', () => input.click());
+  input.addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      await loadMaterialProfileFromFile(file);
+    } catch (err) {
+      console.error('Failed to load material profile:', err);
+      alert(`Failed to load material profile: ${err.message}`);
+    }
+  });
+}
+
+function customMapEntryToDataUrl(entry) {
+  if (!entry || !entry.fullCanvas) return null;
+  try {
+    return entry.fullCanvas.toDataURL('image/png');
+  } catch (err) {
+    console.warn('Could not serialize custom map:', entry.name, err);
+    return null;
+  }
+}
+
+function serializeMaterialProfile() {
+  saveActiveSlotState();
+
+  return {
+    type: 'stlTexturizerMaterialProfile',
+    version: 1,
+    savedAt: new Date().toISOString(),
+    activeTextureSlotId,
+    slots: textureSlots.map(slot => {
+      const activeIsCustom = !!slot.activeMapEntry?.isCustom;
+      const customEntry = slot.customMapEntry || (activeIsCustom ? slot.activeMapEntry : null);
+
+      return {
+        id: slot.id,
+        name: slot.name,
+        activeMapType: activeIsCustom ? 'custom' : (slot.activeMapEntry ? 'preset' : null),
+        activeMapName: slot.activeMapEntry ? slot.activeMapEntry.name : null,
+        presetName: !activeIsCustom && slot.activeMapEntry ? slot.activeMapEntry.name : null,
+        customMapName: customEntry ? customEntry.name : null,
+        customMapDataUrl: customEntry ? customMapEntryToDataUrl(customEntry) : null,
+        settings: { ...(slot.settings || {}) }
+      };
+    })
+  };
+}
+
+function saveMaterialProfileToFile() {
+  const profile = serializeMaterialProfile();
+  const json = JSON.stringify(profile, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const base = currentStlName || 'bumpmesh';
+  a.href = url;
+  a.download = `${base}_material_profile.stltprofile`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+
+  console.log('Saved material profile:', profile);
+}
+
+async function getPresetEntryByName(name) {
+  if (!name) return null;
+
+  const idx = IMAGE_PRESETS.findIndex(p => p.name === name);
+  if (idx < 0) return null;
+
+  if (PRESETS[idx]?.texture && PRESETS[idx]?.imageData) {
+    return PRESETS[idx];
+  }
+
+  const thumbEntry = PRESETS[idx] || { name };
+  const full = await loadFullPreset(idx);
+  PRESETS[idx] = { ...thumbEntry, ...full };
+  return PRESETS[idx];
+}
+
+async function customEntryFromDataUrl(dataUrl, name = 'custom-map.png') {
+  if (!dataUrl) return null;
+
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+  const file = new File([blob], name, { type: blob.type || 'image/png' });
+  const entry = await loadCustomTexture(file);
+  entry.isCustom = true;
+  entry.name = name;
+  return entry;
+}
+
+async function applyMaterialProfile(profile) {
+  if (!profile || !Array.isArray(profile.slots)) {
+    throw new Error('Invalid profile file');
+  }
+
+  saveActiveSlotState();
+
+  for (const saved of profile.slots) {
+    let slot = textureSlots.find(s => s.id === saved.id);
+    if (!slot) continue;
+
+    slot.name = saved.name || slot.name;
+    slot.settings = { ...(saved.settings || {}) };
+
+    // Profiles intentionally do NOT restore face selections.
+    slot.excludedFaces = new Set();
+    slot.assignedFaces = new Set();
+
+    slot.activeMapEntry = null;
+    slot.customMapEntry = null;
+
+    if (saved.activeMapType === 'custom' && saved.customMapDataUrl) {
+      const entry = await customEntryFromDataUrl(
+        saved.customMapDataUrl,
+        saved.customMapName || saved.activeMapName || `${slot.name}.png`
+      );
+      slot.customMapEntry = entry;
+      slot.activeMapEntry = entry;
+    } else if (saved.activeMapType === 'preset' || saved.presetName || saved.activeMapName) {
+      const presetName = saved.presetName || saved.activeMapName;
+      const entry = await getPresetEntryByName(presetName);
+      if (entry) slot.activeMapEntry = entry;
+    }
+  }
+
+  activeTextureSlotId = profile.activeTextureSlotId || activeTextureSlotId;
+  if (!textureSlots.some(s => s.id === activeTextureSlotId)) {
+    activeTextureSlotId = textureSlots[0]?.id || 'stone';
+  }
+
+  document.querySelectorAll('.texture-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.slot === activeTextureSlotId);
+  });
+
+  restoreSlotState(getActiveTextureSlot());
+  console.log('Loaded material profile:', profile);
+}
+
+async function loadMaterialProfileFromFile(file) {
+  const text = await file.text();
+  const profile = JSON.parse(text);
+  await applyMaterialProfile(profile);
+}
+
+_installProfileButtons();
 // ── Preset grid ───────────────────────────────────────────────────────────────
 
 function resetTextureSmoothing() {
