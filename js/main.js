@@ -1716,13 +1716,69 @@ exportAllSlotsBtn?.addEventListener('click', async () => {
 
   console.log('Generated slot geometries:', generated);
 
+console.log('Generated slot geometries:', generated);
+
+const mergedGeometry = new THREE.BufferGeometry();
+
+let totalPositions = 0;
+let totalNormals = 0;
+
 for (const item of generated) {
-  const safeName = item.slot.name.replace(/\s+/g, '-').toLowerCase();
-  exportSTL(
-    item.geometry,
-    `${currentStlName}_${safeName}_slot.stl`
+  totalPositions += item.geometry.attributes.position.array.length;
+
+  if (item.geometry.attributes.normal) {
+    totalNormals += item.geometry.attributes.normal.array.length;
+  }
+}
+
+const mergedPositions = new Float32Array(totalPositions);
+const mergedNormals =
+  totalNormals > 0 ? new Float32Array(totalNormals) : null;
+
+let posOffset = 0;
+let nrmOffset = 0;
+
+for (const item of generated) {
+
+  const pos = item.geometry.attributes.position.array;
+
+  mergedPositions.set(pos, posOffset);
+
+  posOffset += pos.length;
+
+  if (mergedNormals && item.geometry.attributes.normal) {
+
+    const nrm = item.geometry.attributes.normal.array;
+
+    mergedNormals.set(nrm, nrmOffset);
+
+    nrmOffset += nrm.length;
+  }
+}
+
+mergedGeometry.setAttribute(
+  'position',
+  new THREE.BufferAttribute(mergedPositions, 3)
+);
+
+if (mergedNormals) {
+  mergedGeometry.setAttribute(
+    'normal',
+    new THREE.BufferAttribute(mergedNormals, 3)
   );
 }
+
+exportSTL(
+  mergedGeometry,
+  `${currentStlName}_all_slots.stl`
+);
+
+mergedGeometry.dispose();
+
+for (const item of generated) {
+  item.geometry.dispose();
+}
+
 });
   // ── Advanced / Beta Features panel: collapse toggle + bake action ──
   advancedToggle.addEventListener('click', () => {
