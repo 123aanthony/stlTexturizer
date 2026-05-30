@@ -41,6 +41,7 @@ const TEXTURE_SLOT_DEFS = [
 let textureSlots = TEXTURE_SLOT_DEFS.map(slot => ({
   ...slot,
   activeMapEntry: null,
+  customMapEntry: null,
   excludedFaces: new Set(),
   assignedFaces: new Set(),
   settings: {}
@@ -178,6 +179,9 @@ function saveActiveSlotState() {
   if (!slot) return;
 
   slot.activeMapEntry = activeMapEntry;
+  if (activeMapEntry?.isCustom) {
+    slot.customMapEntry = activeMapEntry;
+  }
   slot.excludedFaces = excludedFaces;
   slot.assignedFaces = new Set(excludedFaces);
   slot.settings = cloneSettings();
@@ -195,6 +199,22 @@ function restoreSlotState(slot) {
 
   activeMapName.textContent = activeMapEntry ? activeMapEntry.name : 'No map selected';
 
+  document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
+  if (activeMapEntry?.isCustom) {
+    _lastCustomMap = activeMapEntry;
+    _showCustomMapThumb(activeMapEntry);
+    customMapSwatch?.classList.add('active');
+  } else {
+    customMapSwatch?.classList.remove('active');
+    if (slot.customMapEntry) {
+      _lastCustomMap = slot.customMapEntry;
+      _showCustomMapThumb(slot.customMapEntry);
+    } else {
+      _lastCustomMap = null;
+      _hideCustomMapThumb();
+    }
+  }
+
   updateSettingsUIFromSettings();
   refreshExclusionOverlay();
   updatePreview();
@@ -204,6 +224,8 @@ function serializeTextureSlots() {
     id: slot.id,
     name: slot.name,
     activeMapName: slot.activeMapEntry ? slot.activeMapEntry.name : null,
+    isCustomMap: !!slot.activeMapEntry?.isCustom,
+    customMapName: slot.customMapEntry ? slot.customMapEntry.name : null,
     excludedFaces: Array.from(slot.excludedFaces || []),
     settings: slot.settings || {}
   }));
@@ -1276,11 +1298,21 @@ function _hideCustomMapThumb() {
 
 /** Promote the kept-aside custom map back to the active map. No defaults reset. */
 function _activateCustomMap() {
-  if (!_lastCustomMap) return;
-  activeMapEntry = _lastCustomMap;
+  const slot = getActiveTextureSlot();
+  const entry = slot?.customMapEntry || _lastCustomMap;
+  if (!entry) return;
+
+  activeMapEntry = entry;
+  _lastCustomMap = entry;
+
+  if (slot) {
+    slot.activeMapEntry = entry;
+    slot.customMapEntry = entry;
+  }
+
   document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
   customMapSwatch.classList.add('active');
-  activeMapName.textContent = _lastCustomMap.name;
+  activeMapName.textContent = entry.name;
   updatePreview();
 }
 
@@ -1294,7 +1326,12 @@ if (customMapSwatch) {
 if (customMapRemoveBtn) {
   customMapRemoveBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    const wasActive = activeMapEntry === _lastCustomMap;
+    const slot = getActiveTextureSlot();
+    const wasActive = activeMapEntry === (slot?.customMapEntry || _lastCustomMap);
+    if (slot) {
+      slot.customMapEntry = null;
+      if (slot.activeMapEntry?.isCustom) slot.activeMapEntry = null;
+    }
     _lastCustomMap = null;
     _hideCustomMapThumb();
     if (wasActive) {
@@ -1430,7 +1467,15 @@ function wireEvents() {
     try {
       activeMapEntry = await loadCustomTexture(file);
       activeMapEntry.isCustom = true;
+      activeMapEntry.name = file.name;
       _lastCustomMap = activeMapEntry;
+
+      const slot = getActiveTextureSlot();
+      if (slot) {
+        slot.activeMapEntry = activeMapEntry;
+        slot.customMapEntry = activeMapEntry;
+      }
+
       activeMapName.textContent = file.name;
       document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
       _showCustomMapThumb(activeMapEntry);
