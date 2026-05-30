@@ -198,6 +198,23 @@ function restoreSlotState(slot) {
   refreshExclusionOverlay();
   updatePreview();
 }
+function serializeTextureSlots() {
+  return textureSlots.map(slot => ({
+    id: slot.id,
+    name: slot.name,
+    activeMapName: slot.activeMapEntry ? slot.activeMapEntry.name : null,
+    excludedFaces: Array.from(slot.excludedFaces || []),
+    settings: slot.settings || {}
+  }));
+}
+
+function saveTextureSlotsToStorage() {
+  saveActiveSlotState();
+  sessionStorage.setItem(
+    'diorama-texture-slots',
+    JSON.stringify(serializeTextureSlots())
+  );
+}
 // ── Canvas filter support (Safari / iOS WebView don't support ctx.filter) ────
 const CANVAS_FILTER_SUPPORTED = 'filter' in CanvasRenderingContext2D.prototype;
 
@@ -1142,28 +1159,29 @@ const slot = getActiveTextureSlot();
 
 restoreSlotState(slot);
 //saveTextureSlotsToStorage();
-function serializeTextureSlots() {
-  return textureSlots.map(slot => ({
-    id: slot.id,
-    name: slot.name,
-    activeMapName: slot.activeMapEntry ? slot.activeMapEntry.name : null,
-    excludedFaces: Array.from(slot.excludedFaces || []),
-    settings: slot.settings || {}
-  }));
-}
 
-function saveTextureSlotsToStorage() {
-  saveActiveSlotState();
-  sessionStorage.setItem(
-    'diorama-texture-slots',
-    JSON.stringify(serializeTextureSlots())
-  );
-}
 console.log('Switched texture slot:', activeTextureSlotId);
     console.log('Active texture slot:', activeTextureSlotId);
   });
 });
+// ─────────────────────────────────────────────
+// Manual save slots
+// ─────────────────────────────────────────────
 
+document.getElementById('save-slots-btn')?.addEventListener('click', () => {
+
+  saveActiveSlotState();
+
+  const serialized = serializeTextureSlots();
+
+  localStorage.setItem(
+    'diorama-texture-slots',
+    JSON.stringify(serialized)
+  );
+
+  console.log('Saved texture slots:', serialized);
+
+});
 // ── Preset grid ───────────────────────────────────────────────────────────────
 
 function resetTextureSmoothing() {
