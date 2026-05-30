@@ -23,7 +23,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
   const posAttr = geometry.attributes.position;
   const nrmAttr = geometry.attributes.normal;
   const count   = posAttr.count;
-
+const faceMask = settings.faceMask || null;
   const newPos = new Float32Array(count * 3);
   const newNrm = new Float32Array(count * 3);
 
@@ -508,6 +508,8 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
   const REPORT_EVERY = 5000;
 
   for (let i = 0; i < count; i++) {
+    const triIdx = Math.floor(i / 3);
+const maskedOut = faceMask && faceMask[triIdx] === 0;
     tmpPos.fromBufferAttribute(posAttr, i);
     tmpNrm.fromBufferAttribute(nrmAttr, i);
 
@@ -525,7 +527,15 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
     const maskedFrac = mfTotal > 0 ? maskedFracMasked[vid] / mfTotal : 0;
     const centeredGrey = settings.symmetricDisplacement ? (grey - 0.5) : grey;
     const falloffFactor = falloffArr ? falloffArr[vid] : 1.0;
-    const disp = (isFaceExcluded || isSealedBoundary) ? 0 : falloffFactor * (1 - maskedFrac) * centeredGrey * settings.amplitude;
+    let disp =
+  falloffFactor *
+  (1 - maskedFrac) *
+  centeredGrey *
+  settings.amplitude;
+
+if (maskedOut || isFaceExcluded || isSealedBoundary) {
+  disp = 0;
+}
 
     const newX = tmpPos.x + smoothNrmX[vid] * disp;
     const newY = tmpPos.y + smoothNrmY[vid] * disp;
