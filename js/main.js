@@ -1696,90 +1696,144 @@ function wireEvents() {
   exportBtn.addEventListener('click', () => startExport('stl'));
   export3mfBtn.addEventListener('click', () => startExport('3mf'));
 exportAllSlotsBtn?.addEventListener('click', async () => {
+  if (!currentGeometry || isExporting || isBaking) return;
+
   saveActiveSlotState();
 
-  const readySlots = textureSlots.filter(slot => slot.activeMapEntry);
+  const readySlots = textureSlots.filter(
+    slot => slot.activeMapEntry && slot.assignedFaces && slot.assignedFaces.size > 0
+  );
 
-  console.log('Export All Slots requested');
+  if (readySlots.length === 0) {
+    alert('No texture slots are ready to export. Select faces and assign a texture first.');
+    return;
+  }
+
+  const myToken = ++exportToken;
+  isExporting = true;
+  exportBtn.classList.add('busy');
+  export3mfBtn.classList.add('busy');
+  exportAllSlotsBtn.classList.add('busy');
+  exportProgress.classList.remove('hidden');
 
   const generated = [];
+  let mergedGeometry = null;
+  let exportSucceeded = false;
 
-  for (const slot of readySlots) {
-    console.log('Processing slot:', slot.name);
+  try {
+    console.log('Export All Slots requested');
 
-    const geo = await buildExportGeometryForSlot(slot);
+    setProgress(0.01, `Starting multi-slot export (${readySlots.length} slots)`);
 
-    generated.push({
-      slot,
-      geometry: geo
-    });
+    for (let i = 0; i < readySlots.length; i++) {
+      if (exportToken !== myToken) return;
+
+      const slot = readySlots[i];
+      console.log('Processing slot:', slot.name);
+
+      const geo = await buildExportGeometryForSlot(
+        slot,
+        i,
+        readySlots.length
+      );
+
+      generated.push({
+        slot,
+        geometry: geo
+      });
+    }
+
+    if (exportToken !== myToken) return;
+
+    console.log('Generated slot geometries:', generated);
+
+    setProgress(0.93, 'Merging texture slots');
+
+    mergedGeometry = new THREE.BufferGeometry();
+
+    let totalPositions = 0;
+    let totalNormals = 0;
+
+    for (const item of generated) {
+      totalPositions += item.geometry.attributes.position.array.length;
+
+      if (item.geometry.attributes.normal) {
+        totalNormals += item.geometry.attributes.normal.array.length;
+      }
+    }
+
+    const mergedPositions = new Float32Array(totalPositions);
+    const mergedNormals =
+      totalNormals > 0 ? new Float32Array(totalNormals) : null;
+
+    let posOffset = 0;
+    let nrmOffset = 0;
+
+    for (const item of generated) {
+      const pos = item.geometry.attributes.position.array;
+
+      mergedPositions.set(pos, posOffset);
+      posOffset += pos.length;
+
+      if (mergedNormals && item.geometry.attributes.normal) {
+        const nrm = item.geometry.attributes.normal.array;
+
+        mergedNormals.set(nrm, nrmOffset);
+        nrmOffset += nrm.length;
+      }
+    }
+
+    mergedGeometry.setAttribute(
+      'position',
+      new THREE.BufferAttribute(mergedPositions, 3)
+    );
+
+    if (mergedNormals) {
+      mergedGeometry.setAttribute(
+        'normal',
+        new THREE.BufferAttribute(mergedNormals, 3)
+      );
+    }
+
+    setProgress(0.97, 'Writing STL');
+
+    exportSTL(
+      mergedGeometry,
+      `${currentStlName}_all_slots.stl`
+    );
+
+    exportSucceeded = true;
+    setProgress(1.0, 'Done');
+
+    setTimeout(() => {
+      exportProgress.classList.add('hidden');
+      setProgress(0, '');
+    }, 1500);
+
+    console.log('Export All Slots done');
+  } catch (err) {
+    console.error('Export All Slots failed:', err);
+    alert(`Export All Slots failed: ${err.message}`);
+  } finally {
+    for (const item of generated) {
+      item.geometry.dispose();
+    }
+
+    if (mergedGeometry) {
+      mergedGeometry.dispose();
+    }
+
+    if (!exportSucceeded) {
+      exportProgress.classList.add('hidden');
+    }
+
+    isExporting = false;
+    exportBtn.classList.remove('busy');
+    export3mfBtn.classList.remove('busy');
+    exportAllSlotsBtn.classList.remove('busy');
   }
-
-  console.log('Generated slot geometries:', generated);
-
-
-const mergedGeometry = new THREE.BufferGeometry();
-
-let totalPositions = 0;
-let totalNormals = 0;
-
-for (const item of generated) {
-  totalPositions += item.geometry.attributes.position.array.length;
-
-  if (item.geometry.attributes.normal) {
-    totalNormals += item.geometry.attributes.normal.array.length;
-  }
-}
-
-const mergedPositions = new Float32Array(totalPositions);
-const mergedNormals =
-  totalNormals > 0 ? new Float32Array(totalNormals) : null;
-
-let posOffset = 0;
-let nrmOffset = 0;
-
-for (const item of generated) {
-
-  const pos = item.geometry.attributes.position.array;
-
-  mergedPositions.set(pos, posOffset);
-
-  posOffset += pos.length;
-
-  if (mergedNormals && item.geometry.attributes.normal) {
-
-    const nrm = item.geometry.attributes.normal.array;
-
-    mergedNormals.set(nrm, nrmOffset);
-
-    nrmOffset += nrm.length;
-  }
-}
-
-mergedGeometry.setAttribute(
-  'position',
-  new THREE.BufferAttribute(mergedPositions, 3)
-);
-
-if (mergedNormals) {
-  mergedGeometry.setAttribute(
-    'normal',
-    new THREE.BufferAttribute(mergedNormals, 3)
-  );
-}
-
-exportSTL(
-  mergedGeometry,
-  `${currentStlName}_all_slots.stl`
-);
-
-mergedGeometry.dispose();
-
-for (const item of generated) {
-  item.geometry.dispose();
-}
-
 });
+
   // ── Advanced / Beta Features panel: collapse toggle + bake action ──
   advancedToggle.addEventListener('click', () => {
     advancedSection.classList.toggle('collapsed');
@@ -4871,68 +4925,77 @@ async function handleExport(format = 'stl') {
     export3mfBtn.classList.remove('busy');
   }
 }
-async function buildExportGeometryForSlot(slot) {
+async function buildExportGeometryForSlot(slot, slotIndex = 0, totalSlots = 1) {
+  const slotBase = totalSlots > 0 ? (slotIndex / totalSlots) * 0.92 : 0;
+  const slotSpan = totalSlots > 0 ? 0.92 / totalSlots : 0.92;
 
+  const setSlotProgress = (localProgress, label) => {
+    const clamped = Math.max(0, Math.min(1, localProgress));
+    setProgress(slotBase + clamped * slotSpan, label);
+  };
 
   const hasAngleMask =
     slot.settings.bottomAngleLimit > 0 ||
     slot.settings.topAngleLimit > 0;
 
-const tempExcludedFaces =
-  buildExcludedFacesFromAssigned(
-    slot,
-    currentGeometry
-  );
+  const tempExcludedFaces =
+    buildExcludedFacesFromAssigned(
+      slot,
+      currentGeometry
+    );
 
-const faceWeights =
-  (tempExcludedFaces.size > 0 || selectionMode || hasAngleMask)
-  ? buildCombinedFaceWeights(
-  currentGeometry,
-  tempExcludedFaces,
-  false,
-  slot.settings
-)
+  const faceWeights =
+    (tempExcludedFaces.size > 0 || selectionMode || hasAngleMask)
+      ? buildCombinedFaceWeights(
+          currentGeometry,
+          tempExcludedFaces,
+          false,
+          slot.settings
+        )
       : null;
+
+  setSlotProgress(0.02, `Preparing ${slot.name}`);
 
   const { geometry: subdivided, faceParentId } = await subdivide(
     currentGeometry,
     slot.settings.refineLength,
-    () => {},
+    (progress) => {
+      setSlotProgress(
+        0.05 + progress * 0.35,
+        `Subdividing ${slot.name} ${Math.round(progress * 100)}%`
+      );
+    },
     faceWeights
   );
-  const faceMask = buildSubTriangleMask(
-  faceParentId,
-  slot.assignedFaces
-);
 
-console.log(
-  'Face mask:',
-  slot.name,
-  faceMask.length,
-  'enabled:',
-  faceMask.reduce((a, b) => a + b, 0)
-);
-console.log(
-  'Subdivision parent map:',
-  slot.name,
-  faceParentId ? faceParentId.length : 'NO faceParentId',
-  'sub tris:',
-  subdivided.attributes.position.count / 3
-);
- const displaced = await applyDisplacement(
-  subdivided,
-  slot.activeMapEntry.imageData,
-  slot.activeMapEntry.width,
-  slot.activeMapEntry.height,
-  {
-    ...slot.settings,
-    faceMask
-  },
-  currentBounds,
-  () => {}
-);
+  const faceMask = buildSubTriangleMask(
+    faceParentId,
+    slot.assignedFaces
+  );
+
+  setSlotProgress(0.45, `Displacing ${slot.name}`);
+
+  const displaced = await applyDisplacement(
+    subdivided,
+    slot.activeMapEntry.imageData,
+    slot.activeMapEntry.width,
+    slot.activeMapEntry.height,
+    {
+      ...slot.settings,
+      faceMask
+    },
+    currentBounds,
+    (progress) => {
+      setSlotProgress(
+        0.45 + progress * 0.45,
+        `Displacing ${slot.name} ${Math.round(progress * 100)}%`
+      );
+    }
+  );
 
   subdivided.dispose();
+
+  setSlotProgress(0.95, `Finished ${slot.name}`);
 
   console.log(
     'Built geometry for slot:',
@@ -4943,6 +5006,7 @@ console.log(
 
   return displaced;
 }
+
 function setProgress(fraction, label) {
   const pct = Math.round(fraction * 100);
   exportProgBar.style.width = `${pct}%`;
