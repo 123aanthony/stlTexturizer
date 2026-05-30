@@ -1708,11 +1708,7 @@ exportAllSlotsBtn?.addEventListener('click', async () => {
     console.log('Processing slot:', slot.name);
 
     const geo = await buildExportGeometryForSlot(slot);
-console.log(
-  'Slot assigned faces at export:',
-  slot.name,
-  slot.assignedFaces ? slot.assignedFaces.size : 'NO assignedFaces'
-);
+
     generated.push({
       slot,
       geometry: geo
@@ -4877,12 +4873,6 @@ async function handleExport(format = 'stl') {
 }
 async function buildExportGeometryForSlot(slot) {
 
-  console.log('Building slot:', slot.name);
-  console.log(
-  'Slot assigned faces:',
-  slot.name,
-  slot.assignedFaces ? slot.assignedFaces.size : 'NO assignedFaces'
-);
 
   const hasAngleMask =
     slot.settings.bottomAngleLimit > 0 ||
