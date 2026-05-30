@@ -36,12 +36,11 @@ const TEXTURE_SLOT_DEFS = [
   { id: 'wood',  name: 'Wood'  },
   { id: 'metal', name: 'Metal' },
   { id: 'roof',  name: 'Roof'  }
-];
-
 let textureSlots = TEXTURE_SLOT_DEFS.map(slot => ({
   ...slot,
   activeMapEntry: null,
   excludedFaces: new Set(),
+  assignedFaces: new Set(),
   settings: {}
 }));
 
