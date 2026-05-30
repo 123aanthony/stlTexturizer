@@ -178,8 +178,8 @@ function saveActiveSlotState() {
   if (!slot) return;
 
   slot.activeMapEntry = activeMapEntry;
-  //saveTextureSlotsToStorage();
   slot.excludedFaces = excludedFaces;
+  slot.assignedFaces = new Set(excludedFaces);
   slot.settings = cloneSettings();
 }
 
@@ -1717,7 +1717,6 @@ exportAllSlotsBtn?.addEventListener('click', async () => {
 
   console.log('Generated slot geometries:', generated);
 
-console.log('Generated slot geometries:', generated);
 
 const mergedGeometry = new THREE.BufferGeometry();
 
@@ -2314,8 +2313,30 @@ function _viewDirFor(hitPt) {
 
 function getActiveAssignedFaces() {
   const slot = getActiveTextureSlot();
-  if (!slot.assignedFaces) slot.assignedFaces = new Set();
+
+  if (!slot.assignedFaces) {
+    slot.assignedFaces = new Set();
+  }
+
   return slot.assignedFaces;
+}
+
+function buildExcludedFacesFromAssigned(slot, geometry) {
+
+  const triCount =
+    geometry.attributes.position.count / 3;
+
+  const excluded = new Set();
+
+  for (let i = 0; i < triCount; i++) {
+
+    if (!slot.assignedFaces.has(i)) {
+      excluded.add(i);
+    }
+
+  }
+
+  return excluded;
 }
 
 function _paintSingleHit(hit, mesh) {
@@ -4838,19 +4859,30 @@ async function handleExport(format = 'stl') {
 async function buildExportGeometryForSlot(slot) {
 
   console.log('Building slot:', slot.name);
+  console.log(
+  'Slot assigned faces:',
+  slot.name,
+  slot.assignedFaces ? slot.assignedFaces.size : 'NO assignedFaces'
+);
 
   const hasAngleMask =
     slot.settings.bottomAngleLimit > 0 ||
     slot.settings.topAngleLimit > 0;
 
-  const faceWeights =
-    (slot.excludedFaces.size > 0 || selectionMode || hasAngleMask)
-      ? buildCombinedFaceWeights(
-          currentGeometry,
-          slot.excludedFaces,
-          selectionMode,
-          slot.settings
-        )
+const tempExcludedFaces =
+  buildExcludedFacesFromAssigned(
+    slot,
+    currentGeometry
+  );
+
+const faceWeights =
+  (tempExcludedFaces.size > 0 || selectionMode || hasAngleMask)
+  ? buildCombinedFaceWeights(
+  currentGeometry,
+  tempExcludedFaces,
+  false,
+  slot.settings
+)
       : null;
 
   const { geometry: subdivided } = await subdivide(
