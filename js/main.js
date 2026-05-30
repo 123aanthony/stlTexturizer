@@ -1708,7 +1708,11 @@ exportAllSlotsBtn?.addEventListener('click', async () => {
     console.log('Processing slot:', slot.name);
 
     const geo = await buildExportGeometryForSlot(slot);
-
+console.log(
+  'Slot assigned faces at export:',
+  slot.name,
+  slot.assignedFaces ? slot.assignedFaces.size : 'NO assignedFaces'
+);
     generated.push({
       slot,
       geometry: geo
@@ -2338,7 +2342,22 @@ function buildExcludedFacesFromAssigned(slot, geometry) {
 
   return excluded;
 }
+function buildSubTriangleMask(faceParentId, assignedFaces) {
 
+  const mask =
+    new Uint8Array(faceParentId.length);
+
+  for (let subTri = 0; subTri < faceParentId.length; subTri++) {
+
+    const parentTri =
+      faceParentId[subTri];
+
+mask[subTri] =
+  assignedFaces.has(parentTri) ? 0 : 1;
+  }
+
+  return mask;
+}
 function _paintSingleHit(hit, mesh) {
   const usePrecision = precisionMaskingEnabled && precisionGeometry && precisionParentMap;
   if (usePrecision) {
@@ -4891,6 +4910,18 @@ const faceWeights =
     () => {},
     faceWeights
   );
+  const faceMask = buildSubTriangleMask(
+  faceParentId,
+  slot.assignedFaces
+);
+
+console.log(
+  'Face mask:',
+  slot.name,
+  faceMask.length,
+  'enabled:',
+  faceMask.reduce((a, b) => a + b, 0)
+);
 console.log(
   'Subdivision parent map:',
   slot.name,
