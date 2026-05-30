@@ -1694,22 +1694,35 @@ function wireEvents() {
   };
   exportBtn.addEventListener('click', () => startExport('stl'));
   export3mfBtn.addEventListener('click', () => startExport('3mf'));
-exportAllSlotsBtn?.addEventListener('click', () => {
+exportAllSlotsBtn?.addEventListener('click', async () => {
   saveActiveSlotState();
 
   const readySlots = textureSlots.filter(slot => slot.activeMapEntry);
 
   console.log('Export All Slots requested');
-  console.log('Ready slots:', readySlots.map(slot => ({
-    id: slot.id,
-    name: slot.name,
-    map: slot.activeMapEntry?.name,
-    faceCount: slot.excludedFaces?.size || 0,
-    amplitude: slot.settings?.textureHeight,
-    scaleU: slot.settings?.scaleU,
-    scaleV: slot.settings?.scaleV,
-    mappingMode: slot.settings?.mappingMode
-  })));
+
+  const generated = [];
+
+  for (const slot of readySlots) {
+    console.log('Processing slot:', slot.name);
+
+    const geo = await buildExportGeometryForSlot(slot);
+
+    generated.push({
+      slot,
+      geometry: geo
+    });
+  }
+
+  console.log('Generated slot geometries:', generated);
+
+for (const item of generated) {
+  const safeName = item.slot.name.replace(/\s+/g, '-').toLowerCase();
+  exportSTL(
+    item.geometry,
+    `${currentStlName}_${safeName}_slot.stl`
+  );
+}
 });
   // ── Advanced / Beta Features panel: collapse toggle + bake action ──
   advancedToggle.addEventListener('click', () => {
@@ -4745,7 +4758,52 @@ async function handleExport(format = 'stl') {
     export3mfBtn.classList.remove('busy');
   }
 }
+async function buildExportGeometryForSlot(slot) {
 
+  console.log('Building slot:', slot.name);
+
+  const hasAngleMask =
+    slot.settings.bottomAngleLimit > 0 ||
+    slot.settings.topAngleLimit > 0;
+
+  const faceWeights =
+    (slot.excludedFaces.size > 0 || selectionMode || hasAngleMask)
+      ? buildCombinedFaceWeights(
+          currentGeometry,
+          slot.excludedFaces,
+          selectionMode,
+          slot.settings
+        )
+      : null;
+
+  const { geometry: subdivided } = await subdivide(
+    currentGeometry,
+    slot.settings.refineLength,
+    () => {},
+    faceWeights
+  );
+
+  const displaced = await applyDisplacement(
+    subdivided,
+    slot.activeMapEntry.imageData,
+    slot.activeMapEntry.width,
+    slot.activeMapEntry.height,
+    slot.settings,
+    currentBounds,
+    () => {}
+  );
+
+  subdivided.dispose();
+
+  console.log(
+    'Built geometry for slot:',
+    slot.name,
+    displaced.attributes.position.count / 3,
+    'triangles'
+  );
+
+  return displaced;
+}
 function setProgress(fraction, label) {
   const pct = Math.round(fraction * 100);
   exportProgBar.style.width = `${pct}%`;
