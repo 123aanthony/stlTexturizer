@@ -36,6 +36,8 @@ const TEXTURE_SLOT_DEFS = [
   { id: 'wood',  name: 'Wood'  },
   { id: 'metal', name: 'Metal' },
   { id: 'roof',  name: 'Roof'  }
+];
+
 let textureSlots = TEXTURE_SLOT_DEFS.map(slot => ({
   ...slot,
   activeMapEntry: null,
@@ -2310,6 +2312,12 @@ function _viewDirFor(hitPt) {
   return _viewDirScratch.subVectors(hitPt, getCamera().position).normalize();
 }
 
+function getActiveAssignedFaces() {
+  const slot = getActiveTextureSlot();
+  if (!slot.assignedFaces) slot.assignedFaces = new Set();
+  return slot.assignedFaces;
+}
+
 function _paintSingleHit(hit, mesh) {
   const usePrecision = precisionMaskingEnabled && precisionGeometry && precisionParentMap;
   if (usePrecision) {
@@ -2330,10 +2338,24 @@ function _paintSingleHit(hit, mesh) {
     if (brushIsRadius) {
       const r2 = brushRadius * brushRadius;
       bfsBrushSelect(triIdx, hit.point, r2, _viewDirFor(hit.point), t => {
-        if (eraseMode) excludedFaces.delete(t); else excludedFaces.add(t);
+        const assignedFaces = getActiveAssignedFaces();
+if (eraseMode) {
+  excludedFaces.delete(t);
+  assignedFaces.delete(t);
+} else {
+  excludedFaces.add(t);
+  assignedFaces.add(t);
+}
       });
     } else {
-      if (eraseMode) excludedFaces.delete(triIdx); else excludedFaces.add(triIdx);
+      const assignedFaces = getActiveAssignedFaces();
+if (eraseMode) {
+  excludedFaces.delete(triIdx);
+  assignedFaces.delete(triIdx);
+} else {
+  excludedFaces.add(triIdx);
+  assignedFaces.add(triIdx);
+}
     }
   }
 }
