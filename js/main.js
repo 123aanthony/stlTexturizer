@@ -329,6 +329,7 @@ const customMapSwatch   = document.getElementById('custom-map-swatch');
 const customMapRemoveBtn = document.getElementById('custom-map-remove');
 const meshInfo       = document.getElementById('mesh-info');
 const exportBtn        = document.getElementById('export-btn');
+const exportAllSlotsBtn = document.getElementById('export-all-slots-btn');
 const export3mfBtn     = document.getElementById('export-3mf-btn');
 const exportProgress   = document.getElementById('export-progress');
 const exportProgBar    = document.getElementById('export-progress-bar');
@@ -1693,7 +1694,23 @@ function wireEvents() {
   };
   exportBtn.addEventListener('click', () => startExport('stl'));
   export3mfBtn.addEventListener('click', () => startExport('3mf'));
+exportAllSlotsBtn?.addEventListener('click', () => {
+  saveActiveSlotState();
 
+  const readySlots = textureSlots.filter(slot => slot.activeMapEntry);
+
+  console.log('Export All Slots requested');
+  console.log('Ready slots:', readySlots.map(slot => ({
+    id: slot.id,
+    name: slot.name,
+    map: slot.activeMapEntry?.name,
+    faceCount: slot.excludedFaces?.size || 0,
+    amplitude: slot.settings?.textureHeight,
+    scaleU: slot.settings?.scaleU,
+    scaleV: slot.settings?.scaleV,
+    mappingMode: slot.settings?.mappingMode
+  })));
+});
   // ── Advanced / Beta Features panel: collapse toggle + bake action ──
   advancedToggle.addEventListener('click', () => {
     advancedSection.classList.toggle('collapsed');
