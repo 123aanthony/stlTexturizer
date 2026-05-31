@@ -1845,3 +1845,13 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   border-color: var(--accent);
   color: var(--text);
 }
+
+.material-slots-subtitle {
+  margin: -4px 0 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.material-slots-actions {
+  margin-top: 8px;
+}

@@ -31,12 +31,10 @@ let activeMapEntry    = null;   // { name, texture, imageData, width, height, is
 // Diorama multi-texture slots (POC V1)
 // ─────────────────────────────────────────────
 
-const TEXTURE_SLOT_DEFS = [
-  { id: 'stone', name: 'Stone' },
-  { id: 'wood',  name: 'Wood'  },
-  { id: 'metal', name: 'Metal' },
-  { id: 'roof',  name: 'Roof'  }
-];
+const TEXTURE_SLOT_DEFS = Array.from({ length: 10 }, (_, i) => ({
+  id: `slot${i + 1}`,
+  name: `Slot ${i + 1}`
+}));
 
 let textureSlots = TEXTURE_SLOT_DEFS.map(slot => ({
   ...slot,
@@ -44,18 +42,145 @@ let textureSlots = TEXTURE_SLOT_DEFS.map(slot => ({
   customMapEntry: null,
   excludedFaces: new Set(),
   assignedFaces: new Set(),
+  selectionMode: true,
   settings: {}
 }));
 
-let activeTextureSlotId = 'stone';
+let activeTextureSlotId = 'slot1';
 
 function getActiveTextureSlot() {
   return textureSlots.find(s => s.id === activeTextureSlotId);
+}
+
+function normalizeTextureSlotId(id) {
+  const legacy = { stone: 'slot1', wood: 'slot2', metal: 'slot3', roof: 'slot4' };
+  return legacy[id] || id;
+}
+
+function slotHasContent(slot) {
+  return !!(
+    slot?.activeMapEntry ||
+    slot?.customMapEntry ||
+    (slot?.excludedFaces && slot.excludedFaces.size > 0) ||
+    (slot?.assignedFaces && slot.assignedFaces.size > 0)
+  );
+}
+
+function applyTextureTabInlineStyle(btn, isActive, isUsed) {
+  btn.style.appearance = 'none';
+  btn.style.webkitAppearance = 'none';
+  btn.style.display = 'inline-flex';
+  btn.style.alignItems = 'center';
+  btn.style.justifyContent = 'center';
+  btn.style.gap = '6px';
+  btn.style.minHeight = '34px';
+  btn.style.padding = '0 8px';
+  btn.style.borderRadius = '8px';
+  btn.style.fontFamily = 'inherit';
+  btn.style.fontSize = '11px';
+  btn.style.fontWeight = '700';
+  btn.style.cursor = 'pointer';
+  btn.style.lineHeight = '1';
+
+  if (isActive) {
+    btn.style.background = 'rgba(124,106,255,.24)';
+    btn.style.border = '1px solid var(--accent)';
+    btn.style.color = '#fff';
+    btn.style.boxShadow = 'inset 0 0 0 1px rgba(124,106,255,.42), 0 0 12px rgba(124,106,255,.12)';
+    btn.style.opacity = '1';
+  } else if (isUsed) {
+    btn.style.background = 'rgba(234,179,8,.10)';
+    btn.style.border = '1px solid #eab308';
+    btn.style.color = '#facc15';
+    btn.style.boxShadow = 'none';
+    btn.style.opacity = '1';
+  } else {
+    btn.style.background = '#20212b';
+    btn.style.border = '1px solid #383a4d';
+    btn.style.color = '#9ca3af';
+    btn.style.boxShadow = 'none';
+    btn.style.opacity = '.72';
+  }
+}
+
+function renderTextureTabs() {
+  const container = document.getElementById('texture-tabs');
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  for (const slot of TEXTURE_SLOT_DEFS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'texture-tab';
+    btn.dataset.slot = slot.id;
+
+    const dot = document.createElement('span');
+    dot.className = 'texture-tab-indicator';
+    dot.setAttribute('aria-hidden', 'true');
+    dot.style.display = 'block';
+    dot.style.width = '8px';
+    dot.style.height = '8px';
+    dot.style.borderRadius = '999px';
+    dot.style.flex = '0 0 auto';
+
+    const label = document.createElement('span');
+    label.className = 'texture-tab-label';
+    label.textContent = slot.name;
+    label.style.whiteSpace = 'nowrap';
+
+    btn.appendChild(dot);
+    btn.appendChild(label);
+    container.appendChild(btn);
+  }
+
+  refreshTextureTabsUI();
+}
+
+function refreshTextureTabsUI() {
+  const container = document.getElementById('texture-tabs');
+  if (container) {
+    container.style.display = 'grid';
+    container.style.gridTemplateColumns = 'repeat(5, minmax(0, 1fr))';
+    container.style.gap = '6px';
+    container.style.margin = '0';
+  }
+
+  document.querySelectorAll('#texture-tabs .texture-tab').forEach(btn => {
+    const slot = textureSlots.find(s => s.id === btn.dataset.slot);
+    const isActive = btn.dataset.slot === activeTextureSlotId;
+    const isUsed = slotHasContent(slot);
+
+    btn.classList.toggle('active', isActive);
+    btn.classList.toggle('used', isUsed);
+    btn.classList.toggle('idle', !isUsed);
+
+    applyTextureTabInlineStyle(btn, isActive, isUsed);
+
+    const indicator = btn.querySelector('.texture-tab-indicator');
+    if (indicator) {
+      indicator.classList.toggle('active', isActive);
+      indicator.classList.toggle('used', isUsed);
+      indicator.classList.toggle('idle', !isUsed);
+
+      if (isActive) {
+        indicator.style.background = 'var(--accent)';
+        indicator.style.boxShadow = '0 0 10px rgba(124,106,255,.85)';
+      } else if (isUsed) {
+        indicator.style.background = '#eab308';
+        indicator.style.boxShadow = '0 0 8px rgba(234,179,8,.65)';
+      } else {
+        indicator.style.background = '#4b5563';
+        indicator.style.boxShadow = 'none';
+      }
+    }
+  });
 }
 let _lastCustomMap    = null;   // most recent uploaded/imported custom-map entry, kept across preset switches so the thumbnail can re-activate it
 let previewMaterial   = null;
 let isExporting       = false;
 let isBaking          = false;
+let isRestoringProject = false;
 let previewDebounce   = null;
 
 // Boundary edge data texture for per-fragment falloff in bump-only preview
@@ -174,6 +299,164 @@ function cloneSettings() {
   return { ...settings };
 }
 
+function getAssignedFacesForCurrentSlot() {
+  const assigned = new Set();
+
+  if (!currentGeometry) {
+    for (const f of excludedFaces || []) assigned.add(f);
+    return assigned;
+  }
+
+  const triCount = (currentGeometry.attributes.position.count / 3) | 0;
+
+  if (selectionMode) {
+    // Include-only mode: painted faces are the material faces.
+    for (const f of excludedFaces || []) {
+      const idx = Number(f);
+      if (Number.isInteger(idx) && idx >= 0 && idx < triCount) assigned.add(idx);
+    }
+  } else {
+    // Exclude mode: painted faces are holes, so assigned faces are the complement.
+    const excluded = new Set(excludedFaces || []);
+    for (let i = 0; i < triCount; i++) {
+      if (!excluded.has(i)) assigned.add(i);
+    }
+  }
+
+  return assigned;
+}
+
+function updateSelectionModeUI() {
+  exclModeExcludeBtn?.classList.toggle('active', !selectionMode);
+  exclModeIncludeBtn?.classList.toggle('active', selectionMode);
+}
+
+function _normalizeFaceIndexArray(value, triCount = Infinity) {
+  if (!Array.isArray(value)) return [];
+
+  const max = Number.isFinite(triCount) && triCount > 0 ? triCount : Infinity;
+
+  return value
+    .map(v => Number(v))
+    .filter(v => Number.isInteger(v) && v >= 0 && v < max);
+}
+
+function buildFaceSignatures(faceSet, geometry = currentGeometry) {
+  if (!geometry || !faceSet) return [];
+
+  const pos = geometry.attributes.position.array;
+  const triCount = geometry.attributes.position.count / 3;
+  const signatures = [];
+
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const ab = new THREE.Vector3();
+  const ac = new THREE.Vector3();
+  const n = new THREE.Vector3();
+
+  for (const faceIndex of faceSet) {
+    const idx = Number(faceIndex);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= triCount) continue;
+
+    const o = idx * 9;
+    a.set(pos[o],     pos[o + 1], pos[o + 2]);
+    b.set(pos[o + 3], pos[o + 4], pos[o + 5]);
+    c.set(pos[o + 6], pos[o + 7], pos[o + 8]);
+
+    n.crossVectors(ab.subVectors(b, a), ac.subVectors(c, a)).normalize();
+
+    signatures.push({
+      faceIndex: idx,
+      cx: (a.x + b.x + c.x) / 3,
+      cy: (a.y + b.y + c.y) / 3,
+      cz: (a.z + b.z + c.z) / 3,
+      nx: n.x,
+      ny: n.y,
+      nz: n.z
+    });
+  }
+
+  return signatures;
+}
+
+function restoreFacesFromSignatures(signatures, fallbackIndices = [], geometry = currentGeometry) {
+  const fallback = _normalizeFaceIndexArray(
+    fallbackIndices,
+    geometry ? ((geometry.attributes.position.count / 3) | 0) : Infinity
+  );
+
+  if (!geometry || !Array.isArray(signatures) || signatures.length === 0) {
+    return new Set(fallback);
+  }
+
+  const pos = geometry.attributes.position.array;
+  const triCount = geometry.attributes.position.count / 3;
+
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const ab = new THREE.Vector3();
+  const ac = new THREE.Vector3();
+  const n = new THREE.Vector3();
+
+  const cents = new Float64Array(triCount * 3);
+  const nrms = new Float64Array(triCount * 3);
+
+  for (let idx = 0; idx < triCount; idx++) {
+    const o = idx * 9;
+    a.set(pos[o],     pos[o + 1], pos[o + 2]);
+    b.set(pos[o + 3], pos[o + 4], pos[o + 5]);
+    c.set(pos[o + 6], pos[o + 7], pos[o + 8]);
+
+    n.crossVectors(ab.subVectors(b, a), ac.subVectors(c, a)).normalize();
+
+    cents[idx * 3]     = (a.x + b.x + c.x) / 3;
+    cents[idx * 3 + 1] = (a.y + b.y + c.y) / 3;
+    cents[idx * 3 + 2] = (a.z + b.z + c.z) / 3;
+
+    nrms[idx * 3]     = n.x;
+    nrms[idx * 3 + 1] = n.y;
+    nrms[idx * 3 + 2] = n.z;
+  }
+
+  const out = new Set();
+
+  for (const sig of signatures) {
+    if (!sig) continue;
+
+    let bestIndex = -1;
+    let bestScore = Infinity;
+
+    for (let idx = 0; idx < triCount; idx++) {
+      const co = idx * 3;
+      const dx = cents[co]     - Number(sig.cx);
+      const dy = cents[co + 1] - Number(sig.cy);
+      const dz = cents[co + 2] - Number(sig.cz);
+
+      const dot =
+        nrms[co]     * Number(sig.nx) +
+        nrms[co + 1] * Number(sig.ny) +
+        nrms[co + 2] * Number(sig.nz);
+
+      const score = dx * dx + dy * dy + dz * dz + Math.max(0, 1 - dot) * 10000;
+
+      if (score < bestScore) {
+        bestScore = score;
+        bestIndex = idx;
+      }
+    }
+
+    if (bestIndex >= 0) out.add(bestIndex);
+  }
+
+  if (out.size === 0) {
+    for (const idx of fallback) out.add(idx);
+  }
+
+  return out;
+}
+
 function saveActiveSlotState() {
   const slot = getActiveTextureSlot();
   if (!slot) return;
@@ -182,16 +465,28 @@ function saveActiveSlotState() {
   if (activeMapEntry?.isCustom) {
     slot.customMapEntry = activeMapEntry;
   }
-  slot.excludedFaces = excludedFaces;
-  slot.assignedFaces = new Set(excludedFaces);
+
+  // UI selection state for this slot.
+  slot.selectionMode = selectionMode;
+  slot.excludedFaces = new Set(excludedFaces || []);
+
+  // Canonical material assignment used by export/project save.
+  // In include-only mode this equals excludedFaces; in exclude mode it is the complement.
+  slot.assignedFaces = getAssignedFacesForCurrentSlot();
+
   slot.settings = cloneSettings();
+  refreshTextureTabsUI();
 }
 
 function restoreSlotState(slot) {
   if (!slot) return;
 
   activeMapEntry = slot.activeMapEntry || null;
-  excludedFaces = slot.excludedFaces || new Set();
+  excludedFaces = new Set(slot.excludedFaces || []);
+  if (typeof slot.selectionMode === 'boolean') {
+    selectionMode = slot.selectionMode;
+    updateSelectionModeUI();
+  }
 
   if (slot.settings) {
     Object.assign(settings, slot.settings);
@@ -218,6 +513,8 @@ function restoreSlotState(slot) {
   updateSettingsUIFromSettings();
   refreshExclusionOverlay();
   updatePreview();
+  requestRender();
+  refreshTextureTabsUI();
 }
 function serializeTextureSlots() {
   return textureSlots.map(slot => ({
@@ -1163,31 +1460,30 @@ loadAllThumbnails().then(thumbs => {
   }
 }).catch(err => console.error('Failed to load thumbnails:', err));
 
+renderTextureTabs();
+
 // ─────────────────────────────────────────────
 // Texture tabs UI
 // ─────────────────────────────────────────────
 
-document.querySelectorAll('.texture-tab').forEach(btn => {
-  btn.addEventListener('click', () => {
+document.getElementById('texture-tabs')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('.texture-tab');
+  if (!btn) return;
 
-    document.querySelectorAll('.texture-tab').forEach(b => {
-      b.classList.remove('active');
-    });
+  if (!isRestoringProject) {
+    saveActiveSlotState();
+  }
 
-    btn.classList.add('active');
-saveActiveSlotState();
+  activeTextureSlotId = normalizeTextureSlotId(btn.dataset.slot);
 
-activeTextureSlotId = btn.dataset.slot;
+  const slot = getActiveTextureSlot();
+  restoreSlotState(slot);
+  refreshTextureTabsUI();
 
-const slot = getActiveTextureSlot();
-
-restoreSlotState(slot);
-//saveTextureSlotsToStorage();
-
-console.log('Switched texture slot:', activeTextureSlotId);
-    console.log('Active texture slot:', activeTextureSlotId);
-  });
+  console.log('Switched texture slot:', activeTextureSlotId);
+  console.log('Active texture slot:', activeTextureSlotId);
 });
+
 // ─────────────────────────────────────────────
 // Manual save slots
 // ─────────────────────────────────────────────
@@ -1283,6 +1579,7 @@ function serializeMaterialProfile() {
         presetName: !activeIsCustom && slot.activeMapEntry ? slot.activeMapEntry.name : null,
         customMapName: customEntry ? customEntry.name : null,
         customMapDataUrl: customEntry ? customMapEntryToDataUrl(customEntry) : null,
+        selectionMode: typeof slot.selectionMode === 'boolean' ? slot.selectionMode : true,
         settings: { ...(slot.settings || {}) }
       };
     })
@@ -1334,14 +1631,152 @@ async function customEntryFromDataUrl(dataUrl, name = 'custom-map.png') {
   return entry;
 }
 
+function serializeProjectTextureSlots() {
+  saveActiveSlotState();
+
+  return textureSlots.map(slot => {
+    const activeIsCustom = !!slot.activeMapEntry?.isCustom;
+    const customEntry = slot.customMapEntry || (activeIsCustom ? slot.activeMapEntry : null);
+
+    return {
+      id: slot.id,
+      name: slot.name,
+      activeMapType: activeIsCustom ? 'custom' : (slot.activeMapEntry ? 'preset' : null),
+      activeMapName: slot.activeMapEntry ? slot.activeMapEntry.name : null,
+      presetName: !activeIsCustom && slot.activeMapEntry ? slot.activeMapEntry.name : null,
+      customMapName: customEntry ? customEntry.name : null,
+      customMapDataUrl: customEntry ? customMapEntryToDataUrl(customEntry) : null,
+      selectionMode: typeof slot.selectionMode === 'boolean' ? slot.selectionMode : true,
+      excludedFaces: Array.from(slot.excludedFaces || []),
+      assignedFaces: Array.from(slot.assignedFaces || slot.excludedFaces || []),
+      faceSignatures: buildFaceSignatures(slot.assignedFaces || slot.excludedFaces || new Set()),
+      settings: { ...(slot.settings || {}) }
+    };
+  });
+}
+
+async function restoreProjectTextureSlots(savedSlots, savedActiveSlotId) {
+  if (!Array.isArray(savedSlots)) return;
+
+  isRestoringProject = true;
+
+  const triCount = currentGeometry
+    ? ((currentGeometry.attributes.position.count / 3) | 0)
+    : Infinity;
+
+  const restoredFaceSets = new Map();
+
+  for (const slot of textureSlots) {
+    const saved = savedSlots.find(s => normalizeTextureSlotId(s.id) === slot.id);
+
+    if (!saved) {
+      slot.activeMapEntry = null;
+      slot.customMapEntry = null;
+      slot.excludedFaces = new Set();
+      slot.assignedFaces = new Set();
+      slot.settings = {};
+      restoredFaceSets.set(slot.id, { excludedFaces: new Set(), assignedFaces: new Set() });
+      continue;
+    }
+
+    slot.name = saved.name || slot.name;
+    slot.settings = { ...(saved.settings || {}) };
+    slot.selectionMode = typeof saved.selectionMode === 'boolean' ? saved.selectionMode : true;
+
+    const restoredUiFaces = new Set(_normalizeFaceIndexArray(saved.excludedFaces, triCount));
+    const validAssigned = _normalizeFaceIndexArray(saved.assignedFaces || saved.excludedFaces, triCount);
+    const restoredAssignedFaces = restoreFacesFromSignatures(
+      saved.faceSignatures,
+      validAssigned,
+      currentGeometry
+    );
+
+    // Store stable copies. UI faces and assigned material faces are intentionally separate:
+    // in include mode they usually match; in exclude mode assignedFaces is the complement.
+    const restoredSet = new Set(restoredUiFaces);
+    const restoredAssignedSet = new Set(restoredAssignedFaces);
+    restoredFaceSets.set(slot.id, {
+      excludedFaces: restoredSet,
+      assignedFaces: restoredAssignedSet
+    });
+
+    slot.excludedFaces = new Set(restoredSet);
+    slot.assignedFaces = new Set(restoredAssignedSet);
+
+    console.log('Restore slot faces detail:', {
+      id: slot.id,
+      rawExcluded: saved.excludedFaces,
+      signatures: saved.faceSignatures ? saved.faceSignatures.length : 0,
+      triCount,
+      restoredUi: Array.from(restoredSet), restoredAssigned: Array.from(restoredAssignedSet)
+    });
+
+    slot.activeMapEntry = null;
+    slot.customMapEntry = null;
+
+    if (saved.activeMapType === 'custom' && saved.customMapDataUrl) {
+      const entry = await customEntryFromDataUrl(
+        saved.customMapDataUrl,
+        saved.customMapName || saved.activeMapName || `${slot.name}.png`
+      );
+      slot.customMapEntry = entry;
+      slot.activeMapEntry = entry;
+    } else if (saved.activeMapType === 'preset' || saved.presetName || saved.activeMapName) {
+      const presetName = saved.presetName || saved.activeMapName;
+      const entry = await getPresetEntryByName(presetName);
+      if (entry) slot.activeMapEntry = entry;
+    }
+  }
+
+  activeTextureSlotId = normalizeTextureSlotId(savedActiveSlotId || activeTextureSlotId);
+  if (!textureSlots.some(s => s.id === activeTextureSlotId)) {
+    activeTextureSlotId = textureSlots[0]?.id || 'slot1';
+  }
+
+  document.querySelectorAll('.texture-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.slot === activeTextureSlotId);
+  });
+
+  // Restore UI/map/settings for the active slot.
+  restoreSlotState(getActiveTextureSlot());
+
+  // Re-assert all restored face sets AFTER UI restore/updatePreview.
+  // This makes project load deterministic and avoids the active slot/global
+  // selection from being copied back into other slots by later callbacks.
+  for (const slot of textureSlots) {
+    const restored = restoredFaceSets.get(slot.id) || {};
+    slot.excludedFaces = new Set(restored.excludedFaces || []);
+    slot.assignedFaces = new Set(restored.assignedFaces || slot.excludedFaces || []);
+  }
+
+  const activeSlot = getActiveTextureSlot();
+  excludedFaces = new Set(activeSlot?.excludedFaces || []);
+  if (activeSlot && typeof activeSlot.selectionMode === 'boolean') {
+    selectionMode = activeSlot.selectionMode;
+    updateSelectionModeUI();
+  }
+
+  refreshExclusionOverlay();
+  updatePreview();
+  requestRender();
+
+  console.log('Restored project slots faces:', textureSlots.map(slot => ({
+    id: slot.id,
+    faces: Array.from(slot.excludedFaces || []),
+    map: slot.activeMapEntry ? slot.activeMapEntry.name : null
+  })));
+
+  isRestoringProject = false;
+}
+
 async function applyMaterialProfile(profile) {
   if (!profile || !Array.isArray(profile.slots)) {
     throw new Error('Invalid profile file');
   }
 
-  // UX decision:
-  // Loading a material profile applies the profile's saved ACTIVE material
-  // to the CURRENT active slot only. Other slots and face selections are left untouched.
+  // Loading a material profile applies the saved active material
+  // to the current active slot only.
+  // Other slots and face selections stay untouched.
   saveActiveSlotState();
 
   const targetSlot = getActiveTextureSlot();
@@ -1350,14 +1785,14 @@ async function applyMaterialProfile(profile) {
   }
 
   const sourceSlot =
-    profile.slots.find(s => s.id === profile.activeTextureSlotId) ||
+    profile.slots.find(s => normalizeTextureSlotId(s.id) === normalizeTextureSlotId(profile.activeTextureSlotId)) ||
+    profile.slots.find(s => s.activeMapType || s.presetName || s.activeMapName || s.customMapDataUrl) ||
     profile.slots[0];
 
   if (!sourceSlot) {
     throw new Error('Profile contains no material slots');
   }
 
-  // Preserve current face selections on the target slot.
   const keptExcludedFaces = new Set(targetSlot.excludedFaces || []);
   const keptAssignedFaces = new Set(targetSlot.assignedFaces || []);
 
@@ -1383,7 +1818,6 @@ async function applyMaterialProfile(profile) {
   targetSlot.excludedFaces = keptExcludedFaces;
   targetSlot.assignedFaces = keptAssignedFaces;
 
-  // Keep the current active tab. Do not jump to profile.activeTextureSlotId.
   document.querySelectorAll('.texture-tab').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.slot === activeTextureSlotId);
   });
@@ -1498,6 +1932,7 @@ function _hideCustomMapThumb() {
 function _activateCustomMap() {
   const slot = getActiveTextureSlot();
   const entry = slot?.customMapEntry || _lastCustomMap;
+
   if (!entry) return;
 
   activeMapEntry = entry;
@@ -1509,9 +1944,11 @@ function _activateCustomMap() {
   }
 
   document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
-  customMapSwatch.classList.add('active');
+  customMapSwatch?.classList.add('active');
   activeMapName.textContent = entry.name;
+
   updatePreview();
+  requestRender();
 }
 
 if (customMapSwatch) {
@@ -3571,6 +4008,7 @@ async function handleModelFile(file) {
     console.error('Failed to load model:', err);
     alert(t('alerts.loadFailed', { msg: err.message }));
   } finally {
+    isRestoringProject = false;
     _undoApplyDepth--;
     // Mask indices reference the freshly-loaded triangle set, so any prior
     // history is meaningless for the new geometry.
@@ -5936,7 +6374,13 @@ exportGoBtn.addEventListener('click', async () => {
     const customSource   = (_lastCustomMap && _lastCustomMap.fullCanvas) ? _lastCustomMap : null;
     const includeTexture = exportTextureChk.checked && !!customSource;
 
-    const payload = { version: PROJECT_VERSION, ...getSettingsSnapshot() };
+    const payload = {
+      version: PROJECT_VERSION,
+      ...getSettingsSnapshot(),
+      activeTextureSlotId,
+      selectionMode,
+      textureSlots: serializeProjectTextureSlots()
+    };
     // Mark the custom map as the active reference so the importer restores it
     // even if the user has a preset selected at export time.
     if (includeTexture) payload.activeMapName = customSource.name;
@@ -6089,18 +6533,25 @@ async function importProject(file) {
 
   // 2) Apply settings after any model reset.
   if (data) applySettingsSnapshot(data);
+  if (data && typeof data.selectionMode === 'boolean') {
+    selectionMode = data.selectionMode;
+    updateSelectionModeUI();
+  }
 
   // 2b) Restore paint mask — only meaningful when the project shipped a model,
   //     since indices reference that exact triangle set.
-  if (hasModel && unzipped['mask.json']) {
+  if (!(data && Array.isArray(data.textureSlots)) && hasModel && unzipped['mask.json']) {
     try {
       const mask = JSON.parse(strFromU8(unzipped['mask.json']));
       _restoreMask(mask);
     } catch (err) { console.warn('Could not restore paint mask:', err); }
   }
 
-  // 3) Texture: custom PNG wins over named preset.
-  if (unzipped['texture.png']) {
+  // 3) Texture slots: new project files restore every slot independently.
+  // Legacy files fall back to the old single-map behaviour.
+  if (data && Array.isArray(data.textureSlots)) {
+    await restoreProjectTextureSlots(data.textureSlots, data.activeTextureSlotId);
+  } else if (unzipped['texture.png']) {
     const texName = (data && data.activeMapName) || 'imported-texture.png';
     const texFile = new File([unzipped['texture.png']], texName, { type: 'image/png' });
     activeMapEntry = await loadCustomTexture(texFile);
@@ -6112,6 +6563,7 @@ async function importProject(file) {
     _showCustomMapThumb(activeMapEntry);
     customMapSwatch.classList.add('active');
     updatePreview();
+    requestRender();
   } else if (data && data.activeMapName) {
     _selectPresetByName(data.activeMapName);
   }
