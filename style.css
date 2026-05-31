@@ -1855,3 +1855,61 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
 .material-slots-actions {
   margin-top: 8px;
 }
+
+
+/* Material slot action bar cleanup */
+#save-slots-btn {
+  display: none !important;
+}
+
+.material-slots-actions {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr 1fr !important;
+  gap: 6px !important;
+  margin-top: 10px !important;
+}
+
+.material-action-btn,
+#save-profile-btn,
+#load-profile-btn,
+#preview-all-slots-btn {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  min-height: 32px !important;
+  padding: 0 10px !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  background: var(--surface2) !important;
+  color: var(--text) !important;
+  font-family: inherit !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  transition: border-color .15s, background .15s, color .15s, transform .1s !important;
+}
+
+.material-action-btn:hover,
+#save-profile-btn:hover,
+#load-profile-btn:hover,
+#preview-all-slots-btn:hover {
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+  transform: translateY(-1px) !important;
+}
+
+#preview-all-slots-btn.active {
+  border-color: var(--accent) !important;
+  background: rgba(124,106,255,.22) !important;
+  color: #fff !important;
+}
+
+#preview-all-slots-btn.busy {
+  opacity: .65 !important;
+  cursor: wait !important;
+}
+
+
+/* Export All Slots now shares the primary export button styling */
+.export-buttons #export-all-slots-btn.export-btn {
+  flex: 1 1 0;
+}

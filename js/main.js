@@ -66,7 +66,141 @@ function slotHasContent(slot) {
   );
 }
 
-function applyTextureTabInlineStyle(btn, isActive, isUsed) {
+function getSlotFaceCount(slot) {
+  return slot?.assignedFaces?.size || slot?.excludedFaces?.size || 0;
+}
+
+function getSlotOverlapCount(slot) {
+  if (!slot?.assignedFaces || slot.assignedFaces.size === 0) return 0;
+
+  let overlap = 0;
+  for (const face of slot.assignedFaces) {
+    let owners = 0;
+    for (const other of textureSlots) {
+      if (other.assignedFaces && other.assignedFaces.has(face)) owners++;
+      if (owners > 1) {
+        overlap++;
+        break;
+      }
+    }
+  }
+  return overlap;
+}
+
+function getSlotTooltip(slot) {
+  if (!slot) return '';
+
+  const faceCount = getSlotFaceCount(slot);
+  const mapName = slot.activeMapEntry ? slot.activeMapEntry.name : 'No map';
+  const mode = slot.selectionMode ? 'Include' : 'Exclude';
+  const overlap = getSlotOverlapCount(slot);
+
+  return [
+    slot.name || slot.id,
+    `Faces: ${faceCount}`,
+    `Map: ${mapName}`,
+    `Mode: ${mode}`,
+    `Overlap: ${overlap}`
+  ].join('\\n');
+}
+
+function clearTextureSlot(slotId = activeTextureSlotId) {
+  const slot = textureSlots.find(s => s.id === slotId);
+  if (!slot) return;
+
+  const isActive = slot.id === activeTextureSlotId;
+  const defaultSettings = getDefaultSlotSettingsSnapshot();
+
+  slot.activeMapEntry = null;
+  slot.customMapEntry = null;
+  slot.excludedFaces = new Set();
+  slot.assignedFaces = new Set();
+  slot.selectionMode = true;
+  slot.settings = { ...defaultSettings };
+
+  if (isActive) {
+    if (allSlotsPreviewActive) exitAllSlotsPreview();
+
+    activeMapEntry = null;
+    excludedFaces = new Set();
+    selectionMode = true;
+
+    Object.assign(settings, defaultSettings);
+
+    activeMapName.textContent = 'No map selected';
+    customMapSwatch?.classList.remove('active');
+    _lastCustomMap = null;
+    _hideCustomMapThumb();
+
+    updateSelectionModeUI();
+    updateSettingsUIFromSettings();
+    refreshExclusionOverlay();
+    updatePreview();
+  }
+
+  refreshTextureTabsUI();
+  requestRender();
+
+  console.log('Cleared texture slot:', slot.id);
+}
+
+
+function renameTextureSlot(slotId = activeTextureSlotId) {
+  const slot = textureSlots.find(s => s.id === slotId);
+  if (!slot) return;
+
+  const currentName = slot.name || slot.id;
+  const nextName = prompt('Rename material slot', currentName);
+
+  if (nextName == null) return;
+
+  const cleanName = nextName.trim();
+  if (!cleanName || cleanName === currentName) return;
+
+  slot.name = cleanName;
+
+  const btn = document.querySelector(`#texture-tabs .texture-tab[data-slot="${slot.id}"]`);
+  const label = btn?.querySelector('.texture-tab-label');
+  if (label) label.textContent = cleanName;
+
+  refreshTextureTabsUI();
+  console.log('Renamed texture slot:', slot.id, cleanName);
+}
+
+function getSlotHighlightFaces(slot) {
+  if (!slot) return new Set();
+
+  if (slot.assignedFaces && slot.assignedFaces.size > 0) {
+    return new Set(slot.assignedFaces);
+  }
+
+  if (slot.excludedFaces && slot.excludedFaces.size > 0) {
+    return new Set(slot.excludedFaces);
+  }
+
+  return new Set();
+}
+
+function showTextureSlotHighlight(slotId) {
+  if (!currentGeometry || allSlotsPreviewActive) return;
+
+  const slot = textureSlots.find(s => s.id === slotId);
+  if (!slot) return;
+
+  const faces = getSlotHighlightFaces(slot);
+  if (!faces.size) {
+    setHoverPreview(null);
+    return;
+  }
+
+  setHoverPreview(buildExclusionOverlayGeo(currentGeometry, faces), 0x7c6aff);
+}
+
+function clearTextureSlotHighlight() {
+  setHoverPreview(null);
+}
+
+function applyTextureTabInlineStyle(btn, isActive, isUsed, hasOverlap = false) {
   btn.style.appearance = 'none';
   btn.style.webkitAppearance = 'none';
   btn.style.display = 'inline-flex';
@@ -87,6 +221,12 @@ function applyTextureTabInlineStyle(btn, isActive, isUsed) {
     btn.style.border = '1px solid var(--accent)';
     btn.style.color = '#fff';
     btn.style.boxShadow = 'inset 0 0 0 1px rgba(124,106,255,.42), 0 0 12px rgba(124,106,255,.12)';
+    btn.style.opacity = '1';
+  } else if (hasOverlap) {
+    btn.style.background = 'rgba(239,68,68,.12)';
+    btn.style.border = '1px solid #ef4444';
+    btn.style.color = '#fca5a5';
+    btn.style.boxShadow = '0 0 8px rgba(239,68,68,.18)';
     btn.style.opacity = '1';
   } else if (isUsed) {
     btn.style.background = 'rgba(234,179,8,.10)';
@@ -138,6 +278,8 @@ function renderTextureTabs() {
 }
 
 function refreshTextureTabsUI() {
+  updateExportAllSlotsButtonState();
+
   const container = document.getElementById('texture-tabs');
   if (container) {
     container.style.display = 'grid';
@@ -151,11 +293,19 @@ function refreshTextureTabsUI() {
     const isActive = btn.dataset.slot === activeTextureSlotId;
     const isUsed = slotHasContent(slot);
 
+    const hasOverlap = getSlotOverlapCount(slot) > 0;
+
     btn.classList.toggle('active', isActive);
     btn.classList.toggle('used', isUsed);
     btn.classList.toggle('idle', !isUsed);
+    btn.classList.toggle('overlap', hasOverlap);
 
-    applyTextureTabInlineStyle(btn, isActive, isUsed);
+    btn.title = getSlotTooltip(slot);
+
+    const label = btn.querySelector('.texture-tab-label');
+    if (label && slot?.name) label.textContent = slot.name;
+
+    applyTextureTabInlineStyle(btn, isActive, isUsed, hasOverlap);
 
     const indicator = btn.querySelector('.texture-tab-indicator');
     if (indicator) {
@@ -166,6 +316,9 @@ function refreshTextureTabsUI() {
       if (isActive) {
         indicator.style.background = 'var(--accent)';
         indicator.style.boxShadow = '0 0 10px rgba(124,106,255,.85)';
+      } else if (hasOverlap) {
+        indicator.style.background = '#ef4444';
+        indicator.style.boxShadow = '0 0 8px rgba(239,68,68,.65)';
       } else if (isUsed) {
         indicator.style.background = '#eab308';
         indicator.style.boxShadow = '0 0 8px rgba(234,179,8,.65)';
@@ -182,6 +335,10 @@ let isExporting       = false;
 let isBaking          = false;
 let isRestoringProject = false;
 let previewDebounce   = null;
+let allSlotsPreviewActive = false;
+let allSlotsPreviewBusy = false;
+let allSlotsPreviewGeometry = null;
+let allSlotsPreviewMaterial = null;
 
 // Boundary edge data texture for per-fragment falloff in bump-only preview
 let _boundaryEdgeTex   = null;
@@ -651,6 +808,8 @@ const meshInfo       = document.getElementById('mesh-info');
 const exportBtn        = document.getElementById('export-btn');
 const exportAllSlotsBtn = document.getElementById('export-all-slots-btn');
 const export3mfBtn     = document.getElementById('export-3mf-btn');
+const previewAllSlotsBtn = document.getElementById('preview-all-slots-btn');
+const clearSlotBtn = document.getElementById('clear-slot-btn');
 const exportProgress   = document.getElementById('export-progress');
 const exportProgBar    = document.getElementById('export-progress-bar');
 const exportProgPct    = document.getElementById('export-progress-pct');
@@ -1470,6 +1629,8 @@ document.getElementById('texture-tabs')?.addEventListener('click', (e) => {
   const btn = e.target.closest('.texture-tab');
   if (!btn) return;
 
+  if (allSlotsPreviewActive) exitAllSlotsPreview();
+
   if (!isRestoringProject) {
     saveActiveSlotState();
   }
@@ -1482,6 +1643,31 @@ document.getElementById('texture-tabs')?.addEventListener('click', (e) => {
 
   console.log('Switched texture slot:', activeTextureSlotId);
   console.log('Active texture slot:', activeTextureSlotId);
+});
+
+document.getElementById('texture-tabs')?.addEventListener('dblclick', (e) => {
+  const btn = e.target.closest('.texture-tab');
+  if (!btn) return;
+
+  e.preventDefault();
+  renameTextureSlot(normalizeTextureSlotId(btn.dataset.slot));
+});
+
+document.getElementById('texture-tabs')?.addEventListener('mouseover', (e) => {
+  const btn = e.target.closest('.texture-tab');
+  if (!btn) return;
+
+  showTextureSlotHighlight(normalizeTextureSlotId(btn.dataset.slot));
+});
+
+document.getElementById('texture-tabs')?.addEventListener('mouseout', (e) => {
+  const btn = e.target.closest('.texture-tab');
+  if (!btn) return;
+
+  const next = e.relatedTarget;
+  if (next && btn.contains(next)) return;
+
+  clearTextureSlotHighlight();
 });
 
 // ─────────────────────────────────────────────
@@ -1509,20 +1695,20 @@ document.getElementById('save-slots-btn')?.addEventListener('click', () => {
 // ─────────────────────────────────────────────
 
 function _installProfileButtons() {
-  const anchor = document.getElementById('save-slots-btn');
+  const anchor = document.querySelector('.material-slots-actions') || document.getElementById('texture-tabs');
   if (!anchor || document.getElementById('save-profile-btn')) return;
 
   const saveBtn = document.createElement('button');
   saveBtn.id = 'save-profile-btn';
-  saveBtn.className = 'secondary-btn';
+  saveBtn.className = 'secondary-btn material-action-btn';
   saveBtn.type = 'button';
   saveBtn.textContent = 'Save Material';
 
   const loadBtn = document.createElement('button');
   loadBtn.id = 'load-profile-btn';
-  loadBtn.className = 'secondary-btn';
+  loadBtn.className = 'secondary-btn material-action-btn';
   loadBtn.type = 'button';
-  loadBtn.textContent = 'Load Material to Slot';
+  loadBtn.textContent = 'Load Material';
 
   const input = document.createElement('input');
   input.id = 'load-profile-input';
@@ -1530,9 +1716,9 @@ function _installProfileButtons() {
   input.accept = '.stltprofile,application/json';
   input.style.display = 'none';
 
-  anchor.insertAdjacentElement('afterend', input);
-  anchor.insertAdjacentElement('afterend', loadBtn);
-  anchor.insertAdjacentElement('afterend', saveBtn);
+  anchor.appendChild(saveBtn);
+  anchor.appendChild(loadBtn);
+  anchor.appendChild(input);
 
   saveBtn.addEventListener('click', saveMaterialProfileToFile);
   loadBtn.addEventListener('click', () => input.click());
@@ -3866,6 +4052,7 @@ function loadDefaultCube() {
 }
 
 async function handleModelFile(file) {
+  if (allSlotsPreviewActive) exitAllSlotsPreview();
   _undoApplyDepth++;
   try {
     const { geometry, bounds, nanCount, degenerateCount } = await loadModelFile(file);
@@ -4844,6 +5031,7 @@ function _regularizeOpts() {
 }
 
 function updatePreview() {
+  if (allSlotsPreviewActive) return;
   if (!currentGeometry || !currentBounds) return;
 
   // Texture aspect correction so non-square textures keep their proportions.
@@ -4868,6 +5056,7 @@ function updatePreview() {
     }
     exportBtn.disabled = true;
     export3mfBtn.disabled = true;
+    updateExportAllSlotsButtonState();
     bakeBtn.disabled = true;
     updateSmartResBtnState();
     return;
@@ -4895,6 +5084,7 @@ function updatePreview() {
   syncBoundaryEdgeUniforms();
   exportBtn.disabled = false;
   export3mfBtn.disabled = false;
+  updateExportAllSlotsButtonState();
   bakeBtn.disabled = isBaking;
   updateSmartResBtnState();
 }
@@ -5360,6 +5550,192 @@ async function toggleDisplacementPreview(enable) {
     dispPreviewBusy = false;
   }
 }
+
+
+function disposeAllSlotsPreview() {
+  if (allSlotsPreviewGeometry) {
+    allSlotsPreviewGeometry.dispose();
+    allSlotsPreviewGeometry = null;
+  }
+  if (allSlotsPreviewMaterial) {
+    allSlotsPreviewMaterial.dispose();
+    allSlotsPreviewMaterial = null;
+  }
+}
+
+function mergePreviewGeometries(geometries) {
+  const positions = [];
+  const normals = [];
+  let posLen = 0;
+  let normLen = 0;
+
+  for (const geo of geometries) {
+    const p = geo.attributes.position?.array;
+    if (!p) continue;
+    positions.push(p);
+    posLen += p.length;
+
+    const n = geo.attributes.normal?.array;
+    if (n) {
+      normals.push(n);
+      normLen += n.length;
+    }
+  }
+
+  const merged = new THREE.BufferGeometry();
+  const pos = new Float32Array(posLen);
+  let offset = 0;
+  for (const arr of positions) {
+    pos.set(arr, offset);
+    offset += arr.length;
+  }
+  merged.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+
+  if (normLen === posLen) {
+    const nrm = new Float32Array(normLen);
+    offset = 0;
+    for (const arr of normals) {
+      nrm.set(arr, offset);
+      offset += arr.length;
+    }
+    merged.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  } else {
+    merged.computeVertexNormals();
+  }
+
+  merged.computeBoundingSphere();
+  merged.computeBoundingBox();
+  return merged;
+}
+
+function getUsedTextureSlots() {
+  saveActiveSlotState();
+
+  return textureSlots.filter(slot =>
+    slot.activeMapEntry &&
+    slot.assignedFaces &&
+    slot.assignedFaces.size > 0
+  );
+}
+
+function hasUsedTextureSlotsForExport() {
+  const activeSlot = getActiveTextureSlot();
+  if (activeSlot) {
+    activeSlot.activeMapEntry = activeMapEntry;
+    activeSlot.settings = cloneSettings();
+    activeSlot.excludedFaces = new Set(excludedFaces || []);
+    activeSlot.assignedFaces = getAssignedFacesForCurrentSlot();
+  }
+
+  return textureSlots.some(slot =>
+    slot.activeMapEntry &&
+    slot.assignedFaces &&
+    slot.assignedFaces.size > 0
+  );
+}
+
+function updateExportAllSlotsButtonState() {
+  if (!exportAllSlotsBtn) return;
+  exportAllSlotsBtn.disabled = !(currentGeometry && hasUsedTextureSlotsForExport());
+}
+
+async function rebuildAllSlotsPreview() {
+  if (!allSlotsPreviewActive || allSlotsPreviewBusy || !currentGeometry || !currentBounds) return;
+
+  const usedSlots = getUsedTextureSlots();
+  if (!usedSlots.length) {
+    alert('No used material slots to preview.');
+    return;
+  }
+
+  allSlotsPreviewBusy = true;
+  previewAllSlotsBtn?.classList.add('busy');
+  if (previewAllSlotsBtn) previewAllSlotsBtn.disabled = true;
+
+  const built = [];
+
+  try {
+    setProgress(0.01, 'Building all-slots preview');
+    exportProgress?.classList.remove('hidden');
+
+    for (let i = 0; i < usedSlots.length; i++) {
+      const geo = await buildExportGeometryForSlot(usedSlots[i], i, usedSlots.length);
+      built.push(geo);
+    }
+
+    disposeAllSlotsPreview();
+
+    allSlotsPreviewGeometry = mergePreviewGeometries(built);
+    allSlotsPreviewMaterial = new THREE.MeshStandardMaterial({
+      color: 0x9ca3af,
+      roughness: 0.72,
+      metalness: 0.02,
+      flatShading: false
+    });
+
+    setMeshGeometry(allSlotsPreviewGeometry);
+    setMeshMaterial(allSlotsPreviewMaterial);
+    setProgress(1, 'All-slots preview ready');
+    requestRender();
+  } catch (err) {
+    console.error('All-slots preview failed:', err);
+    alert(`All-slots preview failed: ${err.message}`);
+    allSlotsPreviewActive = false;
+    if (previewAllSlotsBtn) {
+      previewAllSlotsBtn.classList.remove('active');
+      previewAllSlotsBtn.textContent = 'Preview All Slots';
+    }
+    updatePreview();
+  } finally {
+    for (const geo of built) {
+      if (geo !== allSlotsPreviewGeometry) geo.dispose();
+    }
+    allSlotsPreviewBusy = false;
+    if (previewAllSlotsBtn) previewAllSlotsBtn.disabled = false;
+    previewAllSlotsBtn?.classList.remove('busy');
+    setTimeout(() => {
+      if (!isExporting && !allSlotsPreviewBusy) exportProgress?.classList.add('hidden');
+    }, 900);
+  }
+}
+
+function exitAllSlotsPreview() {
+  allSlotsPreviewActive = false;
+  previewAllSlotsBtn?.classList.remove('active');
+  if (previewAllSlotsBtn) previewAllSlotsBtn.textContent = 'Preview All Slots';
+
+  disposeAllSlotsPreview();
+
+  if (currentGeometry) {
+    setMeshGeometry(currentGeometry);
+  }
+
+  if (previewMaterial) {
+    previewMaterial.dispose();
+    previewMaterial = null;
+  }
+
+  updatePreview();
+  requestRender();
+}
+
+async function toggleAllSlotsPreview() {
+  if (allSlotsPreviewBusy) return;
+
+  if (allSlotsPreviewActive) {
+    exitAllSlotsPreview();
+    return;
+  }
+
+  allSlotsPreviewActive = true;
+  previewAllSlotsBtn?.classList.add('active');
+  if (previewAllSlotsBtn) previewAllSlotsBtn.textContent = 'Exit Preview';
+  await rebuildAllSlotsPreview();
+}
+
+previewAllSlotsBtn?.addEventListener('click', toggleAllSlotsPreview);
+clearSlotBtn?.addEventListener('click', () => clearTextureSlot(activeTextureSlotId));
+
 
 // ── Export pipeline ───────────────────────────────────────────────────────────
 
@@ -6281,6 +6657,20 @@ const DEFAULT_SETTINGS_SNAPSHOT = Object.freeze({
   cylinderPanelMinimized: false,
   activeMapName: DEFAULT_PRESET_NAME,
 });
+
+function getDefaultSlotSettingsSnapshot() {
+  const snapshot = { ...DEFAULT_SETTINGS_SNAPSHOT };
+  delete snapshot.activeMapName;
+
+  if (currentBounds && currentBounds.size) {
+    const sz = currentBounds.size;
+    const diag = Math.sqrt(sz.x * sz.x + sz.y * sz.y + sz.z * sz.z);
+    snapshot.refineLength = Math.max(0.05, Math.min(5.0, +(diag / 250).toFixed(2)));
+  }
+
+  return snapshot;
+}
+
 
 function resetSettingsToDefaults() {
   // Capture any pending edit, then push the pre-reset state so Ctrl+Z
