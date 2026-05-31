@@ -144,62 +144,6 @@ function clearTextureSlot(slotId = activeTextureSlotId) {
   console.log('Cleared texture slot:', slot.id);
 }
 
-
-function renameTextureSlot(slotId = activeTextureSlotId) {
-  const slot = textureSlots.find(s => s.id === slotId);
-  if (!slot) return;
-
-  const currentName = slot.name || slot.id;
-  const nextName = prompt('Rename material slot', currentName);
-
-  if (nextName == null) return;
-
-  const cleanName = nextName.trim();
-  if (!cleanName || cleanName === currentName) return;
-
-  slot.name = cleanName;
-
-  const btn = document.querySelector(`#texture-tabs .texture-tab[data-slot="${slot.id}"]`);
-  const label = btn?.querySelector('.texture-tab-label');
-  if (label) label.textContent = cleanName;
-
-  refreshTextureTabsUI();
-  console.log('Renamed texture slot:', slot.id, cleanName);
-}
-
-function getSlotHighlightFaces(slot) {
-  if (!slot) return new Set();
-
-  if (slot.assignedFaces && slot.assignedFaces.size > 0) {
-    return new Set(slot.assignedFaces);
-  }
-
-  if (slot.excludedFaces && slot.excludedFaces.size > 0) {
-    return new Set(slot.excludedFaces);
-  }
-
-  return new Set();
-}
-
-function showTextureSlotHighlight(slotId) {
-  if (!currentGeometry || allSlotsPreviewActive) return;
-
-  const slot = textureSlots.find(s => s.id === slotId);
-  if (!slot) return;
-
-  const faces = getSlotHighlightFaces(slot);
-  if (!faces.size) {
-    setHoverPreview(null);
-    return;
-  }
-
-  setHoverPreview(buildExclusionOverlayGeo(currentGeometry, faces), 0x7c6aff);
-}
-
-function clearTextureSlotHighlight() {
-  setHoverPreview(null);
-}
-
 function applyTextureTabInlineStyle(btn, isActive, isUsed, hasOverlap = false) {
   btn.style.appearance = 'none';
   btn.style.webkitAppearance = 'none';
@@ -278,8 +222,6 @@ function renderTextureTabs() {
 }
 
 function refreshTextureTabsUI() {
-  updateExportAllSlotsButtonState();
-
   const container = document.getElementById('texture-tabs');
   if (container) {
     container.style.display = 'grid';
@@ -301,9 +243,6 @@ function refreshTextureTabsUI() {
     btn.classList.toggle('overlap', hasOverlap);
 
     btn.title = getSlotTooltip(slot);
-
-    const label = btn.querySelector('.texture-tab-label');
-    if (label && slot?.name) label.textContent = slot.name;
 
     applyTextureTabInlineStyle(btn, isActive, isUsed, hasOverlap);
 
@@ -804,6 +743,11 @@ const activeMapName  = document.getElementById('active-map-name');
 const customMapRow      = document.getElementById('custom-map-row');
 const customMapSwatch   = document.getElementById('custom-map-swatch');
 const customMapRemoveBtn = document.getElementById('custom-map-remove');
+const customLibraryGrid = document.getElementById('custom-library-grid');
+const customLibraryEmpty = document.getElementById('custom-library-empty');
+const importTextureFolderBtn = document.getElementById('import-texture-folder-btn');
+const importTextureFilesBtn = document.getElementById('import-texture-files-btn');
+const customLibraryFilesInput = document.getElementById('custom-library-files-input');
 const meshInfo       = document.getElementById('mesh-info');
 const exportBtn        = document.getElementById('export-btn');
 const exportAllSlotsBtn = document.getElementById('export-all-slots-btn');
@@ -1645,31 +1589,6 @@ document.getElementById('texture-tabs')?.addEventListener('click', (e) => {
   console.log('Active texture slot:', activeTextureSlotId);
 });
 
-document.getElementById('texture-tabs')?.addEventListener('dblclick', (e) => {
-  const btn = e.target.closest('.texture-tab');
-  if (!btn) return;
-
-  e.preventDefault();
-  renameTextureSlot(normalizeTextureSlotId(btn.dataset.slot));
-});
-
-document.getElementById('texture-tabs')?.addEventListener('mouseover', (e) => {
-  const btn = e.target.closest('.texture-tab');
-  if (!btn) return;
-
-  showTextureSlotHighlight(normalizeTextureSlotId(btn.dataset.slot));
-});
-
-document.getElementById('texture-tabs')?.addEventListener('mouseout', (e) => {
-  const btn = e.target.closest('.texture-tab');
-  if (!btn) return;
-
-  const next = e.relatedTarget;
-  if (next && btn.contains(next)) return;
-
-  clearTextureSlotHighlight();
-});
-
 // ─────────────────────────────────────────────
 // Manual save slots
 // ─────────────────────────────────────────────
@@ -2113,6 +2032,150 @@ function _hideCustomMapThumb() {
   customMapRow.classList.add('hidden');
   if (customMapSwatch) customMapSwatch.innerHTML = '';
 }
+
+const customTextureLibrary = [];
+const customTextureLibraryKeys = new Set();
+
+function isSupportedTextureFile(file) {
+  return !!file && /^image\//i.test(file.type || '') ||
+    /\.(png|jpe?g|webp|bmp|gif)$/i.test(file?.name || '');
+}
+
+function customTextureLibraryKey(file) {
+  return `${file.name}::${file.size}::${file.lastModified || 0}`;
+}
+
+function drawEntryThumbnail(entry, size = 64) {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#111114';
+  ctx.fillRect(0, 0, size, size);
+
+  if (entry?.fullCanvas) {
+    const sw = entry.fullCanvas.width;
+    const sh = entry.fullCanvas.height;
+    const scale = Math.min(size / sw, size / sh);
+    const dw = sw * scale;
+    const dh = sh * scale;
+    ctx.drawImage(entry.fullCanvas, (size - dw) / 2, (size - dh) / 2, dw, dh);
+  }
+
+  return canvas;
+}
+
+function renderCustomTextureLibrary() {
+  if (!customLibraryGrid) return;
+
+  customLibraryGrid.innerHTML = '';
+
+  const hasEntries = customTextureLibrary.length > 0;
+  customLibraryEmpty?.classList.toggle('hidden', hasEntries);
+
+  for (const entry of customTextureLibrary) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'custom-library-item';
+    btn.title = entry.name;
+
+    const thumb = drawEntryThumbnail(entry, 72);
+    btn.appendChild(thumb);
+
+    const label = document.createElement('span');
+    label.textContent = entry.name.replace(/\.[^.]+$/, '');
+    btn.appendChild(label);
+
+    btn.addEventListener('click', () => activateCustomLibraryEntry(entry));
+
+    customLibraryGrid.appendChild(btn);
+  }
+}
+
+function activateCustomLibraryEntry(entry) {
+  if (!entry) return;
+
+  activeMapEntry = entry;
+  activeMapEntry.isCustom = true;
+  _lastCustomMap = activeMapEntry;
+
+  const slot = getActiveTextureSlot();
+  if (slot) {
+    slot.activeMapEntry = activeMapEntry;
+    slot.customMapEntry = activeMapEntry;
+  }
+
+  activeMapName.textContent = entry.name;
+  document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
+  _showCustomMapThumb(activeMapEntry);
+  customMapSwatch?.classList.add('active');
+
+  if (allSlotsPreviewActive) exitAllSlotsPreview();
+
+  resetTextureSmoothing();
+  updatePreview();
+  refreshTextureTabsUI();
+  requestRender();
+}
+
+async function addFilesToCustomTextureLibrary(files) {
+  const imageFiles = Array.from(files || []).filter(isSupportedTextureFile);
+  if (!imageFiles.length) return;
+
+  for (const file of imageFiles) {
+    const key = customTextureLibraryKey(file);
+    if (customTextureLibraryKeys.has(key)) continue;
+
+    try {
+      const entry = await loadCustomTexture(file);
+      entry.isCustom = true;
+      entry.name = file.name;
+      entry.libraryKey = key;
+
+      customTextureLibrary.push(entry);
+      customTextureLibraryKeys.add(key);
+    } catch (err) {
+      console.warn('Could not load custom texture:', file.name, err);
+    }
+  }
+
+  customTextureLibrary.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  renderCustomTextureLibrary();
+}
+
+async function importTextureFolder() {
+  if (!window.showDirectoryPicker) {
+    alert('Folder import is not supported by this browser. Use Add Maps instead.');
+    return;
+  }
+
+  try {
+    const dir = await window.showDirectoryPicker();
+    const files = [];
+
+    for await (const [, handle] of dir.entries()) {
+      if (handle.kind !== 'file') continue;
+      const file = await handle.getFile();
+      if (isSupportedTextureFile(file)) files.push(file);
+    }
+
+    await addFilesToCustomTextureLibrary(files);
+  } catch (err) {
+    if (err?.name === 'AbortError') return;
+    console.error('Could not import texture folder:', err);
+    alert(`Could not import texture folder: ${err.message}`);
+  }
+}
+
+importTextureFolderBtn?.addEventListener('click', importTextureFolder);
+importTextureFilesBtn?.addEventListener('click', () => customLibraryFilesInput?.click());
+customLibraryFilesInput?.addEventListener('change', async (e) => {
+  const files = e.target.files;
+  e.target.value = '';
+  await addFilesToCustomTextureLibrary(files);
+});
+
 
 /** Promote the kept-aside custom map back to the active map. No defaults reset. */
 function _activateCustomMap() {
@@ -5056,7 +5119,6 @@ function updatePreview() {
     }
     exportBtn.disabled = true;
     export3mfBtn.disabled = true;
-    updateExportAllSlotsButtonState();
     bakeBtn.disabled = true;
     updateSmartResBtnState();
     return;
@@ -5084,7 +5146,6 @@ function updatePreview() {
   syncBoundaryEdgeUniforms();
   exportBtn.disabled = false;
   export3mfBtn.disabled = false;
-  updateExportAllSlotsButtonState();
   bakeBtn.disabled = isBaking;
   updateSmartResBtnState();
 }
@@ -5616,27 +5677,6 @@ function getUsedTextureSlots() {
     slot.assignedFaces &&
     slot.assignedFaces.size > 0
   );
-}
-
-function hasUsedTextureSlotsForExport() {
-  const activeSlot = getActiveTextureSlot();
-  if (activeSlot) {
-    activeSlot.activeMapEntry = activeMapEntry;
-    activeSlot.settings = cloneSettings();
-    activeSlot.excludedFaces = new Set(excludedFaces || []);
-    activeSlot.assignedFaces = getAssignedFacesForCurrentSlot();
-  }
-
-  return textureSlots.some(slot =>
-    slot.activeMapEntry &&
-    slot.assignedFaces &&
-    slot.assignedFaces.size > 0
-  );
-}
-
-function updateExportAllSlotsButtonState() {
-  if (!exportAllSlotsBtn) return;
-  exportAllSlotsBtn.disabled = !(currentGeometry && hasUsedTextureSlotsForExport());
 }
 
 async function rebuildAllSlotsPreview() {

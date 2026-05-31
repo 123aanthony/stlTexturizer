@@ -216,6 +216,20 @@
           <!-- filled by js/presetTextures.js -->
         </div>
 
+        <!-- Custom texture library -->
+        <div class="custom-library-panel">
+          <div class="custom-library-header">
+            <span>Custom Texture Library</span>
+            <div class="custom-library-actions">
+              <button id="import-texture-folder-btn" class="secondary-btn custom-library-btn" type="button">Import Folder</button>
+              <button id="import-texture-files-btn" class="secondary-btn custom-library-btn" type="button">Add Maps</button>
+            </div>
+          </div>
+          <input id="custom-library-files-input" type="file" accept="image/*" multiple hidden />
+          <div id="custom-library-grid" class="custom-library-grid" aria-label="Custom texture library"></div>
+          <p id="custom-library-empty" class="custom-library-empty">No custom textures loaded yet.</p>
+        </div>
+
         <!-- Custom upload -->
         <label class="upload-btn" for="texture-file-input">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
