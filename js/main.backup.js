@@ -27,31 +27,6 @@ let currentGeometry   = null;   // original loaded geometry
 let currentBounds     = null;   // bounds of the original geometry
 let currentStlName    = 'model'; // base filename of the loaded STL (no extension)
 let activeMapEntry    = null;   // { name, texture, imageData, width, height, isCustom? }
-// ─────────────────────────────────────────────
-// Diorama multi-texture slots (POC V1)
-// ─────────────────────────────────────────────
-
-const TEXTURE_SLOT_DEFS = [
-  { id: 'stone', name: 'Stone' },
-  { id: 'wood',  name: 'Wood'  },
-  { id: 'metal', name: 'Metal' },
-  { id: 'roof',  name: 'Roof'  }
-];
-
-let textureSlots = TEXTURE_SLOT_DEFS.map(slot => ({
-  ...slot,
-  activeMapEntry: null,
-  customMapEntry: null,
-  excludedFaces: new Set(),
-  assignedFaces: new Set(),
-  settings: {}
-}));
-
-let activeTextureSlotId = 'stone';
-
-function getActiveTextureSlot() {
-  return textureSlots.find(s => s.id === activeTextureSlotId);
-}
 let _lastCustomMap    = null;   // most recent uploaded/imported custom-map entry, kept across preset switches so the thumbnail can re-activate it
 let previewMaterial   = null;
 let isExporting       = false;
@@ -65,7 +40,7 @@ let _falloffDirty      = true;   // recompute falloff on next updateFaceMask
 let _falloffGeometry   = null;   // geometry the falloff was last computed for
 
 // ── Exclusion state ───────────────────────────────────────────────────────────
-let excludedFaces      = getActiveTextureSlot().excludedFaces;   // triangle indices in currentGeometry
+let excludedFaces      = new Set();   // triangle indices in currentGeometry
 let triangleAdjacency  = null;        // Array from buildAdjacency
 let triangleCentroids  = null;        // Float32Array from buildAdjacency
 let triangleFaceNormals = null;       // Float32Array — local-space unit face normal per tri
@@ -138,106 +113,7 @@ const settings = {
   regularizeAggressiveNormalDeg: 25,
   regularizeSecondPassMul:   1.1,
 };
-function updateSettingsUIFromSettings() {
-  mappingSelect.value = settings.mappingMode;
 
-  scaleUSlider.value = scaleToPos(settings.scaleU);
-  scaleVSlider.value = scaleToPos(settings.scaleV);
-  scaleUVal.value = settings.scaleU;
-  scaleVVal.value = settings.scaleV;
-
-  offsetUSlider.value = settings.offsetU;
-  offsetVSlider.value = settings.offsetV;
-  offsetUVal.value = settings.offsetU.toFixed(2);
-  offsetVVal.value = settings.offsetV.toFixed(2);
-
-  rotationSlider.value = settings.rotation;
-  rotationVal.value = Math.round(settings.rotation);
-
-  amplitudeSlider.value = settings.textureHeight;
-  amplitudeVal.value = settings.textureHeight.toFixed(2);
-
-  textureSmoothingSlider.value = settings.textureSmoothing;
-  textureSmoothingVal.value = settings.textureSmoothing;
-
-  refineLenSlider.value = settings.refineLength;
-  refineLenVal.value = settings.refineLength.toFixed(2);
-
-  maxTriSlider.value = settings.maxTriangles;
-  maxTriVal.value = settings.maxTriangles.toLocaleString();
-
-  invertDisplacementCheckbox.checked = settings.invertDisplacement;
-  lockScaleBtn.classList.toggle('active', settings.lockScale);
-  lockScaleBtn.setAttribute('aria-pressed', String(settings.lockScale));
-}
-function cloneSettings() {
-  return { ...settings };
-}
-
-function saveActiveSlotState() {
-  const slot = getActiveTextureSlot();
-  if (!slot) return;
-
-  slot.activeMapEntry = activeMapEntry;
-  if (activeMapEntry?.isCustom) {
-    slot.customMapEntry = activeMapEntry;
-  }
-  slot.excludedFaces = excludedFaces;
-  slot.assignedFaces = new Set(excludedFaces);
-  slot.settings = cloneSettings();
-}
-
-function restoreSlotState(slot) {
-  if (!slot) return;
-
-  activeMapEntry = slot.activeMapEntry || null;
-  excludedFaces = slot.excludedFaces || new Set();
-
-  if (slot.settings) {
-    Object.assign(settings, slot.settings);
-  }
-
-  activeMapName.textContent = activeMapEntry ? activeMapEntry.name : 'No map selected';
-
-  document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
-  if (activeMapEntry?.isCustom) {
-    _lastCustomMap = activeMapEntry;
-    _showCustomMapThumb(activeMapEntry);
-    customMapSwatch?.classList.add('active');
-  } else {
-    customMapSwatch?.classList.remove('active');
-    if (slot.customMapEntry) {
-      _lastCustomMap = slot.customMapEntry;
-      _showCustomMapThumb(slot.customMapEntry);
-    } else {
-      _lastCustomMap = null;
-      _hideCustomMapThumb();
-    }
-  }
-
-  updateSettingsUIFromSettings();
-  refreshExclusionOverlay();
-  updatePreview();
-}
-function serializeTextureSlots() {
-  return textureSlots.map(slot => ({
-    id: slot.id,
-    name: slot.name,
-    activeMapName: slot.activeMapEntry ? slot.activeMapEntry.name : null,
-    isCustomMap: !!slot.activeMapEntry?.isCustom,
-    customMapName: slot.customMapEntry ? slot.customMapEntry.name : null,
-    excludedFaces: Array.from(slot.excludedFaces || []),
-    settings: slot.settings || {}
-  }));
-}
-
-function saveTextureSlotsToStorage() {
-  saveActiveSlotState();
-  sessionStorage.setItem(
-    'diorama-texture-slots',
-    JSON.stringify(serializeTextureSlots())
-  );
-}
 // ── Canvas filter support (Safari / iOS WebView don't support ctx.filter) ────
 const CANVAS_FILTER_SUPPORTED = 'filter' in CanvasRenderingContext2D.prototype;
 
@@ -352,7 +228,6 @@ const customMapSwatch   = document.getElementById('custom-map-swatch');
 const customMapRemoveBtn = document.getElementById('custom-map-remove');
 const meshInfo       = document.getElementById('mesh-info');
 const exportBtn        = document.getElementById('export-btn');
-const exportAllSlotsBtn = document.getElementById('export-all-slots-btn');
 const export3mfBtn     = document.getElementById('export-3mf-btn');
 const exportProgress   = document.getElementById('export-progress');
 const exportProgBar    = document.getElementById('export-progress-bar');
@@ -1163,247 +1038,6 @@ loadAllThumbnails().then(thumbs => {
   }
 }).catch(err => console.error('Failed to load thumbnails:', err));
 
-// ─────────────────────────────────────────────
-// Texture tabs UI
-// ─────────────────────────────────────────────
-
-document.querySelectorAll('.texture-tab').forEach(btn => {
-  btn.addEventListener('click', () => {
-
-    document.querySelectorAll('.texture-tab').forEach(b => {
-      b.classList.remove('active');
-    });
-
-    btn.classList.add('active');
-saveActiveSlotState();
-
-activeTextureSlotId = btn.dataset.slot;
-
-const slot = getActiveTextureSlot();
-
-restoreSlotState(slot);
-//saveTextureSlotsToStorage();
-
-console.log('Switched texture slot:', activeTextureSlotId);
-    console.log('Active texture slot:', activeTextureSlotId);
-  });
-});
-// ─────────────────────────────────────────────
-// Manual save slots
-// ─────────────────────────────────────────────
-
-document.getElementById('save-slots-btn')?.addEventListener('click', () => {
-
-  saveActiveSlotState();
-
-  const serialized = serializeTextureSlots();
-
-  localStorage.setItem(
-    'diorama-texture-slots',
-    JSON.stringify(serialized)
-  );
-
-  console.log('Saved texture slots:', serialized);
-
-});
-
-// ─────────────────────────────────────────────
-// Material profile save/load (.stltprofile)
-// Profiles keep slot textures + settings, but not face selections.
-// ─────────────────────────────────────────────
-
-function _installProfileButtons() {
-  const anchor = document.getElementById('save-slots-btn');
-  if (!anchor || document.getElementById('save-profile-btn')) return;
-
-  const saveBtn = document.createElement('button');
-  saveBtn.id = 'save-profile-btn';
-  saveBtn.className = 'secondary-btn';
-  saveBtn.type = 'button';
-  saveBtn.textContent = 'Save Material';
-
-  const loadBtn = document.createElement('button');
-  loadBtn.id = 'load-profile-btn';
-  loadBtn.className = 'secondary-btn';
-  loadBtn.type = 'button';
-  loadBtn.textContent = 'Load Material to Slot';
-
-  const input = document.createElement('input');
-  input.id = 'load-profile-input';
-  input.type = 'file';
-  input.accept = '.stltprofile,application/json';
-  input.style.display = 'none';
-
-  anchor.insertAdjacentElement('afterend', input);
-  anchor.insertAdjacentElement('afterend', loadBtn);
-  anchor.insertAdjacentElement('afterend', saveBtn);
-
-  saveBtn.addEventListener('click', saveMaterialProfileToFile);
-  loadBtn.addEventListener('click', () => input.click());
-  input.addEventListener('change', async (e) => {
-    const file = e.target.files && e.target.files[0];
-    e.target.value = '';
-    if (!file) return;
-    try {
-      await loadMaterialProfileFromFile(file);
-    } catch (err) {
-      console.error('Failed to load material profile:', err);
-      alert(`Failed to load material profile: ${err.message}`);
-    }
-  });
-}
-
-function customMapEntryToDataUrl(entry) {
-  if (!entry || !entry.fullCanvas) return null;
-  try {
-    return entry.fullCanvas.toDataURL('image/png');
-  } catch (err) {
-    console.warn('Could not serialize custom map:', entry.name, err);
-    return null;
-  }
-}
-
-function serializeMaterialProfile() {
-  saveActiveSlotState();
-
-  return {
-    type: 'stlTexturizerMaterialProfile',
-    version: 1,
-    savedAt: new Date().toISOString(),
-    activeTextureSlotId,
-    slots: textureSlots.map(slot => {
-      const activeIsCustom = !!slot.activeMapEntry?.isCustom;
-      const customEntry = slot.customMapEntry || (activeIsCustom ? slot.activeMapEntry : null);
-
-      return {
-        id: slot.id,
-        name: slot.name,
-        activeMapType: activeIsCustom ? 'custom' : (slot.activeMapEntry ? 'preset' : null),
-        activeMapName: slot.activeMapEntry ? slot.activeMapEntry.name : null,
-        presetName: !activeIsCustom && slot.activeMapEntry ? slot.activeMapEntry.name : null,
-        customMapName: customEntry ? customEntry.name : null,
-        customMapDataUrl: customEntry ? customMapEntryToDataUrl(customEntry) : null,
-        settings: { ...(slot.settings || {}) }
-      };
-    })
-  };
-}
-
-function saveMaterialProfileToFile() {
-  const profile = serializeMaterialProfile();
-  const json = JSON.stringify(profile, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const base = currentStlName || 'bumpmesh';
-  a.href = url;
-  a.download = `${base}_material_profile.stltprofile`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-
-  console.log('Saved material profile:', profile);
-}
-
-async function getPresetEntryByName(name) {
-  if (!name) return null;
-
-  const idx = IMAGE_PRESETS.findIndex(p => p.name === name);
-  if (idx < 0) return null;
-
-  if (PRESETS[idx]?.texture && PRESETS[idx]?.imageData) {
-    return PRESETS[idx];
-  }
-
-  const thumbEntry = PRESETS[idx] || { name };
-  const full = await loadFullPreset(idx);
-  PRESETS[idx] = { ...thumbEntry, ...full };
-  return PRESETS[idx];
-}
-
-async function customEntryFromDataUrl(dataUrl, name = 'custom-map.png') {
-  if (!dataUrl) return null;
-
-  const response = await fetch(dataUrl);
-  const blob = await response.blob();
-  const file = new File([blob], name, { type: blob.type || 'image/png' });
-  const entry = await loadCustomTexture(file);
-  entry.isCustom = true;
-  entry.name = name;
-  return entry;
-}
-
-async function applyMaterialProfile(profile) {
-  if (!profile || !Array.isArray(profile.slots)) {
-    throw new Error('Invalid profile file');
-  }
-
-  // UX decision:
-  // Loading a material profile applies the profile's saved ACTIVE material
-  // to the CURRENT active slot only. Other slots and face selections are left untouched.
-  saveActiveSlotState();
-
-  const targetSlot = getActiveTextureSlot();
-  if (!targetSlot) {
-    throw new Error('No active texture slot');
-  }
-
-  const sourceSlot =
-    profile.slots.find(s => s.id === profile.activeTextureSlotId) ||
-    profile.slots[0];
-
-  if (!sourceSlot) {
-    throw new Error('Profile contains no material slots');
-  }
-
-  // Preserve current face selections on the target slot.
-  const keptExcludedFaces = new Set(targetSlot.excludedFaces || []);
-  const keptAssignedFaces = new Set(targetSlot.assignedFaces || []);
-
-  targetSlot.settings = { ...(sourceSlot.settings || {}) };
-  targetSlot.activeMapEntry = null;
-  targetSlot.customMapEntry = null;
-
-  if (sourceSlot.activeMapType === 'custom' && sourceSlot.customMapDataUrl) {
-    const entry = await customEntryFromDataUrl(
-      sourceSlot.customMapDataUrl,
-      sourceSlot.customMapName || sourceSlot.activeMapName || `${targetSlot.name}.png`
-    );
-    targetSlot.customMapEntry = entry;
-    targetSlot.activeMapEntry = entry;
-  } else if (sourceSlot.activeMapType === 'preset' || sourceSlot.presetName || sourceSlot.activeMapName) {
-    const presetName = sourceSlot.presetName || sourceSlot.activeMapName;
-    const entry = await getPresetEntryByName(presetName);
-    if (entry) {
-      targetSlot.activeMapEntry = entry;
-    }
-  }
-
-  targetSlot.excludedFaces = keptExcludedFaces;
-  targetSlot.assignedFaces = keptAssignedFaces;
-
-  // Keep the current active tab. Do not jump to profile.activeTextureSlotId.
-  document.querySelectorAll('.texture-tab').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.slot === activeTextureSlotId);
-  });
-
-  restoreSlotState(targetSlot);
-
-  console.log('Applied material profile to current slot:', {
-    targetSlot: targetSlot.id,
-    sourceSlot: sourceSlot.id,
-    profile
-  });
-}
-
-async function loadMaterialProfileFromFile(file) {
-  const text = await file.text();
-  const profile = JSON.parse(text);
-  await applyMaterialProfile(profile);
-}
-
-_installProfileButtons();
 // ── Preset grid ───────────────────────────────────────────────────────────────
 
 function resetTextureSmoothing() {
@@ -1430,13 +1064,6 @@ async function selectPreset(idx, swatchEl, applyDefaults = true) {
   // If full texture is already loaded, use it directly
   if (entry.texture) {
     activeMapEntry = entry;
-
-    const slot = getActiveTextureSlot();
-    if (slot) {
-      slot.activeMapEntry = entry;
-      //saveTextureSlotsToStorage();
-    }
-
     updatePreview();
     return;
   }
@@ -1448,12 +1075,6 @@ async function selectPreset(idx, swatchEl, applyDefaults = true) {
     if (gen !== _selectGeneration) return;   // user clicked another preset meanwhile
     PRESETS[idx] = { ...entry, ...full };
     activeMapEntry = PRESETS[idx];
-
-    const slot = getActiveTextureSlot();
-    if (slot) {
-      slot.activeMapEntry = PRESETS[idx];
-    }
-
     swatchEl.classList.remove('preset-loading-full');
     updatePreview();
   } catch (err) {
@@ -1496,21 +1117,11 @@ function _hideCustomMapThumb() {
 
 /** Promote the kept-aside custom map back to the active map. No defaults reset. */
 function _activateCustomMap() {
-  const slot = getActiveTextureSlot();
-  const entry = slot?.customMapEntry || _lastCustomMap;
-  if (!entry) return;
-
-  activeMapEntry = entry;
-  _lastCustomMap = entry;
-
-  if (slot) {
-    slot.activeMapEntry = entry;
-    slot.customMapEntry = entry;
-  }
-
+  if (!_lastCustomMap) return;
+  activeMapEntry = _lastCustomMap;
   document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
   customMapSwatch.classList.add('active');
-  activeMapName.textContent = entry.name;
+  activeMapName.textContent = _lastCustomMap.name;
   updatePreview();
 }
 
@@ -1524,12 +1135,7 @@ if (customMapSwatch) {
 if (customMapRemoveBtn) {
   customMapRemoveBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    const slot = getActiveTextureSlot();
-    const wasActive = activeMapEntry === (slot?.customMapEntry || _lastCustomMap);
-    if (slot) {
-      slot.customMapEntry = null;
-      if (slot.activeMapEntry?.isCustom) slot.activeMapEntry = null;
-    }
+    const wasActive = activeMapEntry === _lastCustomMap;
     _lastCustomMap = null;
     _hideCustomMapThumb();
     if (wasActive) {
@@ -1665,15 +1271,7 @@ function wireEvents() {
     try {
       activeMapEntry = await loadCustomTexture(file);
       activeMapEntry.isCustom = true;
-      activeMapEntry.name = file.name;
       _lastCustomMap = activeMapEntry;
-
-      const slot = getActiveTextureSlot();
-      if (slot) {
-        slot.activeMapEntry = activeMapEntry;
-        slot.customMapEntry = activeMapEntry;
-      }
-
       activeMapName.textContent = file.name;
       document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
       _showCustomMapThumb(activeMapEntry);
@@ -1938,144 +1536,6 @@ function wireEvents() {
   };
   exportBtn.addEventListener('click', () => startExport('stl'));
   export3mfBtn.addEventListener('click', () => startExport('3mf'));
-exportAllSlotsBtn?.addEventListener('click', async () => {
-  if (!currentGeometry || isExporting || isBaking) return;
-
-  saveActiveSlotState();
-
-  const readySlots = textureSlots.filter(
-    slot => slot.activeMapEntry && slot.assignedFaces && slot.assignedFaces.size > 0
-  );
-
-  if (readySlots.length === 0) {
-    alert('No texture slots are ready to export. Select faces and assign a texture first.');
-    return;
-  }
-
-  const myToken = ++exportToken;
-  isExporting = true;
-  exportBtn.classList.add('busy');
-  export3mfBtn.classList.add('busy');
-  exportAllSlotsBtn.classList.add('busy');
-  exportProgress.classList.remove('hidden');
-
-  const generated = [];
-  let mergedGeometry = null;
-  let exportSucceeded = false;
-
-  try {
-    console.log('Export All Slots requested');
-
-    setProgress(0.01, `Starting multi-slot export (${readySlots.length} slots)`);
-
-    for (let i = 0; i < readySlots.length; i++) {
-      if (exportToken !== myToken) return;
-
-      const slot = readySlots[i];
-      console.log('Processing slot:', slot.name);
-
-      const geo = await buildExportGeometryForSlot(
-        slot,
-        i,
-        readySlots.length
-      );
-
-      generated.push({
-        slot,
-        geometry: geo
-      });
-    }
-
-    if (exportToken !== myToken) return;
-
-    console.log('Generated slot geometries:', generated);
-
-    setProgress(0.93, 'Merging texture slots');
-
-    mergedGeometry = new THREE.BufferGeometry();
-
-    let totalPositions = 0;
-    let totalNormals = 0;
-
-    for (const item of generated) {
-      totalPositions += item.geometry.attributes.position.array.length;
-
-      if (item.geometry.attributes.normal) {
-        totalNormals += item.geometry.attributes.normal.array.length;
-      }
-    }
-
-    const mergedPositions = new Float32Array(totalPositions);
-    const mergedNormals =
-      totalNormals > 0 ? new Float32Array(totalNormals) : null;
-
-    let posOffset = 0;
-    let nrmOffset = 0;
-
-    for (const item of generated) {
-      const pos = item.geometry.attributes.position.array;
-
-      mergedPositions.set(pos, posOffset);
-      posOffset += pos.length;
-
-      if (mergedNormals && item.geometry.attributes.normal) {
-        const nrm = item.geometry.attributes.normal.array;
-
-        mergedNormals.set(nrm, nrmOffset);
-        nrmOffset += nrm.length;
-      }
-    }
-
-    mergedGeometry.setAttribute(
-      'position',
-      new THREE.BufferAttribute(mergedPositions, 3)
-    );
-
-    if (mergedNormals) {
-      mergedGeometry.setAttribute(
-        'normal',
-        new THREE.BufferAttribute(mergedNormals, 3)
-      );
-    }
-
-    setProgress(0.97, 'Writing STL');
-
-    exportSTL(
-      mergedGeometry,
-      `${currentStlName}_all_slots.stl`
-    );
-
-    exportSucceeded = true;
-    setProgress(1.0, 'Done');
-
-    setTimeout(() => {
-      exportProgress.classList.add('hidden');
-      setProgress(0, '');
-    }, 1500);
-
-    console.log('Export All Slots done');
-  } catch (err) {
-    console.error('Export All Slots failed:', err);
-    alert(`Export All Slots failed: ${err.message}`);
-  } finally {
-    for (const item of generated) {
-      item.geometry.dispose();
-    }
-
-    if (mergedGeometry) {
-      mergedGeometry.dispose();
-    }
-
-    if (!exportSucceeded) {
-      exportProgress.classList.add('hidden');
-    }
-
-    isExporting = false;
-    exportBtn.classList.remove('busy');
-    export3mfBtn.classList.remove('busy');
-    exportAllSlotsBtn.classList.remove('busy');
-  }
-});
 
   // ── Advanced / Beta Features panel: collapse toggle + bake action ──
   advancedToggle.addEventListener('click', () => {
@@ -2608,49 +2068,6 @@ function _viewDirFor(hitPt) {
   return _viewDirScratch.subVectors(hitPt, getCamera().position).normalize();
 }
 
-function getActiveAssignedFaces() {
-  const slot = getActiveTextureSlot();
-
-  if (!slot.assignedFaces) {
-    slot.assignedFaces = new Set();
-  }
-
-  return slot.assignedFaces;
-}
-
-function buildExcludedFacesFromAssigned(slot, geometry) {
-
-  const triCount =
-    geometry.attributes.position.count / 3;
-
-  const excluded = new Set();
-
-  for (let i = 0; i < triCount; i++) {
-
-    if (!slot.assignedFaces.has(i)) {
-      excluded.add(i);
-    }
-
-  }
-
-  return excluded;
-}
-function buildSubTriangleMask(faceParentId, assignedFaces) {
-
-  const mask =
-    new Uint8Array(faceParentId.length);
-
-  for (let subTri = 0; subTri < faceParentId.length; subTri++) {
-
-    const parentTri =
-      faceParentId[subTri];
-
-mask[subTri] =
-  assignedFaces.has(parentTri) ? 1 : 0;
-  }
-
-  return mask;
-}
 function _paintSingleHit(hit, mesh) {
   const usePrecision = precisionMaskingEnabled && precisionGeometry && precisionParentMap;
   if (usePrecision) {
@@ -2671,24 +2088,10 @@ function _paintSingleHit(hit, mesh) {
     if (brushIsRadius) {
       const r2 = brushRadius * brushRadius;
       bfsBrushSelect(triIdx, hit.point, r2, _viewDirFor(hit.point), t => {
-        const assignedFaces = getActiveAssignedFaces();
-if (eraseMode) {
-  excludedFaces.delete(t);
-  assignedFaces.delete(t);
-} else {
-  excludedFaces.add(t);
-  assignedFaces.add(t);
-}
+        if (eraseMode) excludedFaces.delete(t); else excludedFaces.add(t);
       });
     } else {
-      const assignedFaces = getActiveAssignedFaces();
-if (eraseMode) {
-  excludedFaces.delete(triIdx);
-  assignedFaces.delete(triIdx);
-} else {
-  excludedFaces.add(triIdx);
-  assignedFaces.add(triIdx);
-}
+      if (eraseMode) excludedFaces.delete(triIdx); else excludedFaces.add(triIdx);
     }
   }
 }
@@ -5167,87 +4570,6 @@ async function handleExport(format = 'stl') {
     exportBtn.classList.remove('busy');
     export3mfBtn.classList.remove('busy');
   }
-}
-async function buildExportGeometryForSlot(slot, slotIndex = 0, totalSlots = 1) {
-  const slotBase = totalSlots > 0 ? (slotIndex / totalSlots) * 0.92 : 0;
-  const slotSpan = totalSlots > 0 ? 0.92 / totalSlots : 0.92;
-
-  const setSlotProgress = (localProgress, label) => {
-    const clamped = Math.max(0, Math.min(1, localProgress));
-    setProgress(slotBase + clamped * slotSpan, label);
-  };
-
-  const hasAngleMask =
-    slot.settings.bottomAngleLimit > 0 ||
-    slot.settings.topAngleLimit > 0;
-
-  const tempExcludedFaces =
-    buildExcludedFacesFromAssigned(
-      slot,
-      currentGeometry
-    );
-
-  const faceWeights =
-    (tempExcludedFaces.size > 0 || selectionMode || hasAngleMask)
-      ? buildCombinedFaceWeights(
-          currentGeometry,
-          tempExcludedFaces,
-          false,
-          slot.settings
-        )
-      : null;
-
-  setSlotProgress(0.02, `Preparing ${slot.name}`);
-
-  const { geometry: subdivided, faceParentId } = await subdivide(
-    currentGeometry,
-    slot.settings.refineLength,
-    (progress) => {
-      setSlotProgress(
-        0.05 + progress * 0.35,
-        `Subdividing ${slot.name} ${Math.round(progress * 100)}%`
-      );
-    },
-    faceWeights
-  );
-
-  const faceMask = buildSubTriangleMask(
-    faceParentId,
-    slot.assignedFaces
-  );
-
-  setSlotProgress(0.45, `Displacing ${slot.name}`);
-
-  const displaced = await applyDisplacement(
-    subdivided,
-    slot.activeMapEntry.imageData,
-    slot.activeMapEntry.width,
-    slot.activeMapEntry.height,
-    {
-      ...slot.settings,
-      faceMask
-    },
-    currentBounds,
-    (progress) => {
-      setSlotProgress(
-        0.45 + progress * 0.45,
-        `Displacing ${slot.name} ${Math.round(progress * 100)}%`
-      );
-    }
-  );
-
-  subdivided.dispose();
-
-  setSlotProgress(0.95, `Finished ${slot.name}`);
-
-  console.log(
-    'Built geometry for slot:',
-    slot.name,
-    displaced.attributes.position.count / 3,
-    'triangles'
-  );
-
-  return displaced;
 }
 
 function setProgress(fraction, label) {

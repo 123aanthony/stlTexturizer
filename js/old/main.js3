@@ -41,7 +41,6 @@ const TEXTURE_SLOT_DEFS = [
 let textureSlots = TEXTURE_SLOT_DEFS.map(slot => ({
   ...slot,
   activeMapEntry: null,
-  customMapEntry: null,
   excludedFaces: new Set(),
   assignedFaces: new Set(),
   settings: {}
@@ -179,9 +178,6 @@ function saveActiveSlotState() {
   if (!slot) return;
 
   slot.activeMapEntry = activeMapEntry;
-  if (activeMapEntry?.isCustom) {
-    slot.customMapEntry = activeMapEntry;
-  }
   slot.excludedFaces = excludedFaces;
   slot.assignedFaces = new Set(excludedFaces);
   slot.settings = cloneSettings();
@@ -199,22 +195,6 @@ function restoreSlotState(slot) {
 
   activeMapName.textContent = activeMapEntry ? activeMapEntry.name : 'No map selected';
 
-  document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
-  if (activeMapEntry?.isCustom) {
-    _lastCustomMap = activeMapEntry;
-    _showCustomMapThumb(activeMapEntry);
-    customMapSwatch?.classList.add('active');
-  } else {
-    customMapSwatch?.classList.remove('active');
-    if (slot.customMapEntry) {
-      _lastCustomMap = slot.customMapEntry;
-      _showCustomMapThumb(slot.customMapEntry);
-    } else {
-      _lastCustomMap = null;
-      _hideCustomMapThumb();
-    }
-  }
-
   updateSettingsUIFromSettings();
   refreshExclusionOverlay();
   updatePreview();
@@ -224,8 +204,6 @@ function serializeTextureSlots() {
     id: slot.id,
     name: slot.name,
     activeMapName: slot.activeMapEntry ? slot.activeMapEntry.name : null,
-    isCustomMap: !!slot.activeMapEntry?.isCustom,
-    customMapName: slot.customMapEntry ? slot.customMapEntry.name : null,
     excludedFaces: Array.from(slot.excludedFaces || []),
     settings: slot.settings || {}
   }));
@@ -1206,204 +1184,6 @@ document.getElementById('save-slots-btn')?.addEventListener('click', () => {
   console.log('Saved texture slots:', serialized);
 
 });
-
-// ─────────────────────────────────────────────
-// Material profile save/load (.stltprofile)
-// Profiles keep slot textures + settings, but not face selections.
-// ─────────────────────────────────────────────
-
-function _installProfileButtons() {
-  const anchor = document.getElementById('save-slots-btn');
-  if (!anchor || document.getElementById('save-profile-btn')) return;
-
-  const saveBtn = document.createElement('button');
-  saveBtn.id = 'save-profile-btn';
-  saveBtn.className = 'secondary-btn';
-  saveBtn.type = 'button';
-  saveBtn.textContent = 'Save Material';
-
-  const loadBtn = document.createElement('button');
-  loadBtn.id = 'load-profile-btn';
-  loadBtn.className = 'secondary-btn';
-  loadBtn.type = 'button';
-  loadBtn.textContent = 'Load Material to Slot';
-
-  const input = document.createElement('input');
-  input.id = 'load-profile-input';
-  input.type = 'file';
-  input.accept = '.stltprofile,application/json';
-  input.style.display = 'none';
-
-  anchor.insertAdjacentElement('afterend', input);
-  anchor.insertAdjacentElement('afterend', loadBtn);
-  anchor.insertAdjacentElement('afterend', saveBtn);
-
-  saveBtn.addEventListener('click', saveMaterialProfileToFile);
-  loadBtn.addEventListener('click', () => input.click());
-  input.addEventListener('change', async (e) => {
-    const file = e.target.files && e.target.files[0];
-    e.target.value = '';
-    if (!file) return;
-    try {
-      await loadMaterialProfileFromFile(file);
-    } catch (err) {
-      console.error('Failed to load material profile:', err);
-      alert(`Failed to load material profile: ${err.message}`);
-    }
-  });
-}
-
-function customMapEntryToDataUrl(entry) {
-  if (!entry || !entry.fullCanvas) return null;
-  try {
-    return entry.fullCanvas.toDataURL('image/png');
-  } catch (err) {
-    console.warn('Could not serialize custom map:', entry.name, err);
-    return null;
-  }
-}
-
-function serializeMaterialProfile() {
-  saveActiveSlotState();
-
-  return {
-    type: 'stlTexturizerMaterialProfile',
-    version: 1,
-    savedAt: new Date().toISOString(),
-    activeTextureSlotId,
-    slots: textureSlots.map(slot => {
-      const activeIsCustom = !!slot.activeMapEntry?.isCustom;
-      const customEntry = slot.customMapEntry || (activeIsCustom ? slot.activeMapEntry : null);
-
-      return {
-        id: slot.id,
-        name: slot.name,
-        activeMapType: activeIsCustom ? 'custom' : (slot.activeMapEntry ? 'preset' : null),
-        activeMapName: slot.activeMapEntry ? slot.activeMapEntry.name : null,
-        presetName: !activeIsCustom && slot.activeMapEntry ? slot.activeMapEntry.name : null,
-        customMapName: customEntry ? customEntry.name : null,
-        customMapDataUrl: customEntry ? customMapEntryToDataUrl(customEntry) : null,
-        settings: { ...(slot.settings || {}) }
-      };
-    })
-  };
-}
-
-function saveMaterialProfileToFile() {
-  const profile = serializeMaterialProfile();
-  const json = JSON.stringify(profile, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const base = currentStlName || 'bumpmesh';
-  a.href = url;
-  a.download = `${base}_material_profile.stltprofile`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-
-  console.log('Saved material profile:', profile);
-}
-
-async function getPresetEntryByName(name) {
-  if (!name) return null;
-
-  const idx = IMAGE_PRESETS.findIndex(p => p.name === name);
-  if (idx < 0) return null;
-
-  if (PRESETS[idx]?.texture && PRESETS[idx]?.imageData) {
-    return PRESETS[idx];
-  }
-
-  const thumbEntry = PRESETS[idx] || { name };
-  const full = await loadFullPreset(idx);
-  PRESETS[idx] = { ...thumbEntry, ...full };
-  return PRESETS[idx];
-}
-
-async function customEntryFromDataUrl(dataUrl, name = 'custom-map.png') {
-  if (!dataUrl) return null;
-
-  const response = await fetch(dataUrl);
-  const blob = await response.blob();
-  const file = new File([blob], name, { type: blob.type || 'image/png' });
-  const entry = await loadCustomTexture(file);
-  entry.isCustom = true;
-  entry.name = name;
-  return entry;
-}
-
-async function applyMaterialProfile(profile) {
-  if (!profile || !Array.isArray(profile.slots)) {
-    throw new Error('Invalid profile file');
-  }
-
-  // UX decision:
-  // Loading a material profile applies the profile's saved ACTIVE material
-  // to the CURRENT active slot only. Other slots and face selections are left untouched.
-  saveActiveSlotState();
-
-  const targetSlot = getActiveTextureSlot();
-  if (!targetSlot) {
-    throw new Error('No active texture slot');
-  }
-
-  const sourceSlot =
-    profile.slots.find(s => s.id === profile.activeTextureSlotId) ||
-    profile.slots[0];
-
-  if (!sourceSlot) {
-    throw new Error('Profile contains no material slots');
-  }
-
-  // Preserve current face selections on the target slot.
-  const keptExcludedFaces = new Set(targetSlot.excludedFaces || []);
-  const keptAssignedFaces = new Set(targetSlot.assignedFaces || []);
-
-  targetSlot.settings = { ...(sourceSlot.settings || {}) };
-  targetSlot.activeMapEntry = null;
-  targetSlot.customMapEntry = null;
-
-  if (sourceSlot.activeMapType === 'custom' && sourceSlot.customMapDataUrl) {
-    const entry = await customEntryFromDataUrl(
-      sourceSlot.customMapDataUrl,
-      sourceSlot.customMapName || sourceSlot.activeMapName || `${targetSlot.name}.png`
-    );
-    targetSlot.customMapEntry = entry;
-    targetSlot.activeMapEntry = entry;
-  } else if (sourceSlot.activeMapType === 'preset' || sourceSlot.presetName || sourceSlot.activeMapName) {
-    const presetName = sourceSlot.presetName || sourceSlot.activeMapName;
-    const entry = await getPresetEntryByName(presetName);
-    if (entry) {
-      targetSlot.activeMapEntry = entry;
-    }
-  }
-
-  targetSlot.excludedFaces = keptExcludedFaces;
-  targetSlot.assignedFaces = keptAssignedFaces;
-
-  // Keep the current active tab. Do not jump to profile.activeTextureSlotId.
-  document.querySelectorAll('.texture-tab').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.slot === activeTextureSlotId);
-  });
-
-  restoreSlotState(targetSlot);
-
-  console.log('Applied material profile to current slot:', {
-    targetSlot: targetSlot.id,
-    sourceSlot: sourceSlot.id,
-    profile
-  });
-}
-
-async function loadMaterialProfileFromFile(file) {
-  const text = await file.text();
-  const profile = JSON.parse(text);
-  await applyMaterialProfile(profile);
-}
-
-_installProfileButtons();
 // ── Preset grid ───────────────────────────────────────────────────────────────
 
 function resetTextureSmoothing() {
@@ -1496,21 +1276,11 @@ function _hideCustomMapThumb() {
 
 /** Promote the kept-aside custom map back to the active map. No defaults reset. */
 function _activateCustomMap() {
-  const slot = getActiveTextureSlot();
-  const entry = slot?.customMapEntry || _lastCustomMap;
-  if (!entry) return;
-
-  activeMapEntry = entry;
-  _lastCustomMap = entry;
-
-  if (slot) {
-    slot.activeMapEntry = entry;
-    slot.customMapEntry = entry;
-  }
-
+  if (!_lastCustomMap) return;
+  activeMapEntry = _lastCustomMap;
   document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
   customMapSwatch.classList.add('active');
-  activeMapName.textContent = entry.name;
+  activeMapName.textContent = _lastCustomMap.name;
   updatePreview();
 }
 
@@ -1524,12 +1294,7 @@ if (customMapSwatch) {
 if (customMapRemoveBtn) {
   customMapRemoveBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    const slot = getActiveTextureSlot();
-    const wasActive = activeMapEntry === (slot?.customMapEntry || _lastCustomMap);
-    if (slot) {
-      slot.customMapEntry = null;
-      if (slot.activeMapEntry?.isCustom) slot.activeMapEntry = null;
-    }
+    const wasActive = activeMapEntry === _lastCustomMap;
     _lastCustomMap = null;
     _hideCustomMapThumb();
     if (wasActive) {
@@ -1665,15 +1430,7 @@ function wireEvents() {
     try {
       activeMapEntry = await loadCustomTexture(file);
       activeMapEntry.isCustom = true;
-      activeMapEntry.name = file.name;
       _lastCustomMap = activeMapEntry;
-
-      const slot = getActiveTextureSlot();
-      if (slot) {
-        slot.activeMapEntry = activeMapEntry;
-        slot.customMapEntry = activeMapEntry;
-      }
-
       activeMapName.textContent = file.name;
       document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
       _showCustomMapThumb(activeMapEntry);
