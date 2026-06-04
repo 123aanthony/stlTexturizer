@@ -5775,7 +5775,21 @@ async function toggleAllSlotsPreview() {
 
 previewAllSlotsBtn?.addEventListener('click', toggleAllSlotsPreview);
 clearSlotBtn?.addEventListener('click', () => clearTextureSlot(activeTextureSlotId));
+function refreshExportAllSlotsButton() {
+  if (!exportAllSlotsBtn) return;
 
+  saveActiveSlotState();
+
+  const readySlots = textureSlots.filter(slot =>
+    slot.activeMapEntry &&
+    slot.assignedFaces &&
+    slot.assignedFaces.size > 0
+  );
+
+  exportAllSlotsBtn.disabled = readySlots.length === 0;
+}
+
+setInterval(refreshExportAllSlotsButton, 500);
 
 // ── Export pipeline ───────────────────────────────────────────────────────────
 
