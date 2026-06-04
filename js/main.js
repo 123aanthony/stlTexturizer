@@ -317,24 +317,66 @@ function renderTextureTabs() {
     meta.className = 'texture-tab-meta';
     meta.textContent = 'No map · 0 tris';
 
-    label.addEventListener('dblclick', (e) => {
+    function startInlineRename(e) {
       e.preventDefault();
       e.stopPropagation();
 
       const currentSlot = textureSlots.find(s => s.id === slot.id);
       if (!currentSlot) return;
 
-      const nextName = prompt(
-        'Rename slot',
-        currentSlot.name || slot.name || slot.id
-      );
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'texture-tab-rename-input';
+      input.value = currentSlot.name || slot.name || slot.id;
+      input.style.width = '100%';
+      input.style.minWidth = '0';
+      input.style.border = '1px solid var(--accent)';
+      input.style.borderRadius = '5px';
+      input.style.background = 'var(--surface)';
+      input.style.color = 'var(--text)';
+      input.style.font = 'inherit';
+      input.style.fontWeight = '800';
+      input.style.padding = '2px 4px';
+      input.style.outline = 'none';
 
-      if (!nextName) return;
+      const previousText = label.textContent;
+      label.replaceWith(input);
+      input.focus();
+      input.select();
 
-      currentSlot.name = nextName.trim();
+      const commit = () => {
+        const nextName = input.value.trim();
+        if (nextName) currentSlot.name = nextName;
+        renderTextureTabs();
+        saveTextureSlotsToStorage();
+      };
 
-      renderTextureTabs();
-      saveTextureSlotsToStorage();
+      const cancel = () => {
+        currentSlot.name = currentSlot.name || previousText;
+        renderTextureTabs();
+      };
+
+      input.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          commit();
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          cancel();
+        }
+      });
+
+      input.addEventListener('blur', commit);
+    }
+
+    label.addEventListener('dblclick', startInlineRename);
+    label.addEventListener('click', (e) => {
+      if (e.altKey || e.detail >= 2) startInlineRename(e);
     });
 
     const content = document.createElement('span');
