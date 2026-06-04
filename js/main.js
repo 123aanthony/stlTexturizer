@@ -186,14 +186,13 @@ function applyTextureTabInlineStyle(btn, isActive, isUsed, hasOverlap = false) {
     btn.style.opacity = '.72';
   }
 }
-
 function renderTextureTabs() {
   const container = document.getElementById('texture-tabs');
   if (!container) return;
 
   container.innerHTML = '';
 
- for (const slot of textureSlots) {
+  for (const slot of textureSlots) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'texture-tab';
@@ -202,39 +201,45 @@ function renderTextureTabs() {
     const dot = document.createElement('span');
     dot.className = 'texture-tab-indicator';
     dot.setAttribute('aria-hidden', 'true');
-    dot.style.display = 'block';
-    dot.style.width = '8px';
-    dot.style.height = '8px';
-    dot.style.borderRadius = '999px';
-    dot.style.flex = '0 0 auto';
 
-const label = document.createElement('span');
-label.className = 'texture-tab-label';
-label.textContent = slot.name;
-label.title = 'Double-click to rename';
-label.style.whiteSpace = 'nowrap';
-label.style.cursor = 'text';
+    const label = document.createElement('span');
+    label.className = 'texture-tab-label';
+    label.textContent = slot.name || slot.id;
+    label.title = 'Double-click to rename';
+    label.style.cursor = 'text';
 
-label.addEventListener('dblclick', (e) => {
-  e.preventDefault();
-  e.stopPropagation();
+    const meta = document.createElement('span');
+    meta.className = 'texture-tab-meta';
+    meta.textContent = 'No map · 0 faces';
 
-  const currentSlot = textureSlots.find(s => s.id === slot.id);
-  if (!currentSlot) return;
+    const lock = document.createElement('span');
+    lock.className = 'texture-tab-lock';
+    lock.textContent = slot.locked ? '🔒' : '';
 
-  const nextName = prompt('Rename slot', currentSlot.name || slot.name || slot.id);
-  if (!nextName) return;
+    label.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
 
-  currentSlot.name = nextName.trim();
-  label.textContent = currentSlot.name;
-  btn.title = getSlotTooltip(currentSlot);
+      const currentSlot = textureSlots.find(s => s.id === slot.id);
+      if (!currentSlot) return;
 
-  saveTextureSlotsToStorage();
-  refreshTextureTabsUI();
-});
+      const nextName = prompt('Rename slot', currentSlot.name || slot.name || slot.id);
+      if (!nextName) return;
+
+      currentSlot.name = nextName.trim();
+
+      renderTextureTabs();
+      saveTextureSlotsToStorage();
+    });
+
+    const content = document.createElement('span');
+    content.className = 'texture-tab-content';
+    content.appendChild(label);
+    content.appendChild(meta);
 
     btn.appendChild(dot);
-    btn.appendChild(label);
+    btn.appendChild(content);
+    btn.appendChild(lock);
     container.appendChild(btn);
   }
 
@@ -267,6 +272,23 @@ function refreshTextureTabsUI() {
     applyTextureTabInlineStyle(btn, isActive, isUsed, hasOverlap);
 
     const indicator = btn.querySelector('.texture-tab-indicator');
+
+const label = btn.querySelector('.texture-tab-label');
+if (label && slot) {
+  label.textContent = slot.name || slot.id;
+}
+
+const meta = btn.querySelector('.texture-tab-meta');
+if (meta && slot) {
+  const faces = getSlotFaceCount(slot);
+  const map = slot.activeMapEntry ? slot.activeMapEntry.name : 'No map';
+  meta.textContent = `${map} · ${faces} faces`;
+}
+
+const lock = btn.querySelector('.texture-tab-lock');
+if (lock && slot) {
+  lock.textContent = slot.locked ? '🔒' : '';
+}
     if (indicator) {
       indicator.classList.toggle('active', isActive);
       indicator.classList.toggle('used', isUsed);
