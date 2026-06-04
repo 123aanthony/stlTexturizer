@@ -193,7 +193,7 @@ function renderTextureTabs() {
 
   container.innerHTML = '';
 
-  for (const slot of TEXTURE_SLOT_DEFS) {
+ for (const slot of textureSlots) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'texture-tab';
@@ -208,10 +208,30 @@ function renderTextureTabs() {
     dot.style.borderRadius = '999px';
     dot.style.flex = '0 0 auto';
 
-    const label = document.createElement('span');
-    label.className = 'texture-tab-label';
-    label.textContent = slot.name;
-    label.style.whiteSpace = 'nowrap';
+const label = document.createElement('span');
+label.className = 'texture-tab-label';
+label.textContent = slot.name;
+label.title = 'Double-click to rename';
+label.style.whiteSpace = 'nowrap';
+label.style.cursor = 'text';
+
+label.addEventListener('dblclick', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+
+  const currentSlot = textureSlots.find(s => s.id === slot.id);
+  if (!currentSlot) return;
+
+  const nextName = prompt('Rename slot', currentSlot.name || slot.name || slot.id);
+  if (!nextName) return;
+
+  currentSlot.name = nextName.trim();
+  label.textContent = currentSlot.name;
+  btn.title = getSlotTooltip(currentSlot);
+
+  saveTextureSlotsToStorage();
+  refreshTextureTabsUI();
+});
 
     btn.appendChild(dot);
     btn.appendChild(label);
@@ -1697,7 +1717,11 @@ function saveMaterialProfileToFile() {
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  const base = currentStlName || 'bumpmesh';
+ const activeSlot = getActiveTextureSlot();
+const base = (activeSlot?.name || activeTextureSlotId || 'material')
+  .trim()
+  .replace(/[^\w.-]+/g, '-')
+  .replace(/^-+|-+$/g, '') || 'material';
   a.href = url;
   a.download = `${base}_material_profile.stltprofile`;
   document.body.appendChild(a);
@@ -1833,6 +1857,8 @@ async function restoreProjectTextureSlots(savedSlots, savedActiveSlotId) {
     }
   }
 
+  renderTextureTabs();
+
   activeTextureSlotId = normalizeTextureSlotId(savedActiveSlotId || activeTextureSlotId);
   if (!textureSlots.some(s => s.id === activeTextureSlotId)) {
     activeTextureSlotId = textureSlots[0]?.id || 'slot1';
@@ -1926,7 +1952,11 @@ async function applyMaterialProfile(profile) {
   document.querySelectorAll('.texture-tab').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.slot === activeTextureSlotId);
   });
+if (sourceSlot.name) {
+  targetSlot.name = sourceSlot.name;
+}
 
+renderTextureTabs();
   restoreSlotState(targetSlot);
 
   console.log('Applied material profile to current slot:', {
@@ -5994,9 +6024,22 @@ async function handleExport(format = 'stl') {
       snapBottomToFlat(finalGeometry, currentBounds.min.z, 0.1);
     }
 
-    const texLabel = activeMapEntry.isCustom ? 'custom' : activeMapEntry.name.replace(/\s+/g, '-');
-    const ampLabel = settings.amplitude.toFixed(2).replace('.', 'p');
-    const baseName = `${currentStlName}_${texLabel}_amp${ampLabel}`;
+saveActiveSlotState();
+
+const activeSlot = getActiveTextureSlot();
+
+const slotLabel = (activeSlot?.name || activeTextureSlotId || 'slot')
+  .trim()
+  .replace(/[^\w.-]+/g, '-')
+  .replace(/^-+|-+$/g, '');
+
+const texLabel = activeMapEntry.isCustom
+  ? 'custom'
+  : activeMapEntry.name.replace(/\s+/g, '-');
+
+const ampLabel = settings.amplitude.toFixed(2).replace('.', 'p');
+
+const baseName = `${currentStlName}_${slotLabel}_${texLabel}_amp${ampLabel}`;
 
     if (format === '3mf') {
       setProgress(0.97, t('progress.writing3mf'));
