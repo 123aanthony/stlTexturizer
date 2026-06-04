@@ -2140,3 +2140,12 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
 .texture-tab.overlap {
   border-color: #ef4444;
 }
+.texture-tab-add {
+  justify-content: center;
+  font-weight: 700;
+  opacity: .8;
+}
+
+.texture-tab-add:hover {
+  opacity: 1;
+}

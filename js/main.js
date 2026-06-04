@@ -31,10 +31,32 @@ let activeMapEntry    = null;   // { name, texture, imageData, width, height, is
 // Diorama multi-texture slots (POC V1)
 // ─────────────────────────────────────────────
 
-const TEXTURE_SLOT_DEFS = Array.from({ length: 10 }, (_, i) => ({
+const TEXTURE_SLOT_DEFS = Array.from({ length: 3 }, (_, i) => ({
   id: `slot${i + 1}`,
   name: `Slot ${i + 1}`
 }));
+
+function createTextureSlot(index) {
+  return {
+    id: `slot${index}`,
+    name: `Slot ${index}`,
+    activeMapEntry: null,
+    customMapEntry: null,
+    excludedFaces: new Set(),
+    assignedFaces: new Set(),
+    selectionMode: true,
+    settings: {}
+  };
+}
+
+function addTextureSlot() {
+  const next = textureSlots.length + 1;
+
+  textureSlots.push(createTextureSlot(next));
+
+  renderTextureTabs();
+  saveTextureSlotsToStorage();
+}
 
 let textureSlots = TEXTURE_SLOT_DEFS.map(slot => ({
   ...slot,
@@ -43,7 +65,8 @@ let textureSlots = TEXTURE_SLOT_DEFS.map(slot => ({
   excludedFaces: new Set(),
   assignedFaces: new Set(),
   selectionMode: true,
-  settings: {}
+  settings: {},
+  locked: false,
 }));
 
 let activeTextureSlotId = 'slot1';
@@ -212,7 +235,7 @@ function renderTextureTabs() {
 const lock = document.createElement('button');
 lock.type = 'button';
 lock.className = 'texture-tab-lock';
-lock.textContent = slot.locked ? '🔒' : '🔓';
+lock.textContent = slot.locked ? '🔒' : 'U';
 lock.title = slot.locked ? 'Unlock slot' : 'Lock slot';
 
 lock.addEventListener('click', (e) => {
@@ -251,7 +274,16 @@ lock.addEventListener('click', (e) => {
     btn.appendChild(lock);
     container.appendChild(btn);
   }
+const addBtn = document.createElement('button');
+addBtn.type = 'button';
+addBtn.className = 'texture-tab texture-tab-add';
+addBtn.textContent = '+ Add Slot';
 
+addBtn.addEventListener('click', () => {
+  addTextureSlot();
+});
+
+container.appendChild(addBtn);
   refreshTextureTabsUI();
 }
 function refreshTextureTabsUI() {
@@ -310,7 +342,8 @@ if (thumb && slot) {
 }
 const lock = btn.querySelector('.texture-tab-lock');
 if (lock && slot) {
-  lock.textContent = slot.locked ? '🔒' : '';
+  lock.textContent = slot.locked ? '🔒' : '🔓';
+  lock.title = slot.locked ? 'Unlock slot' : 'Lock slot';
 }
     if (indicator) {
       indicator.classList.toggle('active', isActive);
@@ -1831,7 +1864,17 @@ function serializeProjectTextureSlots() {
 
 async function restoreProjectTextureSlots(savedSlots, savedActiveSlotId) {
   if (!Array.isArray(savedSlots)) return;
-
+textureSlots = savedSlots.map((saved, index) => ({
+  id: saved.id || `slot${index + 1}`,
+  name: saved.name || `Slot ${index + 1}`,
+  activeMapEntry: null,
+  customMapEntry: null,
+  excludedFaces: new Set(),
+  assignedFaces: new Set(),
+  selectionMode: true,
+ settings: {},
+locked: false
+}));
   isRestoringProject = true;
 
   const triCount = currentGeometry
