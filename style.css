@@ -2228,22 +2228,81 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   color: #ef4444;
 }
 
-/* ── BumpForge cleanup: remove upstream promo / popup / footer UI ───────── */
-#store-cta-wrapper,
-#store-cta,
-#sponsor-overlay,
-.sponsor-overlay,
-#welcome-overlay,
-.welcome-overlay,
-#welcome-link,
-#license-link,
-#imprint-link,
-.license-link,
-a[href*="CNCKitchen"],
-a[href*="paypal.me/CNCKitchen"],
-a[href*="ko-fi.com/cnckitchen"],
-a[href*="geni.us/CNCStoreTexture"] {
-  display: none !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
+/* ── BumpForge ultrawide wide-sidebar patch ─────────────────────────────────
+   Safe CSS-only version.
+   No DOM reordering, no JS, no two-column logic.
+   On ultrawide screens, the right panel simply gets more width so grids,
+   sliders and texture libraries need less vertical scrolling.
+*/
+@media (min-width: 2300px) and (min-height: 1000px) {
+  :root {
+    --sidebar-w: min(920px, 34vw);
+  }
+
+  #settings-panel {
+    width: var(--sidebar-w) !important;
+    max-width: var(--sidebar-w) !important;
+    min-width: 840px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  /* Use the extra width inside existing sections without changing structure. */
+  #texture-tabs {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  #preset-grid,
+  .preset-grid,
+  #custom-library-grid,
+  .custom-library-grid {
+    grid-template-columns: repeat(auto-fill, minmax(68px, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  #custom-library-grid,
+  .custom-library-grid {
+    max-height: 420px;
+    overflow-y: auto;
+  }
+
+  .custom-library-actions,
+  .custom-library-controls,
+  .material-slots-actions,
+  .project-io,
+  .export-buttons-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .setting-row,
+  .slider-row,
+  .control-row {
+    min-width: 0;
+  }
 }
+
+/* 3440×1440 maximized / very wide: give the sidebar a bit more room. */
+@media (min-width: 3100px) and (min-height: 1000px) {
+  :root {
+    --sidebar-w: min(1080px, 36vw);
+  }
+
+  #settings-panel {
+    min-width: 980px;
+  }
+
+  #texture-tabs {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  }
+
+  #preset-grid,
+  .preset-grid,
+  #custom-library-grid,
+  .custom-library-grid {
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)) !important;
+  }
+}
+
