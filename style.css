@@ -2102,32 +2102,6 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   white-space: nowrap;
 }
 
-.texture-tab-lock {
-  position: absolute;
-  top: 7px;
-  right: 7px;
-  width: 16px;
-  height: 16px;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 12px;
-  line-height: 16px;
-  opacity: 0.35;
-  padding: 0;
-  text-align: center;
-}
-
-.texture-tab:hover .texture-tab-lock {
-  opacity: 0.85;
-}
-
-.texture-tab-lock:hover {
-  opacity: 1;
-  transform: scale(1.08);
-}
-
 .texture-tab.active {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(124,106,255,.35);
@@ -2148,4 +2122,21 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
 
 .texture-tab-add:hover {
   opacity: 1;
+}
+.texture-tab-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.texture-tab-map,
+.texture-tab-faces {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.texture-tab-faces {
+  opacity: 0.85;
 }

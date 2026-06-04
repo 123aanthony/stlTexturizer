@@ -66,7 +66,6 @@ let textureSlots = TEXTURE_SLOT_DEFS.map(slot => ({
   assignedFaces: new Set(),
   selectionMode: true,
   settings: {},
-  locked: false,
 }));
 
 let activeTextureSlotId = 'slot1';
@@ -232,22 +231,6 @@ function renderTextureTabs() {
     meta.className = 'texture-tab-meta';
     meta.textContent = 'No map · 0 tris';
 
-const lock = document.createElement('button');
-lock.type = 'button';
-lock.className = 'texture-tab-lock';
-lock.textContent = slot.locked ? '🔒' : 'U';
-lock.title = slot.locked ? 'Unlock slot' : 'Lock slot';
-
-lock.addEventListener('click', (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-
-  slot.locked = !slot.locked;
-
-  renderTextureTabs();
-  saveTextureSlotsToStorage();
-});
-
     label.addEventListener('dblclick', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -271,7 +254,6 @@ lock.addEventListener('click', (e) => {
 
     btn.appendChild(thumb);
     btn.appendChild(content);
-    btn.appendChild(lock);
     container.appendChild(btn);
   }
 const addBtn = document.createElement('button');
@@ -323,7 +305,10 @@ if (meta && slot) {
   const faces = getSlotFaceCount(slot);
   const map = slot.activeMapEntry ? slot.activeMapEntry.name : 'No map';
   const label = faces === 1 ? 'tri' : 'tris';
-meta.textContent = `${map} · ${faces} ${label}`;
+meta.innerHTML = `
+  <span class="texture-tab-map">${map}</span>
+  <span class="texture-tab-faces">${faces} ${label}</span>
+`;
 }
 const thumb = btn.querySelector('.texture-tab-thumb');
 if (thumb && slot) {
@@ -339,11 +324,6 @@ if (thumb && slot) {
   } else if (entry?.texture?.image?.src) {
     thumb.style.backgroundImage = `url(${entry.texture.image.src})`;
   }
-}
-const lock = btn.querySelector('.texture-tab-lock');
-if (lock && slot) {
-  lock.textContent = slot.locked ? '🔒' : '🔓';
-  lock.title = slot.locked ? 'Unlock slot' : 'Lock slot';
 }
     if (indicator) {
       indicator.classList.toggle('active', isActive);
@@ -1873,7 +1853,6 @@ textureSlots = savedSlots.map((saved, index) => ({
   assignedFaces: new Set(),
   selectionMode: true,
  settings: {},
-locked: false
 }));
   isRestoringProject = true;
 
