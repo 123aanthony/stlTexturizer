@@ -2228,7 +2228,7 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   color: #ef4444;
 }
 
-/* ── BumpForge ultrawide wide-sidebar patch ─────────────────────────────────
+
    Safe CSS-only version.
    No DOM reordering, no JS, no two-column logic.
    On ultrawide screens, the right panel simply gets more width so grids,
@@ -2303,6 +2303,134 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   #custom-library-grid,
   .custom-library-grid {
     grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)) !important;
+  }
+}
+
+/* ── BumpForge cleanup: upstream promo / sponsor / GitHub UI ──────────────── */
+#welcome-overlay,
+#store-cta-wrapper,
+#sponsor-banner,
+#support-banner,
+#support-overlay,
+#donation-overlay,
+#promo-overlay,
+#welcome-link,
+#license-link,
+#imprint-link,
+.github-link,
+.store-cta,
+.support-banner,
+.sponsor-banner,
+.donation-banner,
+.promo-banner,
+.footer-links,
+.footer-link,
+a[href*="CNCKitchen"],
+a[href*="PayPal"],
+a[href*="ko-fi"],
+a[href*="github.com/CNCKitchen"],
+a[href*="github.com/cnckitchen"] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+
+/* ── BumpForge ultrawide structured 2-column layout ──────────────────────────
+   Stable version with real wrapper columns.
+   Normal screens keep the regular single-column UI.
+*/
+@media (min-width: 2300px) and (min-height: 1000px) {
+  :root {
+    --sidebar-w: min(1320px, 45vw);
+  }
+
+  #settings-panel.bf-ultrawide-structured {
+    width: var(--sidebar-w) !important;
+    max-width: var(--sidebar-w) !important;
+    min-width: 1120px;
+    display: grid !important;
+    grid-template-columns: minmax(520px, 0.95fr) minmax(540px, 1.05fr);
+    gap: 14px;
+    align-items: start;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 12px;
+    box-sizing: border-box;
+  }
+
+  #settings-panel.bf-ultrawide-structured > .bf-ultra-left,
+  #settings-panel.bf-ultrawide-structured > .bf-ultra-right {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  #settings-panel.bf-ultrawide-structured > .bf-ultra-left > *,
+  #settings-panel.bf-ultrawide-structured > .bf-ultra-right > * {
+    width: 100%;
+    min-width: 0;
+    margin: 0 !important;
+  }
+
+  #settings-panel.bf-ultrawide-structured .panel-section,
+  #settings-panel.bf-ultrawide-structured section,
+  #settings-panel.bf-ultrawide-structured .card,
+  #settings-panel.bf-ultrawide-structured .settings-card {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+
+  #settings-panel.bf-ultrawide-structured #texture-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  #settings-panel.bf-ultrawide-structured #preset-grid,
+  #settings-panel.bf-ultrawide-structured .preset-grid,
+  #settings-panel.bf-ultrawide-structured #custom-library-grid,
+  #settings-panel.bf-ultrawide-structured .custom-library-grid {
+    grid-template-columns: repeat(auto-fill, minmax(66px, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  #settings-panel.bf-ultrawide-structured #custom-library-grid,
+  #settings-panel.bf-ultrawide-structured .custom-library-grid {
+    max-height: 380px;
+    overflow-y: auto;
+  }
+
+  #settings-panel.bf-ultrawide-structured .custom-library-actions,
+  #settings-panel.bf-ultrawide-structured .custom-library-controls,
+  #settings-panel.bf-ultrawide-structured .material-slots-actions,
+  #settings-panel.bf-ultrawide-structured .project-io,
+  #settings-panel.bf-ultrawide-structured .export-buttons-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+
+@media (min-width: 3100px) and (min-height: 1000px) {
+  :root {
+    --sidebar-w: min(1500px, 46vw);
+  }
+
+  #settings-panel.bf-ultrawide-structured {
+    min-width: 1280px;
+    grid-template-columns: minmax(620px, 0.95fr) minmax(620px, 1.05fr);
+  }
+
+  #settings-panel.bf-ultrawide-structured #texture-tabs {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+
+  #settings-panel.bf-ultrawide-structured #preset-grid,
+  #settings-panel.bf-ultrawide-structured .preset-grid,
+  #settings-panel.bf-ultrawide-structured #custom-library-grid,
+  #settings-panel.bf-ultrawide-structured .custom-library-grid {
+    grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)) !important;
   }
 }
 

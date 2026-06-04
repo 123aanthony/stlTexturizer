@@ -518,6 +518,215 @@ if (removeAction) removeAction.style.display = slot && !isUsed && textureSlots.l
     }
   });
 }
+
+
+// ── BumpForge cleanup: hide upstream promo/support UI ───────────────────────
+function hideUpstreamPromoUI() {
+  const selectors = [
+    '#welcome-overlay',
+    '#store-cta-wrapper',
+    '#sponsor-banner',
+    '#support-banner',
+    '#support-overlay',
+    '#donation-overlay',
+    '#promo-overlay',
+    '.store-cta',
+    '.support-banner',
+    '.sponsor-banner',
+    '.donation-banner',
+    '.promo-banner',
+    '.github-link',
+    '#welcome-link',
+    '#license-link',
+    '#imprint-link'
+  ];
+
+  for (const selector of selectors) {
+    document.querySelectorAll(selector).forEach(el => {
+      el.classList.add('hidden');
+      el.style.display = 'none';
+      el.setAttribute('aria-hidden', 'true');
+    });
+  }
+
+  document.querySelectorAll('a[href*="CNCKitchen"], a[href*="PayPal"], a[href*="ko-fi"], a[href*="github.com/CNCKitchen"], a[href*="github.com/cnckitchen"]').forEach(el => {
+    const removable = el.closest('button, a, li, .footer-link, .top-link, .icon-btn, .store-cta, .support-banner') || el;
+    removable.style.display = 'none';
+    removable.setAttribute('aria-hidden', 'true');
+  });
+}
+
+document.addEventListener('DOMContentLoaded', hideUpstreamPromoUI);
+setTimeout(hideUpstreamPromoUI, 250);
+setTimeout(hideUpstreamPromoUI, 1000);
+setInterval(hideUpstreamPromoUI, 2000);
+
+
+// ── BumpForge ultrawide structured layout ────────────────────────────────────
+// Real two-column layout for ultrawide screens.
+// Left: model / material slots / displacement map / custom texture library.
+// Right: custom map upload / active texture controls / remaining settings.
+// The layout is applied after app startup so it does not break initialization.
+(function setupBumpForgeStructuredUltrawideLayout() {
+  const MQ = '(min-width: 2300px) and (min-height: 1000px)';
+  const media = window.matchMedia(MQ);
+  let applied = false;
+  let originalOrder = [];
+
+  function containsAny(node, selectors) {
+    return selectors.some(sel => {
+      try { return node.matches?.(sel) || node.querySelector?.(sel); }
+      catch { return false; }
+    });
+  }
+
+  function isCustomMapUploadNode(node) {
+    if (!(node instanceof HTMLElement)) return false;
+
+    const text = (node.textContent || '').toLowerCase();
+    const id = (node.id || '').toLowerCase();
+    const cls = (node.className || '').toString().toLowerCase();
+
+    // This is the manual upload/active map control.
+    // It must be kept in the right settings column.
+    return (
+      containsAny(node, [
+        '#custom-map-row',
+        '#custom-map-swatch',
+        '#custom-map-remove',
+        '#texture-file-input'
+      ]) ||
+      id.includes('custom-map') ||
+      cls.includes('custom-map') ||
+      text.includes('charger une carte personnalisée') ||
+      text.includes('charger une carte personnalisee') ||
+      text.includes('upload custom') ||
+      text.includes('custom map')
+    );
+  }
+
+  function isDisplacementLibraryNode(node) {
+    if (!(node instanceof HTMLElement)) return false;
+    const text = (node.textContent || '').toLowerCase();
+
+    return (
+      containsAny(node, ['#preset-grid', '.preset-grid']) ||
+      text.includes('carte de déplacement') ||
+      text.includes('carte de deplacement')
+    );
+  }
+
+  function isPersonalLibraryNode(node) {
+    if (!(node instanceof HTMLElement)) return false;
+    const text = (node.textContent || '').toLowerCase();
+    const id = (node.id || '').toLowerCase();
+    const cls = (node.className || '').toString().toLowerCase();
+
+    return (
+      containsAny(node, ['#custom-library-grid', '.custom-library-grid']) ||
+      id.includes('custom-library') ||
+      cls.includes('custom-library') ||
+      text.includes('custom texture library') ||
+      text.includes('bibliothèque personnelle') ||
+      text.includes('bibliotheque personnelle')
+    );
+  }
+
+  function isLeftWorkflowNode(node, firstChild) {
+    if (!(node instanceof HTMLElement)) return false;
+
+    // Right-column exception first:
+    // manual upload/active texture panel is not the personal library.
+    if (isCustomMapUploadNode(node) && !isPersonalLibraryNode(node)) return false;
+
+    const text = (node.textContent || '').toLowerCase();
+    const id = (node.id || '').toLowerCase();
+    const cls = (node.className || '').toString().toLowerCase();
+
+    if (node === firstChild) return true;
+    if (node.querySelector('#texture-tabs')) return true;
+    if (isDisplacementLibraryNode(node)) return true;
+    if (isPersonalLibraryNode(node)) return true;
+
+    return (
+      id.includes('material-slot') ||
+      cls.includes('material-slot') ||
+      text.includes('material slots')
+    );
+  }
+
+  function applyLayout() {
+    const panel = document.getElementById('settings-panel');
+    if (!panel) return;
+
+    if (!media.matches) {
+      removeLayout(panel);
+      return;
+    }
+
+    if (applied) return;
+
+    const children = Array.from(panel.children)
+      .filter(el => !el.classList.contains('bf-ultra-left') && !el.classList.contains('bf-ultra-right'));
+
+    if (!children.length) return;
+
+    originalOrder = children.slice();
+
+    const left = document.createElement('div');
+    left.className = 'bf-ultra-left';
+
+    const right = document.createElement('div');
+    right.className = 'bf-ultra-right';
+
+    const firstChild = children[0];
+
+    for (const child of children) {
+      if (isLeftWorkflowNode(child, firstChild)) {
+        left.appendChild(child);
+      } else {
+        right.appendChild(child);
+      }
+    }
+
+    panel.appendChild(left);
+    panel.appendChild(right);
+    panel.classList.add('bf-ultrawide-structured');
+    applied = true;
+  }
+
+  function removeLayout(panel) {
+    if (!applied) return;
+
+    const left = panel.querySelector(':scope > .bf-ultra-left');
+    const right = panel.querySelector(':scope > .bf-ultra-right');
+    const moved = [];
+
+    if (left) moved.push(...Array.from(left.children));
+    if (right) moved.push(...Array.from(right.children));
+
+    panel.classList.remove('bf-ultrawide-structured');
+
+    for (const child of originalOrder.length ? originalOrder : moved) {
+      if (moved.includes(child)) panel.appendChild(child);
+    }
+
+    left?.remove();
+    right?.remove();
+
+    applied = false;
+  }
+
+  function scheduleApply() {
+    requestAnimationFrame(() => setTimeout(applyLayout, 250));
+  }
+
+  window.addEventListener('resize', scheduleApply);
+  document.addEventListener('DOMContentLoaded', scheduleApply);
+  setTimeout(applyLayout, 1200);
+})();
+// ── End BumpForge ultrawide structured layout ──
+
 let _lastCustomMap    = null;   // most recent uploaded/imported custom-map entry, kept across preset switches so the thumbnail can re-activate it
 let previewMaterial   = null;
 let isExporting       = false;
@@ -1743,7 +1952,7 @@ document.getElementById('theme-toggle').addEventListener('click', () => {
 });
 
 wireEvents();
-showWelcomeIfNeeded();
+/* BumpForge: welcome disabled */
 // Sync scale number inputs with the slider's initial position
 scaleUVal.value = posToScale(parseFloat(scaleUSlider.value));
 scaleVVal.value = posToScale(parseFloat(scaleVSlider.value));
@@ -2718,6 +2927,8 @@ function openWelcome({ allowDismissPersist }) {
 }
 
 function showWelcomeIfNeeded() {
+  return; // BumpForge: welcome disabled
+
   return; // BumpForge: upstream welcome popup disabled
 }
 
