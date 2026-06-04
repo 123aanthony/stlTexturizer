@@ -881,6 +881,48 @@ function saveTextureSlotsToStorage() {
     JSON.stringify(serializeTextureSlots())
   );
 }
+
+
+// ── BumpForge cleanup: hide upstream promo/welcome/support UI ────────────────
+function hideUpstreamPromoUI() {
+  const selectors = [
+    '#welcome-overlay',
+    '#store-cta-wrapper',
+    '#sponsor-banner',
+    '#support-banner',
+    '#support-overlay',
+    '#donation-overlay',
+    '#promo-overlay',
+    '.store-cta',
+    '.support-banner',
+    '.sponsor-banner',
+    '.donation-banner',
+    '.promo-banner',
+    '.github-link',
+    '#welcome-link',
+    '#license-link',
+    '#imprint-link'
+  ];
+
+  for (const selector of selectors) {
+    document.querySelectorAll(selector).forEach(el => {
+      el.classList.add('hidden');
+      el.style.display = 'none';
+      el.setAttribute('aria-hidden', 'true');
+    });
+  }
+
+  document.querySelectorAll('a[href*="CNCKitchen"], a[href*="PayPal"], a[href*="ko-fi"], a[href*="github.com/CNCKitchen"]').forEach(el => {
+    const removable = el.closest('button, a, li, .footer-link, .top-link, .icon-btn, .store-cta, .support-banner') || el;
+    removable.style.display = 'none';
+    removable.setAttribute('aria-hidden', 'true');
+  });
+}
+
+document.addEventListener('DOMContentLoaded', hideUpstreamPromoUI);
+setTimeout(hideUpstreamPromoUI, 250);
+setTimeout(hideUpstreamPromoUI, 1000);
+
 // ── Canvas filter support (Safari / iOS WebView don't support ctx.filter) ────
 const CANVAS_FILTER_SUPPORTED = 'filter' in CanvasRenderingContext2D.prototype;
 
@@ -994,11 +1036,8 @@ const customMapRow      = document.getElementById('custom-map-row');
 const customMapSwatch   = document.getElementById('custom-map-swatch');
 const customMapRemoveBtn = document.getElementById('custom-map-remove');
 const customLibraryGrid = document.getElementById('custom-library-grid');
-const customLibraryFilters = document.getElementById('custom-library-filters');
 const customLibraryEmpty = document.getElementById('custom-library-empty');
 const importTextureFolderBtn = document.getElementById('import-texture-folder-btn');
-const rescanTextureLibraryBtn = document.getElementById('rescan-texture-library-btn');
-const clearTextureLibraryBtn = document.getElementById('clear-texture-library-btn');
 const importTextureFilesBtn = document.getElementById('import-texture-files-btn');
 const customLibraryFilesInput = document.getElementById('custom-library-files-input');
 const meshInfo       = document.getElementById('mesh-info');
@@ -1743,7 +1782,7 @@ document.getElementById('theme-toggle').addEventListener('click', () => {
 });
 
 wireEvents();
-showWelcomeIfNeeded();
+/* BumpForge: welcome popup disabled */
 // Sync scale number inputs with the slider's initial position
 scaleUVal.value = posToScale(parseFloat(scaleUSlider.value));
 scaleVVal.value = posToScale(parseFloat(scaleVSlider.value));
@@ -2305,8 +2344,6 @@ function _hideCustomMapThumb() {
 
 const customTextureLibrary = [];
 const customTextureLibraryKeys = new Set();
-let customTextureLibraryFilter = 'ALL';
-let customTextureLibraryRoot = null;
 
 function isSupportedTextureFile(file) {
   return !!file && /^image\//i.test(file.type || '') ||
@@ -2338,54 +2375,6 @@ function drawEntryThumbnail(entry, size = 64) {
   return canvas;
 }
 
-function getCustomTextureLibraryGroups() {
-  const groups = new Map();
-
-  for (const entry of customTextureLibrary) {
-    const groupName = entry.libraryGroup || 'Imported';
-    if (!groups.has(groupName)) groups.set(groupName, []);
-    groups.get(groupName).push(entry);
-  }
-
-  return groups;
-}
-
-function renderCustomTextureLibraryFilters(groups = getCustomTextureLibraryGroups()) {
-  if (!customLibraryFilters) return;
-
-  customLibraryFilters.innerHTML = '';
-
-  const groupEntries = Array.from(groups.entries())
-    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
-
-  const total = groupEntries.reduce((sum, [, entries]) => sum + entries.length, 0);
-
-  const makeFilterButton = (label, value, count) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'custom-library-filter-btn';
-    btn.classList.toggle('active', customTextureLibraryFilter === value);
-    btn.textContent = `${label} (${count})`;
-
-    btn.addEventListener('click', () => {
-      customTextureLibraryFilter = value;
-      renderCustomTextureLibrary();
-    });
-
-    customLibraryFilters.appendChild(btn);
-  };
-
-  if (total > 0) {
-    makeFilterButton('ALL', 'ALL', total);
-  }
-
-  for (const [groupName, entries] of groupEntries) {
-    makeFilterButton(groupName, groupName, entries.length);
-  }
-
-  customLibraryFilters.classList.toggle('hidden', total === 0);
-}
-
 function renderCustomTextureLibrary() {
   if (!customLibraryGrid) return;
 
@@ -2394,27 +2383,31 @@ function renderCustomTextureLibrary() {
   const hasEntries = customTextureLibrary.length > 0;
   customLibraryEmpty?.classList.toggle('hidden', hasEntries);
 
-  const groups = getCustomTextureLibraryGroups();
-  renderCustomTextureLibraryFilters(groups);
+  const groups = new Map();
+  for (const entry of customTextureLibrary) {
+    const groupName = entry.libraryGroup || 'Imported';
+    if (!groups.has(groupName)) groups.set(groupName, []);
+    groups.get(groupName).push(entry);
+  }
 
-  const sortedGroups = Array.from(groups.entries())
-    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
-
-  for (const [groupName, entriesRaw] of sortedGroups) {
-    if (customTextureLibraryFilter !== 'ALL' && customTextureLibraryFilter !== groupName) {
-      continue;
-    }
-
-    const entries = [...entriesRaw].sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, { numeric: true })
-    );
-
+  for (const [groupName, entries] of groups) {
     if (groups.size > 1 || groupName !== 'Imported') {
       const heading = document.createElement('div');
       heading.className = 'custom-library-group-heading';
       heading.textContent = `${groupName} (${entries.length})`;
+      heading.style.gridColumn = '1 / -1';
+      heading.style.margin = '4px 0 2px';
+      heading.style.padding = '3px 2px';
+      heading.style.fontSize = '10px';
+      heading.style.fontWeight = '800';
+      heading.style.letterSpacing = '.06em';
+      heading.style.textTransform = 'uppercase';
+      heading.style.color = 'var(--text-muted)';
+      heading.style.borderBottom = '1px solid var(--border)';
       customLibraryGrid.appendChild(heading);
     }
+
+    entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 
     for (const entry of entries) {
       const btn = document.createElement('button');
@@ -2524,29 +2517,11 @@ async function addScannedTextureLibraryGroups(groups) {
   renderCustomTextureLibrary();
 }
 
-function clearCustomTextureLibrary({ forgetFolder = false } = {}) {
-  customTextureLibrary.length = 0;
-  customTextureLibraryKeys.clear();
-  customTextureLibraryFilter = 'ALL';
-
-  if (forgetFolder) {
-    customTextureLibraryRoot = null;
-  }
-
-  renderCustomTextureLibrary();
-}
-
-async function scanElectronTextureLibrary(folderPath, { remember = false, replace = true } = {}) {
+async function scanElectronTextureLibrary(folderPath, { remember = false } = {}) {
   if (!window.bumpforgeElectron?.scanTextureLibrary || !folderPath) return;
-
-  if (replace) {
-    clearCustomTextureLibrary({ forgetFolder: false });
-  }
 
   const groups = await window.bumpforgeElectron.scanTextureLibrary(folderPath);
   await addScannedTextureLibraryGroups(groups);
-
-  customTextureLibraryRoot = folderPath;
 
   if (remember && window.bumpforgeElectron?.saveSetting) {
     await window.bumpforgeElectron.saveSetting('textureLibraryRoot', folderPath);
@@ -2555,39 +2530,13 @@ async function scanElectronTextureLibrary(folderPath, { remember = false, replac
   console.log('Scanned personal texture library:', folderPath, groups);
 }
 
-async function rescanElectronTextureLibrary() {
-  if (!customTextureLibraryRoot && window.bumpforgeElectron?.loadSetting) {
-    customTextureLibraryRoot = await window.bumpforgeElectron.loadSetting('textureLibraryRoot');
-  }
-
-  if (!customTextureLibraryRoot) {
-    alert('No texture library folder selected yet.');
-    return;
-  }
-
-  await scanElectronTextureLibrary(customTextureLibraryRoot, {
-    remember: false,
-    replace: true
-  });
-}
-
-async function clearElectronTextureLibrary() {
-  clearCustomTextureLibrary({ forgetFolder: true });
-
-  if (window.bumpforgeElectron?.saveSetting) {
-    await window.bumpforgeElectron.saveSetting('textureLibraryRoot', null);
-  }
-
-  console.log('Cleared personal texture library');
-}
-
 async function autoLoadElectronTextureLibrary() {
   if (!window.bumpforgeElectron?.loadSetting || !window.bumpforgeElectron?.scanTextureLibrary) return;
 
   try {
     const folderPath = await window.bumpforgeElectron.loadSetting('textureLibraryRoot');
     if (!folderPath) return;
-    await scanElectronTextureLibrary(folderPath, { remember: false, replace: true });
+    await scanElectronTextureLibrary(folderPath, { remember: false });
   } catch (err) {
     console.warn('Could not auto-load texture library:', err);
   }
@@ -2635,18 +2584,6 @@ async function importTextureFolder() {
 }
 
 importTextureFolderBtn?.addEventListener('click', importTextureFolder);
-rescanTextureLibraryBtn?.addEventListener('click', () => {
-  rescanElectronTextureLibrary().catch(err => {
-    console.error('Could not rescan texture library:', err);
-    alert(`Could not rescan texture library: ${err.message}`);
-  });
-});
-clearTextureLibraryBtn?.addEventListener('click', () => {
-  clearElectronTextureLibrary().catch(err => {
-    console.error('Could not clear texture library:', err);
-    alert(`Could not clear texture library: ${err.message}`);
-  });
-});
 importTextureFilesBtn?.addEventListener('click', () => customLibraryFilesInput?.click());
 customLibraryFilesInput?.addEventListener('change', async (e) => {
   const files = e.target.files;
@@ -2714,11 +2651,29 @@ if (customMapRemoveBtn) {
 
 // ── Welcome popup: open / dismiss ─────────────────────────────────────────────
 function openWelcome({ allowDismissPersist }) {
-  return; // BumpForge: upstream welcome popup disabled
+  welcomeDontShow.checked = false;
+  welcomeOverlay.classList.remove('hidden');
+  trapFocus(welcomeOverlay);
+
+  const close = () => {
+    if (allowDismissPersist && welcomeDontShow.checked) {
+      try { localStorage.setItem(WELCOME_STORAGE_KEY, WELCOME_LAST_UPDATED); } catch { /* quota / private mode */ }
+    }
+    welcomeOverlay.classList.add('hidden');
+  };
+  welcomeClose.onclick   = close;
+  welcomeGotIt.onclick   = close;
+  welcomeOverlay.onclick = (e) => { if (e.target === welcomeOverlay) close(); };
 }
 
 function showWelcomeIfNeeded() {
-  return; // BumpForge: upstream welcome popup disabled
+  return; // BumpForge: disabled welcome popup
+
+  let seen = null;
+  try { seen = localStorage.getItem(WELCOME_STORAGE_KEY); } catch { /* private mode */ }
+  if (seen !== WELCOME_LAST_UPDATED) {
+    openWelcome({ allowDismissPersist: true });
+  }
 }
 
 // ── Accessibility: Modal focus trap ───────────────────────────────────────────
@@ -3035,21 +2990,21 @@ function wireEvents() {
   });
 
   // ── License ──
-  licenseLink?.addEventListener('click', () => { licenseOverlay?.classList.remove('hidden'); if (licenseOverlay) trapFocus(licenseOverlay); });
-  licenseClose?.addEventListener('click', () => licenseOverlay?.classList.add('hidden'));
-  licenseOverlay?.addEventListener('click', (e) => {
+  licenseLink.addEventListener('click', () => { licenseOverlay.classList.remove('hidden'); trapFocus(licenseOverlay); });
+  licenseClose.addEventListener('click', () => licenseOverlay.classList.add('hidden'));
+  licenseOverlay.addEventListener('click', (e) => {
     if (e.target === licenseOverlay) licenseOverlay.classList.add('hidden');
   });
 
   // ── Imprint & Privacy ──
-  imprintLink?.addEventListener('click', () => { imprintOverlay?.classList.remove('hidden'); if (imprintOverlay) trapFocus(imprintOverlay); });
-  imprintClose?.addEventListener('click', () => imprintOverlay?.classList.add('hidden'));
-  imprintOverlay?.addEventListener('click', (e) => {
+  imprintLink.addEventListener('click', () => { imprintOverlay.classList.remove('hidden'); trapFocus(imprintOverlay); });
+  imprintClose.addEventListener('click', () => imprintOverlay.classList.add('hidden'));
+  imprintOverlay.addEventListener('click', (e) => {
     if (e.target === imprintOverlay) imprintOverlay.classList.add('hidden');
   });
 
   // ── Welcome / What's New ──
-  welcomeLink?.addEventListener('click', () => openWelcome({ allowDismissPersist: false }));
+  welcomeLink.addEventListener('click', () => openWelcome({ allowDismissPersist: false }));
 
   // ── Mesh diagnostics dismiss ──
   meshDiagDismiss.addEventListener('click', () => {
@@ -3058,14 +3013,33 @@ function wireEvents() {
   });
 
   // ── Support banner dismiss ──
-  document.getElementById('store-cta-dismiss')?.addEventListener('click', () => {
-    document.getElementById('store-cta-wrapper')?.classList.add('store-cta-hidden');
+  document.getElementById('store-cta-dismiss').addEventListener('click', () => {
+    document.getElementById('store-cta-wrapper').classList.add('store-cta-hidden');
   });
 
   // ── Export ──
-  // BumpForge: export directly, no upstream sponsor popup.
   const startExport = (format) => {
-    handleExport(format);
+    if (sessionStorage.getItem('stlt-no-sponsor') === '1') {
+      handleExport(format);
+      return;
+    }
+    const overlay = document.getElementById('sponsor-overlay');
+    const closeBtn = document.getElementById('sponsor-close');
+    const storeLink = overlay.querySelector('.sponsor-link');
+    overlay.classList.remove('hidden');
+    trapFocus(overlay);
+
+    const dismiss = () => {
+      if (document.getElementById('sponsor-dont-show').checked) {
+        sessionStorage.setItem('stlt-no-sponsor', '1');
+      }
+      overlay.classList.add('hidden');
+      handleExport(format);
+    };
+
+    closeBtn.onclick = dismiss;
+    // Also start processing when the user clicks through to the store
+    storeLink.onclick = () => setTimeout(dismiss, 150);
   };
   exportBtn.addEventListener('click', () => startExport('stl'));
   export3mfBtn.addEventListener('click', () => startExport('3mf'));

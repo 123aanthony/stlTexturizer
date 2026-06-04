@@ -1950,58 +1950,6 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   border-radius: 7px !important;
 }
 
-
-.custom-library-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin: 8px 0 8px;
-}
-
-.custom-library-filters.hidden {
-  display: none;
-}
-
-.custom-library-filter-btn {
-  appearance: none;
-  -webkit-appearance: none;
-  min-height: 24px;
-  padding: 0 8px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface2);
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .02em;
-  transition: border-color .15s, background .15s, color .15s, transform .1s;
-}
-
-.custom-library-filter-btn:hover {
-  border-color: var(--accent);
-  color: var(--text);
-  transform: translateY(-1px);
-}
-
-.custom-library-filter-btn.active {
-  border-color: var(--accent);
-  background: rgba(124,106,255,.18);
-  color: var(--text);
-}
-
-.custom-library-group-heading {
-  grid-column: 1 / -1;
-  margin: 4px 0 2px;
-  padding: 3px 2px;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--border);
-}
-
 .custom-library-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2228,22 +2176,35 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   color: #ef4444;
 }
 
-/* ── BumpForge cleanup: remove upstream promo / popup / footer UI ───────── */
-#store-cta-wrapper,
-#store-cta,
-#sponsor-overlay,
-.sponsor-overlay,
+/* ── BumpForge cleanup: remove upstream promo / welcome / footer UI ───────── */
 #welcome-overlay,
-.welcome-overlay,
+#store-cta-wrapper,
+#sponsor-banner,
+#support-banner,
+#support-overlay,
+#donation-overlay,
+#promo-overlay,
 #welcome-link,
 #license-link,
 #imprint-link,
-.license-link,
+.github-link,
+.store-cta,
+.support-banner,
+.sponsor-banner,
+.donation-banner,
+.promo-banner,
+.footer-links,
+.footer-link,
 a[href*="CNCKitchen"],
-a[href*="paypal.me/CNCKitchen"],
-a[href*="ko-fi.com/cnckitchen"],
-a[href*="geni.us/CNCStoreTexture"] {
+a[href*="PayPal"],
+a[href*="ko-fi"],
+a[href*="github.com/CNCKitchen"] {
   display: none !important;
   visibility: hidden !important;
   pointer-events: none !important;
+}
+
+/* Keep app layout clean after hiding footer/promo elements. */
+body::after {
+  display: none !important;
 }

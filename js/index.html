@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BumpForge</title>
-  <meta name="description" content="BumpForge is a local tool for adding displacement textures to STL, OBJ, and 3MF models, then exporting printable textured meshes." />
+  <meta name="description" content="BumpForge is a browser-based tool for adding displacement textures to STL, OBJ, and 3MF models locally, then exporting printable textured meshes." />
   <link rel="canonical" href="https://bumpmesh.com/" />
   <meta property="og:locale" content="en_US" />
   <meta property="og:type" content="website" />
@@ -51,7 +51,7 @@
   <header>
     <div class="logo">
       <img src="logo.png" alt="BumpForge" width="24" height="24" />
-      <span>BumpForge</span>
+      <span>BumpForge <small style="opacity:.6;font-weight:400"></small></span>
     </div>
     <div class="header-actions">
       <div class="project-io">
@@ -137,11 +137,7 @@
             </button>
           </div>
         </div>
-        <div id="store-cta-wrapper" class="hidden">
-          <span id="store-cta">
-            <span data-i18n-html="cta.store">Support this tool? Shop at <a href="https://geni.us/CNCStoreTexture" target="_blank" rel="noopener noreferrer">CNCKitchen.STORE</a> or send a tip via <a href="https://www.paypal.me/CNCKitchen" target="_blank" rel="noopener noreferrer">PayPal</a> / <a href="https://ko-fi.com/cnckitchen" target="_blank" rel="noopener noreferrer">Ko-fi</a></span><button id="store-cta-dismiss" aria-label="Dismiss">&times;</button>
-          </span>
-        </div>
+        
       </div>
       <div id="viewport-footer">
         <span id="mesh-info" class="mesh-info"></span>
@@ -223,14 +219,11 @@
           <div class="custom-library-header">
             <span>Custom Texture Library</span>
             <div class="custom-library-actions">
-              <button id="import-texture-folder-btn" class="secondary-btn custom-library-btn" type="button">Choose Library</button>
-              <button id="rescan-texture-library-btn" class="secondary-btn custom-library-btn" type="button">Rescan</button>
-              <button id="clear-texture-library-btn" class="secondary-btn custom-library-btn" type="button">Clear</button>
+              <button id="import-texture-folder-btn" class="secondary-btn custom-library-btn" type="button">Import Folder</button>
               <button id="import-texture-files-btn" class="secondary-btn custom-library-btn" type="button">Add Maps</button>
             </div>
           </div>
           <input id="custom-library-files-input" type="file" accept="image/*" multiple hidden />
-          <div id="custom-library-filters" class="custom-library-filters" aria-label="Custom texture category filters"></div>
           <div id="custom-library-grid" class="custom-library-grid" aria-label="Custom texture library"></div>
           <p id="custom-library-empty" class="custom-library-empty">No custom textures loaded yet.</p>
         </div>
@@ -629,7 +622,12 @@
           <button id="export-all-slots-btn" class="export-btn" disabled title="Export all used material slots as one STL">Export All Slots</button>
         </div>
       </section>
-</aside>
+
+      <button id="welcome-link" class="license-link">What&rsquo;s New</button>
+      <button id="license-link" class="license-link" data-i18n="license.btn">License &amp; Terms</button>
+      <button id="imprint-link" class="license-link" data-i18n="imprint.btn">Imprint &amp; Privacy</button>
+
+    </aside>
   </main>
 
   <!-- License popup -->
@@ -676,8 +674,8 @@
   <!-- Sponsor popup -->
   <div id="sponsor-overlay" class="sponsor-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="sponsor-title">
     <div class="sponsor-modal">
-      <h2 id="sponsor-title" data-i18n="sponsor.title">Thanks for using BumpMesh by CNC Kitchen!</h2>
-      <p data-i18n-html="sponsor.body">This tool is provided <strong>completely free</strong> by CNC Kitchen.<br>
+      <h2 id="sponsor-title" data-i18n="sponsor.title">Thanks for using BumpForge!</h2>
+      <p data-i18n-html="sponsor.body">This tool is provided <strong>completely free</strong>.<br>
       While your STL is being processed, why not check out the store that helps us keep making cool stuff for you?</p>
       <a href="https://geni.us/CNCStoreTexture" target="_blank" rel="noopener noreferrer" class="sponsor-link" data-i18n="sponsor.visitStore">
         🛒 Visit CNCKitchen.STORE
@@ -700,7 +698,7 @@
   <div id="welcome-overlay" class="welcome-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
     <div class="welcome-modal">
       <button id="welcome-close" class="license-close-btn" aria-label="Close">&#215;</button>
-      <h2 id="welcome-title">Welcome to BumpMesh</h2>
+      <h2 id="welcome-title">Welcome to BumpForge</h2>
       <p class="welcome-tagline">Add a texture to any of your STLs &mdash; directly in your browser, no cloud and completely free!</p>
 
       <h3 class="welcome-heading">Quick start</h3>
