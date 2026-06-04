@@ -2434,3 +2434,49 @@ a[href*="github.com/cnckitchen"] {
   }
 }
 
+/* ── BumpForge collapsible libraries ──────────────────────────────────────── */
+.bf-simple-collapse-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  min-height: 28px;
+  margin: 0 0 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(255,255,255,.02);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  text-align: left;
+  font: inherit;
+}
+
+.bf-simple-collapse-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.bf-simple-collapse-icon {
+  width: 14px;
+  flex: 0 0 14px;
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 1;
+  text-align: center;
+}
+
+.bf-simple-collapse-label {
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.bf-simple-collapsed-target {
+  display: none !important;
+}
+

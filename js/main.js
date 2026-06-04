@@ -727,6 +727,94 @@ setInterval(hideUpstreamPromoUI, 2000);
 })();
 // ── End BumpForge ultrawide structured layout ──
 
+
+
+// ── BumpForge collapsible libraries ─────────────────────────────────────────
+// V3: minimal and deterministic.
+// Adds exactly one button before #preset-grid and exactly one button before
+// #custom-library-grid. No title scanning, no wrappers, no moving existing nodes.
+(function setupBumpForgeCollapsibleLibraries() {
+  const STORAGE_PREFIX = 'bumpforge-collapse-v3-';
+
+  function addCollapseButton({ key, label, targetSelector, beforeSelector }) {
+    const target = document.querySelector(targetSelector);
+    if (!target) return;
+
+    const buttonId = `bf-collapse-${key}`;
+    if (document.getElementById(buttonId)) return;
+
+    const button = document.createElement('button');
+    button.id = buttonId;
+    button.type = 'button';
+    button.className = 'bf-simple-collapse-btn';
+
+    const icon = document.createElement('span');
+    icon.className = 'bf-simple-collapse-icon';
+
+    const text = document.createElement('span');
+    text.className = 'bf-simple-collapse-label';
+    text.textContent = label;
+
+    button.appendChild(icon);
+    button.appendChild(text);
+
+    const reference = beforeSelector ? document.querySelector(beforeSelector) : target;
+    const parent = reference?.parentElement || target.parentElement;
+    if (!parent) return;
+
+    parent.insertBefore(button, reference || target);
+
+    function apply(collapsed) {
+      target.classList.toggle('bf-simple-collapsed-target', collapsed);
+      button.classList.toggle('is-collapsed', collapsed);
+      button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      icon.textContent = collapsed ? '▸' : '▾';
+
+      try {
+        localStorage.setItem(STORAGE_PREFIX + key, collapsed ? '1' : '0');
+      } catch {
+        // ignore storage errors
+      }
+    }
+
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      apply(!target.classList.contains('bf-simple-collapsed-target'));
+    });
+
+    let saved = null;
+    try {
+      saved = localStorage.getItem(STORAGE_PREFIX + key);
+    } catch {
+      saved = null;
+    }
+
+    apply(saved === '1');
+  }
+
+  function setup() {
+    addCollapseButton({
+      key: 'displacement-library',
+      label: 'Carte de déplacement',
+      targetSelector: '#preset-grid',
+      beforeSelector: '#preset-grid'
+    });
+
+    addCollapseButton({
+      key: 'custom-texture-library',
+      label: 'Custom Texture Library',
+      targetSelector: '#custom-library-grid',
+      beforeSelector: '#custom-library-filters'
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', () => setTimeout(setup, 300));
+  setTimeout(setup, 1000);
+  setTimeout(setup, 2500);
+})();
+// ── End BumpForge collapsible libraries ──
+
 let _lastCustomMap    = null;   // most recent uploaded/imported custom-map entry, kept across preset switches so the thumbnail can re-activate it
 let previewMaterial   = null;
 let isExporting       = false;
