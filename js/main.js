@@ -145,44 +145,36 @@ function clearTextureSlot(slotId = activeTextureSlotId) {
 }
 
 function applyTextureTabInlineStyle(btn, isActive, isUsed, hasOverlap = false) {
-  btn.style.appearance = 'none';
-  btn.style.webkitAppearance = 'none';
-  btn.style.display = 'inline-flex';
-  btn.style.alignItems = 'center';
-  btn.style.justifyContent = 'center';
-  btn.style.gap = '6px';
-  btn.style.minHeight = '34px';
-  btn.style.padding = '0 8px';
-  btn.style.borderRadius = '8px';
-  btn.style.fontFamily = 'inherit';
-  btn.style.fontSize = '11px';
-  btn.style.fontWeight = '700';
-  btn.style.cursor = 'pointer';
-  btn.style.lineHeight = '1';
+  btn.style.background = '';
+  btn.style.border = '';
+  btn.style.color = '';
+  btn.style.boxShadow = '';
+  btn.style.opacity = '';
 
   if (isActive) {
     btn.style.background = 'rgba(124,106,255,.24)';
     btn.style.border = '1px solid var(--accent)';
     btn.style.color = '#fff';
-    btn.style.boxShadow = 'inset 0 0 0 1px rgba(124,106,255,.42), 0 0 12px rgba(124,106,255,.12)';
+    btn.style.boxShadow = '0 0 12px rgba(124,106,255,.12)';
     btn.style.opacity = '1';
+
   } else if (hasOverlap) {
     btn.style.background = 'rgba(239,68,68,.12)';
     btn.style.border = '1px solid #ef4444';
     btn.style.color = '#fca5a5';
     btn.style.boxShadow = '0 0 8px rgba(239,68,68,.18)';
     btn.style.opacity = '1';
+
   } else if (isUsed) {
     btn.style.background = 'rgba(234,179,8,.10)';
     btn.style.border = '1px solid #eab308';
     btn.style.color = '#facc15';
-    btn.style.boxShadow = 'none';
     btn.style.opacity = '1';
+
   } else {
     btn.style.background = '#20212b';
     btn.style.border = '1px solid #383a4d';
     btn.style.color = '#9ca3af';
-    btn.style.boxShadow = 'none';
     btn.style.opacity = '.72';
   }
 }
@@ -250,7 +242,7 @@ function refreshTextureTabsUI() {
   const container = document.getElementById('texture-tabs');
   if (container) {
     container.style.display = 'grid';
-    container.style.gridTemplateColumns = 'repeat(5, minmax(0, 1fr))';
+    container.style.gridTemplateColumns = 'repeat(3, minmax(0, 1fr))';
     container.style.gap = '6px';
     container.style.margin = '0';
   }
@@ -282,7 +274,8 @@ const meta = btn.querySelector('.texture-tab-meta');
 if (meta && slot) {
   const faces = getSlotFaceCount(slot);
   const map = slot.activeMapEntry ? slot.activeMapEntry.name : 'No map';
-  meta.textContent = `${map} · ${faces} faces`;
+  const label = faces === 1 ? 'tri' : 'tris';
+meta.textContent = `${map} · ${faces} ${label}`;
 }
 
 const lock = btn.querySelector('.texture-tab-lock');
