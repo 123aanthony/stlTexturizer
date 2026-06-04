@@ -2098,4 +2098,30 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
 
 .texture-tab.overlap {
   border-color: #ef4444;
+}.texture-tab-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.04);
+  background-size: cover;
+  background-position: center;
+  flex: 0 0 auto;
+  margin-top: 1px;
+  position: relative;
+  overflow: hidden;
+}
+
+.texture-tab-thumb.has-texture {
+  border-color: rgba(255,255,255,.22);
+}
+
+.texture-tab-thumb .texture-tab-indicator {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 7px;
+  height: 7px;
+  margin: 0;
+  border: 1px solid rgba(0,0,0,.45);
 }

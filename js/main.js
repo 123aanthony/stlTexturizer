@@ -190,9 +190,14 @@ function renderTextureTabs() {
     btn.className = 'texture-tab';
     btn.dataset.slot = slot.id;
 
+    const thumb = document.createElement('span');
+    thumb.className = 'texture-tab-thumb';
+
     const dot = document.createElement('span');
     dot.className = 'texture-tab-indicator';
     dot.setAttribute('aria-hidden', 'true');
+
+    thumb.appendChild(dot);
 
     const label = document.createElement('span');
     label.className = 'texture-tab-label';
@@ -202,7 +207,7 @@ function renderTextureTabs() {
 
     const meta = document.createElement('span');
     meta.className = 'texture-tab-meta';
-    meta.textContent = 'No map · 0 faces';
+    meta.textContent = 'No map · 0 tris';
 
     const lock = document.createElement('span');
     lock.className = 'texture-tab-lock';
@@ -229,7 +234,7 @@ function renderTextureTabs() {
     content.appendChild(label);
     content.appendChild(meta);
 
-    btn.appendChild(dot);
+    btn.appendChild(thumb);
     btn.appendChild(content);
     btn.appendChild(lock);
     container.appendChild(btn);
@@ -237,7 +242,6 @@ function renderTextureTabs() {
 
   refreshTextureTabsUI();
 }
-
 function refreshTextureTabsUI() {
   const container = document.getElementById('texture-tabs');
   if (container) {
@@ -277,7 +281,21 @@ if (meta && slot) {
   const label = faces === 1 ? 'tri' : 'tris';
 meta.textContent = `${map} · ${faces} ${label}`;
 }
+const thumb = btn.querySelector('.texture-tab-thumb');
+if (thumb && slot) {
+  const entry = slot.activeMapEntry || slot.customMapEntry;
 
+  thumb.style.backgroundImage = '';
+  thumb.classList.toggle('has-texture', !!entry);
+
+  if (entry?.fullCanvas) {
+    thumb.style.backgroundImage = `url(${entry.fullCanvas.toDataURL('image/png')})`;
+  } else if (entry?.image) {
+    thumb.style.backgroundImage = `url(${entry.image.src})`;
+  } else if (entry?.texture?.image?.src) {
+    thumb.style.backgroundImage = `url(${entry.texture.image.src})`;
+  }
+}
 const lock = btn.querySelector('.texture-tab-lock');
 if (lock && slot) {
   lock.textContent = slot.locked ? '🔒' : '';
