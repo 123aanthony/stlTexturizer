@@ -2140,3 +2140,38 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
 .texture-tab-faces {
   opacity: 0.85;
 }
+.texture-tab-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 4px;
+  opacity: 0.35;
+}
+
+.texture-tab:hover .texture-tab-actions {
+  opacity: 1;
+}
+
+.texture-tab-mini-action {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255,255,255,.08);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0;
+}
+
+.texture-tab-mini-action:hover {
+  background: rgba(124,106,255,.18);
+  color: var(--accent);
+}
+
+.texture-tab-mini-action.danger:hover {
+  background: rgba(239,68,68,.18);
+  color: #ef4444;
+}

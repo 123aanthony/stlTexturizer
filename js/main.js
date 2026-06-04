@@ -58,6 +58,74 @@ function addTextureSlot() {
   saveTextureSlotsToStorage();
 }
 
+function removeTextureSlot(slotId) {
+  if (textureSlots.length <= 1) return;
+
+  const removeIndex = textureSlots.findIndex(s => s.id === slotId);
+  const slot = textureSlots[removeIndex];
+  if (!slot || slotHasContent(slot)) return;
+
+  const wasActive = activeTextureSlotId === slotId;
+
+  textureSlots = textureSlots.filter(s => s.id !== slotId);
+
+  if (wasActive) {
+    const fallbackIndex = Math.max(0, removeIndex - 1);
+    const fallbackSlot = textureSlots[fallbackIndex] || textureSlots[0];
+
+    activeTextureSlotId = fallbackSlot?.id || 'slot1';
+
+    if (fallbackSlot) {
+      restoreSlotState(fallbackSlot);
+    }
+  } else {
+    saveActiveSlotState();
+  }
+
+  renderTextureTabs();
+  refreshTextureTabsUI();
+  requestRender();
+
+  sessionStorage.setItem(
+    'diorama-texture-slots',
+    JSON.stringify(serializeTextureSlots())
+  );
+}
+
+function duplicateTextureSlot(slotId) {
+  const source = textureSlots.find(s => s.id === slotId);
+  if (!source) return;
+
+  const next = textureSlots.length + 1;
+  const copy = createTextureSlot(next);
+
+  copy.name = `${source.name || 'Slot'} Copy`;
+  copy.activeMapEntry = source.activeMapEntry || null;
+  copy.customMapEntry = source.customMapEntry || null;
+  copy.selectionMode = source.selectionMode;
+  copy.settings = { ...(source.settings || {}) };
+
+  // Duplicate material/settings only, not face assignments.
+  copy.excludedFaces = new Set();
+  copy.assignedFaces = new Set();
+
+  textureSlots.push(copy);
+  activeTextureSlotId = copy.id;
+
+  // Important: make the global active mask empty for the duplicated slot.
+  excludedFaces = new Set();
+  selectionMode = copy.selectionMode;
+  activeMapEntry = copy.activeMapEntry || null;
+
+  renderTextureTabs();
+  restoreSlotState(copy);
+  refreshExclusionOverlay();
+  updatePreview();
+  requestRender();
+
+  saveTextureSlotsToStorage();
+}
+
 let textureSlots = TEXTURE_SLOT_DEFS.map(slot => ({
   ...slot,
   activeMapEntry: null,
@@ -80,11 +148,29 @@ function normalizeTextureSlotId(id) {
 }
 
 function slotHasContent(slot) {
+  if (!slot) return false;
+
+  if (slot.id === activeTextureSlotId) {
+    const liveAssigned = typeof getAssignedFacesForCurrentSlot === 'function'
+      ? getAssignedFacesForCurrentSlot()
+      : null;
+
+    return !!(
+      activeMapEntry ||
+      slot.activeMapEntry ||
+      slot.customMapEntry ||
+      (excludedFaces && excludedFaces.size > 0) ||
+      (liveAssigned && liveAssigned.size > 0) ||
+      (slot.excludedFaces && slot.excludedFaces.size > 0) ||
+      (slot.assignedFaces && slot.assignedFaces.size > 0)
+    );
+  }
+
   return !!(
-    slot?.activeMapEntry ||
-    slot?.customMapEntry ||
-    (slot?.excludedFaces && slot.excludedFaces.size > 0) ||
-    (slot?.assignedFaces && slot.assignedFaces.size > 0)
+    slot.activeMapEntry ||
+    slot.customMapEntry ||
+    (slot.excludedFaces && slot.excludedFaces.size > 0) ||
+    (slot.assignedFaces && slot.assignedFaces.size > 0)
   );
 }
 
@@ -238,7 +324,11 @@ function renderTextureTabs() {
       const currentSlot = textureSlots.find(s => s.id === slot.id);
       if (!currentSlot) return;
 
-      const nextName = prompt('Rename slot', currentSlot.name || slot.name || slot.id);
+      const nextName = prompt(
+        'Rename slot',
+        currentSlot.name || slot.name || slot.id
+      );
+
       if (!nextName) return;
 
       currentSlot.name = nextName.trim();
@@ -254,18 +344,49 @@ function renderTextureTabs() {
 
     btn.appendChild(thumb);
     btn.appendChild(content);
+
+    const actions = document.createElement('span');
+    actions.className = 'texture-tab-actions';
+
+    const duplicateBtn = document.createElement('button');
+    duplicateBtn.type = 'button';
+    duplicateBtn.className = 'texture-tab-mini-action texture-tab-duplicate-action';
+    duplicateBtn.textContent = '⧉';
+    duplicateBtn.title = 'Duplicate slot';
+    duplicateBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      duplicateTextureSlot(slot.id);
+    });
+    actions.appendChild(duplicateBtn);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'texture-tab-mini-action texture-tab-remove-action danger';
+    removeBtn.textContent = '×';
+    removeBtn.title = 'Remove empty slot';
+    removeBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      removeTextureSlot(slot.id);
+    });
+    actions.appendChild(removeBtn);
+
+    btn.appendChild(actions);
     container.appendChild(btn);
   }
-const addBtn = document.createElement('button');
-addBtn.type = 'button';
-addBtn.className = 'texture-tab texture-tab-add';
-addBtn.textContent = '+ Add Slot';
 
-addBtn.addEventListener('click', () => {
-  addTextureSlot();
-});
+  const addBtn = document.createElement('button');
+  addBtn.type = 'button';
+  addBtn.className = 'texture-tab texture-tab-add';
+  addBtn.textContent = '+ Add Slot';
 
-container.appendChild(addBtn);
+  addBtn.addEventListener('click', () => {
+    addTextureSlot();
+  });
+
+  container.appendChild(addBtn);
+
   refreshTextureTabsUI();
 }
 function refreshTextureTabsUI() {
@@ -325,6 +446,11 @@ if (thumb && slot) {
     thumb.style.backgroundImage = `url(${entry.texture.image.src})`;
   }
 }
+
+const duplicateAction = btn.querySelector('.texture-tab-duplicate-action');
+const removeAction = btn.querySelector('.texture-tab-remove-action');
+if (duplicateAction) duplicateAction.style.display = slot && isUsed ? '' : 'none';
+if (removeAction) removeAction.style.display = slot && !isUsed && textureSlots.length > 1 ? '' : 'none';
     if (indicator) {
       indicator.classList.toggle('active', isActive);
       indicator.classList.toggle('used', isUsed);
