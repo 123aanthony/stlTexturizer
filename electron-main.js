@@ -148,12 +148,10 @@ async function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      devTools: true
     }
   });
 
-  // Keep DevTools auto-open while stabilising Electron. Remove later for packaging.
-  win.webContents.openDevTools();
+
 
   await win.loadURL(`http://127.0.0.1:${PORT}/index.html`);
 }
