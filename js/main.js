@@ -209,9 +209,21 @@ function renderTextureTabs() {
     meta.className = 'texture-tab-meta';
     meta.textContent = 'No map · 0 tris';
 
-    const lock = document.createElement('span');
-    lock.className = 'texture-tab-lock';
-    lock.textContent = slot.locked ? '🔒' : '';
+const lock = document.createElement('button');
+lock.type = 'button';
+lock.className = 'texture-tab-lock';
+lock.textContent = slot.locked ? '🔒' : '🔓';
+lock.title = slot.locked ? 'Unlock slot' : 'Lock slot';
+
+lock.addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+
+  slot.locked = !slot.locked;
+
+  renderTextureTabs();
+  saveTextureSlotsToStorage();
+});
 
     label.addEventListener('dblclick', (e) => {
       e.preventDefault();

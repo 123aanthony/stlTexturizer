@@ -2021,14 +2021,15 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
 
 #texture-tabs {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin: 0;
 }
 
 .texture-tab {
-  min-height: 70px;
-  padding: 8px;
+  position: relative;
+  min-height: 62px;
+  padding: 9px 26px 9px 9px;
   border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--surface2);
@@ -2036,12 +2037,40 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   cursor: pointer;
 
   display: flex;
-  align-items: flex-start;
-  gap: 7px;
+  align-items: center;
+  gap: 9px;
 
   text-align: left;
   min-width: 0;
   overflow: hidden;
+}
+
+.texture-tab-thumb {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.04);
+  background-size: cover;
+  background-position: center;
+  flex: 0 0 auto;
+  position: relative;
+  overflow: hidden;
+}
+
+.texture-tab-thumb.has-texture {
+  border-color: rgba(255,255,255,.28);
+}
+
+.texture-tab-thumb .texture-tab-indicator {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 7px;
+  height: 7px;
+  margin: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,.45);
 }
 
 .texture-tab-content {
@@ -2055,7 +2084,7 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
 .texture-tab-label {
   font-size: 0.76rem;
   font-weight: 800;
-  line-height: 1.1;
+  line-height: 1.05;
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2063,7 +2092,7 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
 }
 
 .texture-tab-meta {
-  font-size: 0.62rem;
+  font-size: 0.61rem;
   font-weight: 600;
   line-height: 1.15;
   color: var(--text-muted);
@@ -2073,18 +2102,30 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   white-space: nowrap;
 }
 
-.texture-tab-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  flex: 0 0 auto;
-  margin-top: 3px;
+.texture-tab-lock {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 16px;
+  opacity: 0.35;
+  padding: 0;
+  text-align: center;
 }
 
-.texture-tab-lock {
-  font-size: 0.75rem;
+.texture-tab:hover .texture-tab-lock {
   opacity: 0.85;
-  flex: 0 0 auto;
+}
+
+.texture-tab-lock:hover {
+  opacity: 1;
+  transform: scale(1.08);
 }
 
 .texture-tab.active {
@@ -2093,35 +2134,9 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
 }
 
 .texture-tab.used:not(.active) {
-  border-color: rgba(234,179,8,.55);
+  border-color: rgba(234,179,8,.65);
 }
 
 .texture-tab.overlap {
   border-color: #ef4444;
-}.texture-tab-thumb {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: rgba(255,255,255,.04);
-  background-size: cover;
-  background-position: center;
-  flex: 0 0 auto;
-  margin-top: 1px;
-  position: relative;
-  overflow: hidden;
-}
-
-.texture-tab-thumb.has-texture {
-  border-color: rgba(255,255,255,.22);
-}
-
-.texture-tab-thumb .texture-tab-indicator {
-  position: absolute;
-  right: 3px;
-  bottom: 3px;
-  width: 7px;
-  height: 7px;
-  margin: 0;
-  border: 1px solid rgba(0,0,0,.45);
 }
