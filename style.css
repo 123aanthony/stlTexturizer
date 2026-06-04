@@ -1950,6 +1950,58 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   border-radius: 7px !important;
 }
 
+
+.custom-library-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 8px 0 8px;
+}
+
+.custom-library-filters.hidden {
+  display: none;
+}
+
+.custom-library-filter-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface2);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  transition: border-color .15s, background .15s, color .15s, transform .1s;
+}
+
+.custom-library-filter-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.custom-library-filter-btn.active {
+  border-color: var(--accent);
+  background: rgba(124,106,255,.18);
+  color: var(--text);
+}
+
+.custom-library-group-heading {
+  grid-column: 1 / -1;
+  margin: 4px 0 2px;
+  padding: 3px 2px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
 .custom-library-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

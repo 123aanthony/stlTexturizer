@@ -13,5 +13,14 @@ contextBridge.exposeInMainWorld('bumpforgeElectron', {
     ipcRenderer.invoke('open-file', options),
 
   chooseDirectory: () =>
-    ipcRenderer.invoke('choose-directory')
+    ipcRenderer.invoke('choose-directory'),
+
+  saveSetting: (key, value) =>
+    ipcRenderer.invoke('save-setting', key, value),
+
+  loadSetting: (key) =>
+    ipcRenderer.invoke('load-setting', key),
+
+  scanTextureLibrary: (folderPath) =>
+    ipcRenderer.invoke('scan-texture-library', folderPath)
 });

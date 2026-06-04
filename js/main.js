@@ -994,8 +994,11 @@ const customMapRow      = document.getElementById('custom-map-row');
 const customMapSwatch   = document.getElementById('custom-map-swatch');
 const customMapRemoveBtn = document.getElementById('custom-map-remove');
 const customLibraryGrid = document.getElementById('custom-library-grid');
+const customLibraryFilters = document.getElementById('custom-library-filters');
 const customLibraryEmpty = document.getElementById('custom-library-empty');
 const importTextureFolderBtn = document.getElementById('import-texture-folder-btn');
+const rescanTextureLibraryBtn = document.getElementById('rescan-texture-library-btn');
+const clearTextureLibraryBtn = document.getElementById('clear-texture-library-btn');
 const importTextureFilesBtn = document.getElementById('import-texture-files-btn');
 const customLibraryFilesInput = document.getElementById('custom-library-files-input');
 const meshInfo       = document.getElementById('mesh-info');
@@ -2302,6 +2305,8 @@ function _hideCustomMapThumb() {
 
 const customTextureLibrary = [];
 const customTextureLibraryKeys = new Set();
+let customTextureLibraryFilter = 'ALL';
+let customTextureLibraryRoot = null;
 
 function isSupportedTextureFile(file) {
   return !!file && /^image\//i.test(file.type || '') ||
@@ -2333,6 +2338,54 @@ function drawEntryThumbnail(entry, size = 64) {
   return canvas;
 }
 
+function getCustomTextureLibraryGroups() {
+  const groups = new Map();
+
+  for (const entry of customTextureLibrary) {
+    const groupName = entry.libraryGroup || 'Imported';
+    if (!groups.has(groupName)) groups.set(groupName, []);
+    groups.get(groupName).push(entry);
+  }
+
+  return groups;
+}
+
+function renderCustomTextureLibraryFilters(groups = getCustomTextureLibraryGroups()) {
+  if (!customLibraryFilters) return;
+
+  customLibraryFilters.innerHTML = '';
+
+  const groupEntries = Array.from(groups.entries())
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
+
+  const total = groupEntries.reduce((sum, [, entries]) => sum + entries.length, 0);
+
+  const makeFilterButton = (label, value, count) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'custom-library-filter-btn';
+    btn.classList.toggle('active', customTextureLibraryFilter === value);
+    btn.textContent = `${label} (${count})`;
+
+    btn.addEventListener('click', () => {
+      customTextureLibraryFilter = value;
+      renderCustomTextureLibrary();
+    });
+
+    customLibraryFilters.appendChild(btn);
+  };
+
+  if (total > 0) {
+    makeFilterButton('ALL', 'ALL', total);
+  }
+
+  for (const [groupName, entries] of groupEntries) {
+    makeFilterButton(groupName, groupName, entries.length);
+  }
+
+  customLibraryFilters.classList.toggle('hidden', total === 0);
+}
+
 function renderCustomTextureLibrary() {
   if (!customLibraryGrid) return;
 
@@ -2341,22 +2394,45 @@ function renderCustomTextureLibrary() {
   const hasEntries = customTextureLibrary.length > 0;
   customLibraryEmpty?.classList.toggle('hidden', hasEntries);
 
-  for (const entry of customTextureLibrary) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'custom-library-item';
-    btn.title = entry.name;
+  const groups = getCustomTextureLibraryGroups();
+  renderCustomTextureLibraryFilters(groups);
 
-    const thumb = drawEntryThumbnail(entry, 72);
-    btn.appendChild(thumb);
+  const sortedGroups = Array.from(groups.entries())
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
 
-    const label = document.createElement('span');
-    label.textContent = entry.name.replace(/\.[^.]+$/, '');
-    btn.appendChild(label);
+  for (const [groupName, entriesRaw] of sortedGroups) {
+    if (customTextureLibraryFilter !== 'ALL' && customTextureLibraryFilter !== groupName) {
+      continue;
+    }
 
-    btn.addEventListener('click', () => activateCustomLibraryEntry(entry));
+    const entries = [...entriesRaw].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true })
+    );
 
-    customLibraryGrid.appendChild(btn);
+    if (groups.size > 1 || groupName !== 'Imported') {
+      const heading = document.createElement('div');
+      heading.className = 'custom-library-group-heading';
+      heading.textContent = `${groupName} (${entries.length})`;
+      customLibraryGrid.appendChild(heading);
+    }
+
+    for (const entry of entries) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'custom-library-item';
+      btn.title = entry.libraryGroup ? `${entry.libraryGroup} / ${entry.name}` : entry.name;
+
+      const thumb = drawEntryThumbnail(entry, 72);
+      btn.appendChild(thumb);
+
+      const label = document.createElement('span');
+      label.textContent = entry.name.replace(/\.[^.]+$/, '');
+      btn.appendChild(label);
+
+      btn.addEventListener('click', () => activateCustomLibraryEntry(entry));
+
+      customLibraryGrid.appendChild(btn);
+    }
   }
 }
 
@@ -2411,7 +2487,130 @@ async function addFilesToCustomTextureLibrary(files) {
   renderCustomTextureLibrary();
 }
 
+
+async function addScannedTextureLibraryGroups(groups) {
+  if (!Array.isArray(groups) || groups.length === 0) {
+    renderCustomTextureLibrary();
+    return;
+  }
+
+  for (const group of groups) {
+    for (const item of group.files || []) {
+      const key = item.key || `electron:${item.path || ''}:${item.name || ''}`;
+      if (customTextureLibraryKeys.has(key)) continue;
+
+      try {
+        const entry = await customEntryFromDataUrl(item.dataUrl, item.name);
+        entry.isCustom = true;
+        entry.name = item.name;
+        entry.libraryKey = key;
+        entry.libraryGroup = group.name;
+        entry.sourcePath = item.path;
+
+        customTextureLibrary.push(entry);
+        customTextureLibraryKeys.add(key);
+      } catch (err) {
+        console.warn('Could not load library texture:', item.name, err);
+      }
+    }
+  }
+
+  customTextureLibrary.sort((a, b) => {
+    const groupCmp = (a.libraryGroup || '').localeCompare(b.libraryGroup || '', undefined, { numeric: true });
+    if (groupCmp) return groupCmp;
+    return a.name.localeCompare(b.name, undefined, { numeric: true });
+  });
+
+  renderCustomTextureLibrary();
+}
+
+function clearCustomTextureLibrary({ forgetFolder = false } = {}) {
+  customTextureLibrary.length = 0;
+  customTextureLibraryKeys.clear();
+  customTextureLibraryFilter = 'ALL';
+
+  if (forgetFolder) {
+    customTextureLibraryRoot = null;
+  }
+
+  renderCustomTextureLibrary();
+}
+
+async function scanElectronTextureLibrary(folderPath, { remember = false, replace = true } = {}) {
+  if (!window.bumpforgeElectron?.scanTextureLibrary || !folderPath) return;
+
+  if (replace) {
+    clearCustomTextureLibrary({ forgetFolder: false });
+  }
+
+  const groups = await window.bumpforgeElectron.scanTextureLibrary(folderPath);
+  await addScannedTextureLibraryGroups(groups);
+
+  customTextureLibraryRoot = folderPath;
+
+  if (remember && window.bumpforgeElectron?.saveSetting) {
+    await window.bumpforgeElectron.saveSetting('textureLibraryRoot', folderPath);
+  }
+
+  console.log('Scanned personal texture library:', folderPath, groups);
+}
+
+async function rescanElectronTextureLibrary() {
+  if (!customTextureLibraryRoot && window.bumpforgeElectron?.loadSetting) {
+    customTextureLibraryRoot = await window.bumpforgeElectron.loadSetting('textureLibraryRoot');
+  }
+
+  if (!customTextureLibraryRoot) {
+    alert('No texture library folder selected yet.');
+    return;
+  }
+
+  await scanElectronTextureLibrary(customTextureLibraryRoot, {
+    remember: false,
+    replace: true
+  });
+}
+
+async function clearElectronTextureLibrary() {
+  clearCustomTextureLibrary({ forgetFolder: true });
+
+  if (window.bumpforgeElectron?.saveSetting) {
+    await window.bumpforgeElectron.saveSetting('textureLibraryRoot', null);
+  }
+
+  console.log('Cleared personal texture library');
+}
+
+async function autoLoadElectronTextureLibrary() {
+  if (!window.bumpforgeElectron?.loadSetting || !window.bumpforgeElectron?.scanTextureLibrary) return;
+
+  try {
+    const folderPath = await window.bumpforgeElectron.loadSetting('textureLibraryRoot');
+    if (!folderPath) return;
+    await scanElectronTextureLibrary(folderPath, { remember: false, replace: true });
+  } catch (err) {
+    console.warn('Could not auto-load texture library:', err);
+  }
+}
+
 async function importTextureFolder() {
+  if (window.bumpforgeElectron?.chooseDirectory && window.bumpforgeElectron?.scanTextureLibrary) {
+    try {
+      const result = await window.bumpforgeElectron.chooseDirectory();
+      if (result?.canceled) return;
+
+      const folderPath = result.filePaths?.[0];
+      if (!folderPath) return;
+
+      await scanElectronTextureLibrary(folderPath, { remember: true });
+      return;
+    } catch (err) {
+      console.error('Could not import Electron texture folder:', err);
+      alert(`Could not import texture folder: ${err.message}`);
+      return;
+    }
+  }
+
   if (!window.showDirectoryPicker) {
     alert('Folder import is not supported by this browser. Use Add Maps instead.');
     return;
@@ -2436,12 +2635,26 @@ async function importTextureFolder() {
 }
 
 importTextureFolderBtn?.addEventListener('click', importTextureFolder);
+rescanTextureLibraryBtn?.addEventListener('click', () => {
+  rescanElectronTextureLibrary().catch(err => {
+    console.error('Could not rescan texture library:', err);
+    alert(`Could not rescan texture library: ${err.message}`);
+  });
+});
+clearTextureLibraryBtn?.addEventListener('click', () => {
+  clearElectronTextureLibrary().catch(err => {
+    console.error('Could not clear texture library:', err);
+    alert(`Could not clear texture library: ${err.message}`);
+  });
+});
 importTextureFilesBtn?.addEventListener('click', () => customLibraryFilesInput?.click());
 customLibraryFilesInput?.addEventListener('change', async (e) => {
   const files = e.target.files;
   e.target.value = '';
   await addFilesToCustomTextureLibrary(files);
 });
+
+autoLoadElectronTextureLibrary();
 
 
 /** Promote the kept-aside custom map back to the active map. No defaults reset. */

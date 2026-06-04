@@ -223,11 +223,14 @@
           <div class="custom-library-header">
             <span>Custom Texture Library</span>
             <div class="custom-library-actions">
-              <button id="import-texture-folder-btn" class="secondary-btn custom-library-btn" type="button">Import Folder</button>
+              <button id="import-texture-folder-btn" class="secondary-btn custom-library-btn" type="button">Choose Library</button>
+              <button id="rescan-texture-library-btn" class="secondary-btn custom-library-btn" type="button">Rescan</button>
+              <button id="clear-texture-library-btn" class="secondary-btn custom-library-btn" type="button">Clear</button>
               <button id="import-texture-files-btn" class="secondary-btn custom-library-btn" type="button">Add Maps</button>
             </div>
           </div>
           <input id="custom-library-files-input" type="file" accept="image/*" multiple hidden />
+          <div id="custom-library-filters" class="custom-library-filters" aria-label="Custom texture category filters"></div>
           <div id="custom-library-grid" class="custom-library-grid" aria-label="Custom texture library"></div>
           <p id="custom-library-empty" class="custom-library-empty">No custom textures loaded yet.</p>
         </div>

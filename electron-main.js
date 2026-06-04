@@ -81,6 +81,60 @@ function startLocalServer(rootDir) {
 
 let localServer = null;
 
+const SETTINGS_FILE = path.join(app.getPath('userData'), 'bumpforge-settings.json');
+const TEXTURE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+
+function readSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function writeSettings(data) {
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(data, null, 2));
+}
+
+function fileToDataUrl(filePath) {
+  const data = fs.readFileSync(filePath);
+  const mime = getMimeType(filePath);
+  return `data:${mime};base64,${data.toString('base64')}`;
+}
+
+function scanTextureLibraryFolder(rootDir) {
+  if (!rootDir || !fs.existsSync(rootDir)) return [];
+
+  return fs.readdirSync(rootDir, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(dir => {
+      const folderPath = path.join(rootDir, dir.name);
+      const files = fs.readdirSync(folderPath, { withFileTypes: true })
+        .filter(file => file.isFile())
+        .filter(file => TEXTURE_EXTS.has(path.extname(file.name).toLowerCase()))
+        .map(file => {
+          const filePath = path.join(folderPath, file.name);
+          const stat = fs.statSync(filePath);
+          return {
+            name: file.name,
+            path: filePath,
+            size: stat.size,
+            mtimeMs: stat.mtimeMs,
+            key: `electron:${filePath}:${stat.size}:${Math.round(stat.mtimeMs)}`,
+            dataUrl: fileToDataUrl(filePath)
+          };
+        });
+
+      return {
+        name: dir.name,
+        path: folderPath,
+        files
+      };
+    })
+    .filter(group => group.files.length > 0);
+}
+
+
 async function createWindow() {
   const rootDir = __dirname;
   localServer = await startLocalServer(rootDir);
@@ -152,4 +206,21 @@ ipcMain.handle('choose-directory', async () => {
   return dialog.showOpenDialog({
     properties: ['openDirectory']
   });
+});
+
+
+ipcMain.handle('save-setting', (_, key, value) => {
+  const settings = readSettings();
+  settings[key] = value;
+  writeSettings(settings);
+  return true;
+});
+
+ipcMain.handle('load-setting', (_, key) => {
+  const settings = readSettings();
+  return settings[key] ?? null;
+});
+
+ipcMain.handle('scan-texture-library', (_, folderPath) => {
+  return scanTextureLibraryFolder(folderPath);
 });
