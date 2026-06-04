@@ -390,31 +390,35 @@ function renderTextureTabs() {
     const actions = document.createElement('span');
     actions.className = 'texture-tab-actions';
 
-    const duplicateBtn = document.createElement('button');
-    duplicateBtn.type = 'button';
-    duplicateBtn.className = 'texture-tab-mini-action texture-tab-duplicate-action';
-    duplicateBtn.textContent = '⧉';
-    duplicateBtn.title = 'Duplicate slot';
-    duplicateBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      duplicateTextureSlot(slot.id);
-    });
-    actions.appendChild(duplicateBtn);
+    if (slotHasContent(slot)) {
+      const duplicateBtn = document.createElement('button');
+      duplicateBtn.type = 'button';
+      duplicateBtn.className = 'texture-tab-mini-action texture-tab-duplicate-action';
+      duplicateBtn.textContent = '⧉';
+      duplicateBtn.title = 'Duplicate slot';
+      duplicateBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        duplicateTextureSlot(slot.id);
+      });
+      actions.appendChild(duplicateBtn);
+    } else if (textureSlots.length > 1) {
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'texture-tab-mini-action texture-tab-remove-action danger';
+      removeBtn.textContent = '×';
+      removeBtn.title = 'Remove empty slot';
+      removeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        removeTextureSlot(slot.id);
+      });
+      actions.appendChild(removeBtn);
+    }
 
-    const removeBtn = document.createElement('button');
-    removeBtn.type = 'button';
-    removeBtn.className = 'texture-tab-mini-action texture-tab-remove-action danger';
-    removeBtn.textContent = '×';
-    removeBtn.title = 'Remove empty slot';
-    removeBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      removeTextureSlot(slot.id);
-    });
-    actions.appendChild(removeBtn);
-
-    btn.appendChild(actions);
+    if (actions.children.length > 0) {
+      btn.appendChild(actions);
+    }
     container.appendChild(btn);
   }
 
@@ -1819,13 +1823,16 @@ document.getElementById('texture-tabs')?.addEventListener('click', (e) => {
   const btn = e.target.closest('.texture-tab');
   if (!btn) return;
 
+  const nextSlotId = btn.dataset.slot;
+  if (!nextSlotId) return;
+
   if (allSlotsPreviewActive) exitAllSlotsPreview();
 
   if (!isRestoringProject) {
     saveActiveSlotState();
   }
 
-  activeTextureSlotId = normalizeTextureSlotId(btn.dataset.slot);
+  activeTextureSlotId = normalizeTextureSlotId(nextSlotId);
 
   const slot = getActiveTextureSlot();
   restoreSlotState(slot);
@@ -1937,23 +1944,18 @@ function serializeMaterialProfile() {
   };
 }
 
-function saveMaterialProfileToFile() {
+async function saveMaterialProfileToFile() {
   const profile = serializeMaterialProfile();
   const json = JSON.stringify(profile, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
- const activeSlot = getActiveTextureSlot();
-const base = (activeSlot?.name || activeTextureSlotId || 'material')
-  .trim()
-  .replace(/[^\w.-]+/g, '-')
-  .replace(/^-+|-+$/g, '') || 'material';
-  a.href = url;
-  a.download = `${base}_material_profile.stltprofile`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+
+  const activeSlot = getActiveTextureSlot();
+  const base = (activeSlot?.name || activeTextureSlotId || 'material')
+    .trim()
+    .replace(/[^\w.-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'material';
+
+  await _downloadBlob(blob, `${base}_material_profile.stltprofile`);
 
   console.log('Saved material profile:', profile);
 }
@@ -7210,7 +7212,24 @@ function _restoreMask(mask) {
   refreshExclusionOverlay();
 }
 
-function _downloadBlob(blob, filename) {
+async function _downloadBlob(blob, filename) {
+  if (window.bumpforgeElectron?.saveBlob) {
+    try {
+      const buffer = await blob.arrayBuffer();
+      const result = await window.bumpforgeElectron.saveBlob({
+        filename,
+        data: buffer,
+        mimeType: blob.type || 'application/octet-stream'
+      });
+
+      if (result?.canceled) return;
+      if (result?.error) throw new Error(result.error);
+      return;
+    } catch (err) {
+      console.error('Electron native save failed, falling back to browser download:', err);
+    }
+  }
+
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
