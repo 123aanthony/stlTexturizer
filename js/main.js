@@ -955,6 +955,45 @@ function cloneSettings() {
   return { ...settings };
 }
 
+// BumpForge: these controls define export mesh quality and should stay global,
+// not per texture slot. Per-slot settings still control texture/projection/amplitude.
+const GLOBAL_EXPORT_QUALITY_KEYS = [
+  'refineLength',
+  'maxTriangles',
+  'smoothBottom',
+  'regularizeEnabled',
+  'regularizeAspectThreshold',
+  'regularizeSlack',
+  'regularizeAggressiveSlack',
+  'regularizeExtremeAspect',
+  'regularizeNormalDeg',
+  'regularizeAggressiveNormalDeg',
+  'regularizeSecondPassMul',
+];
+
+function getGlobalExportQualitySnapshot() {
+  const snap = {};
+  for (const key of GLOBAL_EXPORT_QUALITY_KEYS) {
+    snap[key] = settings[key];
+  }
+  return snap;
+}
+
+function stripGlobalExportQualitySettings(snap) {
+  if (!snap) return snap;
+  for (const key of GLOBAL_EXPORT_QUALITY_KEYS) {
+    delete snap[key];
+  }
+  return snap;
+}
+
+function withGlobalExportQuality(slotSettings = {}) {
+  return {
+    ...slotSettings,
+    ...getGlobalExportQualitySnapshot(),
+  };
+}
+
 function getAssignedFacesForCurrentSlot() {
   const assigned = new Set();
 
@@ -1130,7 +1169,8 @@ function saveActiveSlotState() {
   // In include-only mode this equals excludedFaces; in exclude mode it is the complement.
   slot.assignedFaces = getAssignedFacesForCurrentSlot();
 
-  slot.settings = cloneSettings();
+  // Store per-slot artistic settings only. Export quality stays global.
+  slot.settings = stripGlobalExportQualitySettings(cloneSettings());
   refreshTextureTabsUI();
 }
 
@@ -1145,7 +1185,10 @@ function restoreSlotState(slot) {
   }
 
   if (slot.settings) {
+    // Preserve global export quality while switching texture slots.
+    const globalExportQuality = getGlobalExportQualitySnapshot();
     Object.assign(settings, slot.settings);
+    Object.assign(settings, globalExportQuality);
   }
 
   activeMapName.textContent = activeMapEntry ? activeMapEntry.name : 'No map selected';
@@ -3407,6 +3450,15 @@ exportAllSlotsBtn?.addEventListener('click', async () => {
     return;
   }
 
+  // Keep the proven standard pipeline for the simple one-slot case.
+  // The old per-slot builder produced visible artifacts even with a single slot.
+  if (readySlots.length === 1) {
+    const onlySlot = readySlots[0];
+    activeTextureSlotId = onlySlot.id;
+    restoreSlotState(onlySlot);
+    return handleExport('stl');
+  }
+
   const myToken = ++exportToken;
   isExporting = true;
   exportBtn.classList.add('busy');
@@ -3414,89 +3466,19 @@ exportAllSlotsBtn?.addEventListener('click', async () => {
   exportAllSlotsBtn.classList.add('busy');
   exportProgress.classList.remove('hidden');
 
-  const generated = [];
-  let mergedGeometry = null;
+  let finalGeometry = null;
   let exportSucceeded = false;
 
   try {
-    console.log('Export All Slots requested');
+    console.log('Export All Slots requested — global single-mesh exclusive-mask pipeline');
+    setProgress(0.01, `Starting global multi-slot export (${readySlots.length} slots)`);
 
-    setProgress(0.01, `Starting multi-slot export (${readySlots.length} slots)`);
-
-    for (let i = 0; i < readySlots.length; i++) {
-      if (exportToken !== myToken) return;
-
-      const slot = readySlots[i];
-      console.log('Processing slot:', slot.name);
-
-      const geo = await buildExportGeometryForSlot(
-        slot,
-        i,
-        readySlots.length
-      );
-
-      generated.push({
-        slot,
-        geometry: geo
-      });
-    }
-
+    finalGeometry = await buildExportGeometryForAllSlots(readySlots, myToken);
     if (exportToken !== myToken) return;
 
-    console.log('Generated slot geometries:', generated);
-
-    setProgress(0.93, 'Merging texture slots');
-
-    mergedGeometry = new THREE.BufferGeometry();
-
-    let totalPositions = 0;
-    let totalNormals = 0;
-
-    for (const item of generated) {
-      totalPositions += item.geometry.attributes.position.array.length;
-
-      if (item.geometry.attributes.normal) {
-        totalNormals += item.geometry.attributes.normal.array.length;
-      }
-    }
-
-    const mergedPositions = new Float32Array(totalPositions);
-    const mergedNormals =
-      totalNormals > 0 ? new Float32Array(totalNormals) : null;
-
-    let posOffset = 0;
-    let nrmOffset = 0;
-
-    for (const item of generated) {
-      const pos = item.geometry.attributes.position.array;
-
-      mergedPositions.set(pos, posOffset);
-      posOffset += pos.length;
-
-      if (mergedNormals && item.geometry.attributes.normal) {
-        const nrm = item.geometry.attributes.normal.array;
-
-        mergedNormals.set(nrm, nrmOffset);
-        nrmOffset += nrm.length;
-      }
-    }
-
-    mergedGeometry.setAttribute(
-      'position',
-      new THREE.BufferAttribute(mergedPositions, 3)
-    );
-
-    if (mergedNormals) {
-      mergedGeometry.setAttribute(
-        'normal',
-        new THREE.BufferAttribute(mergedNormals, 3)
-      );
-    }
-
     setProgress(0.97, 'Writing STL');
-
     exportSTL(
-      mergedGeometry,
+      finalGeometry,
       `${currentStlName}_all_slots.stl`
     );
 
@@ -3513,12 +3495,8 @@ exportAllSlotsBtn?.addEventListener('click', async () => {
     console.error('Export All Slots failed:', err);
     alert(`Export All Slots failed: ${err.message}`);
   } finally {
-    for (const item of generated) {
-      item.geometry.dispose();
-    }
-
-    if (mergedGeometry) {
-      mergedGeometry.dispose();
+    if (finalGeometry) {
+      finalGeometry.dispose();
     }
 
     if (!exportSucceeded) {
@@ -6833,6 +6811,232 @@ const baseName = `${currentStlName}_${slotLabel}_${texLabel}_amp${ampLabel}`;
     export3mfBtn.classList.remove('busy');
   }
 }
+
+
+// BumpForge test: build exclusive per-slot masks on the shared subdivided mesh.
+// Each output sub-triangle is assigned to the first ready slot that owns its
+// original parent face. This prevents double-displacement when slots overlap.
+function buildExclusiveSlotFaceMasks(faceParentId, readySlots) {
+  const masks = readySlots.map(() => new Uint8Array(faceParentId.length));
+  const ownerByParent = new Map();
+
+  for (let slotIndex = 0; slotIndex < readySlots.length; slotIndex++) {
+    const assigned = readySlots[slotIndex].assignedFaces || new Set();
+
+    for (const face of assigned) {
+      const idx = Number(face);
+      if (!Number.isInteger(idx) || idx < 0) continue;
+      if (!ownerByParent.has(idx)) ownerByParent.set(idx, slotIndex);
+    }
+  }
+
+  const counts = new Array(readySlots.length).fill(0);
+
+  for (let subTri = 0; subTri < faceParentId.length; subTri++) {
+    const parent = faceParentId[subTri];
+    const owner = ownerByParent.get(parent);
+
+    if (owner != null) {
+      masks[owner][subTri] = 1;
+      counts[owner]++;
+    }
+  }
+
+  console.log('Exclusive slot mask triangle counts:', counts);
+  return { masks, counts };
+}
+
+async function buildExportGeometryForAllSlots(readySlots, myToken) {
+  const qualitySettings = getGlobalExportQualitySnapshot();
+
+  let subdivided = null;
+  let working = null;
+  let finalGeometry = null;
+  let faceParentId = null;
+
+  try {
+    setProgress(0.02, 'Subdividing shared mesh');
+    await yieldFrame();
+    if (exportToken !== myToken) throw new Error('Export cancelled');
+
+    // Important: subdivide ONCE for all slots.
+    // The previous Export All Slots pipeline subdivided/displaced each slot separately
+    // then concatenated the buffers, which caused mismatched vertices and front-face artifacts.
+    ({ geometry: subdivided, faceParentId } = await subdivide(
+      currentGeometry,
+      qualitySettings.refineLength,
+      (p, triCount, longestEdge) => {
+        const label = triCount != null
+          ? `Refining shared mesh ${Math.round(p * 100)}% — ${triCount.toLocaleString()} tris, edge ${longestEdge.toFixed(2)}`
+          : `Subdividing shared mesh ${Math.round(p * 100)}%`;
+        setProgress(0.02 + p * 0.28, label);
+      },
+      null
+    ));
+    if (exportToken !== myToken) throw new Error('Export cancelled');
+
+    // Mirror the regularize/resubdivide path used by bakeTextures(), preserving the
+    // original-face parent map so each slot can still build its mask on the shared mesh.
+    if (qualitySettings.regularizeEnabled) {
+      setProgress(0.31, 'Regularizing shared mesh');
+      await yieldFrame();
+
+      const reg = regularizeMesh(
+        subdivided,
+        faceParentId,
+        qualitySettings.refineLength,
+        _regularizeOpts()
+      );
+      subdivided.dispose();
+      subdivided = null;
+
+      const exclAttr = reg.geometry.attributes.excludeWeight;
+      const secondPassWeights = exclAttr ? exclAttr.array : null;
+
+      const { geometry: resub, faceParentId: resubParents } = await subdivide(
+        reg.geometry,
+        qualitySettings.refineLength * qualitySettings.regularizeSecondPassMul,
+        (p, triCount, longestEdge) => {
+          const label = triCount != null
+            ? `Re-refining shared mesh ${Math.round(p * 100)}% — ${triCount.toLocaleString()} tris, edge ${longestEdge.toFixed(2)}`
+            : `Re-subdividing shared mesh ${Math.round(p * 100)}%`;
+          setProgress(0.32 + p * 0.08, label);
+        },
+        secondPassWeights,
+        { fast: false }
+      );
+
+      reg.geometry.dispose();
+
+      const composed = new Int32Array(resubParents.length);
+      for (let i = 0; i < resubParents.length; i++) {
+        composed[i] = reg.faceParentId[resubParents[i]];
+      }
+
+      subdivided = resub;
+      faceParentId = composed;
+    }
+
+    working = subdivided;
+    subdivided = null;
+
+    const { masks: exclusiveFaceMasks, counts: exclusiveMaskCounts } =
+      buildExclusiveSlotFaceMasks(faceParentId, readySlots);
+
+    const multiSlots = [];
+    for (let i = 0; i < readySlots.length; i++) {
+      const slot = readySlots[i];
+      const slotSettings = withGlobalExportQuality(slot.settings || {});
+      const faceMask = exclusiveFaceMasks[i];
+
+      if (!faceMask || exclusiveMaskCounts[i] === 0) {
+        console.warn(`Skipping ${slot.name}: no exclusive triangles assigned`);
+        continue;
+      }
+
+      const previousActiveMapEntry = activeMapEntry;
+      const previousSettings = { ...settings };
+
+      activeMapEntry = slot.activeMapEntry;
+      Object.assign(settings, slotSettings);
+      const exportEntry = getEffectiveMapEntry();
+
+      activeMapEntry = previousActiveMapEntry;
+      Object.assign(settings, previousSettings);
+
+      multiSlots.push({
+        name: slot.name || slot.id || `Slot ${i + 1}`,
+        imageData: exportEntry.imageData,
+        width: exportEntry.width,
+        height: exportEntry.height,
+        settings: slotSettings,
+        faceMask
+      });
+    }
+
+    if (multiSlots.length === 0) {
+      throw new Error('No exclusive slot triangles were generated.');
+    }
+
+    setProgress(0.40, `Applying ${multiSlots.length} texture slots in one pass`);
+    const displaced = await runAsync(() =>
+      applyDisplacement(
+        working,
+        multiSlots[0].imageData,
+        multiSlots[0].width,
+        multiSlots[0].height,
+        {
+          ...qualitySettings,
+          multiSlots
+        },
+        currentBounds,
+        (p) => setProgress(
+          0.40 + p * 0.42,
+          `Displacing multi-slot mesh ${Math.round(p * 100)}%`
+        )
+      )
+    );
+
+    working.dispose();
+    working = displaced;
+
+    const dispTriCount = working.attributes.position.count / 3;
+    finalGeometry = working;
+    working = null;
+
+    if (dispTriCount > qualitySettings.maxTriangles) {
+      setProgress(0.84, `Decimating ${dispTriCount.toLocaleString()} → ${qualitySettings.maxTriangles.toLocaleString()}`);
+      const beforeDecimate = finalGeometry;
+      finalGeometry = await runAsync(() =>
+        decimate(
+          beforeDecimate,
+          qualitySettings.maxTriangles,
+          (p) => setProgress(0.84 + p * 0.10, `Decimating ${Math.round(p * 100)}%`)
+        )
+      );
+      beforeDecimate.dispose();
+    }
+
+    // Same post-export finishing as the standard export path.
+    if (qualitySettings.bottomAngleLimit > 0) {
+      const bottomZ = currentBounds.min.z;
+      const pa = finalGeometry.attributes.position.array;
+      const na = finalGeometry.attributes.normal ? finalGeometry.attributes.normal.array : new Float32Array(pa.length);
+
+      for (let i = 0; i < pa.length; i += 9) {
+        let dirty = false;
+        if (pa[i+2] < bottomZ) { pa[i+2] = bottomZ; dirty = true; }
+        if (pa[i+5] < bottomZ) { pa[i+5] = bottomZ; dirty = true; }
+        if (pa[i+8] < bottomZ) { pa[i+8] = bottomZ; dirty = true; }
+
+        if (dirty) {
+          const ux = pa[i+3]-pa[i],   uy = pa[i+4]-pa[i+1], uz = pa[i+5]-pa[i+2];
+          const vx = pa[i+6]-pa[i],   vy = pa[i+7]-pa[i+1], vz = pa[i+8]-pa[i+2];
+          const nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx;
+          const len = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
+          na[i]   = na[i+3] = na[i+6] = nx/len;
+          na[i+1] = na[i+4] = na[i+7] = ny/len;
+          na[i+2] = na[i+5] = na[i+8] = nz/len;
+        }
+      }
+
+      finalGeometry.attributes.position.needsUpdate = true;
+      if (finalGeometry.attributes.normal) finalGeometry.attributes.normal.needsUpdate = true;
+    }
+
+    if (qualitySettings.smoothBottom) {
+      snapBottomToFlat(finalGeometry, currentBounds.min.z, 0.1);
+    }
+
+    return finalGeometry;
+  } catch (err) {
+    if (subdivided) subdivided.dispose();
+    if (working) working.dispose();
+    if (finalGeometry) finalGeometry.dispose();
+    throw err;
+  }
+}
+
 async function buildExportGeometryForSlot(slot, slotIndex = 0, totalSlots = 1) {
   const slotBase = totalSlots > 0 ? (slotIndex / totalSlots) * 0.92 : 0;
   const slotSpan = totalSlots > 0 ? 0.92 / totalSlots : 0.92;
@@ -6842,9 +7046,11 @@ async function buildExportGeometryForSlot(slot, slotIndex = 0, totalSlots = 1) {
     setProgress(slotBase + clamped * slotSpan, label);
   };
 
+  const slotSettings = withGlobalExportQuality(slot.settings || {});
+
   const hasAngleMask =
-    slot.settings.bottomAngleLimit > 0 ||
-    slot.settings.topAngleLimit > 0;
+    slotSettings.bottomAngleLimit > 0 ||
+    slotSettings.topAngleLimit > 0;
 
   const tempExcludedFaces =
     buildExcludedFacesFromAssigned(
@@ -6852,21 +7058,21 @@ async function buildExportGeometryForSlot(slot, slotIndex = 0, totalSlots = 1) {
       currentGeometry
     );
 
-  const faceWeights =
-    (tempExcludedFaces.size > 0 || selectionMode || hasAngleMask)
-      ? buildCombinedFaceWeights(
-          currentGeometry,
-          tempExcludedFaces,
-          false,
-          slot.settings
-        )
-      : null;
+const faceWeights =
+  (tempExcludedFaces.size > 0 || selectionMode || hasAngleMask)
+    ? buildCombinedFaceWeights(
+        currentGeometry,
+        tempExcludedFaces,
+        false,
+        slotSettings
+      )
+    : null;
 
   setSlotProgress(0.02, `Preparing ${slot.name}`);
 
   const { geometry: subdivided, faceParentId } = await subdivide(
     currentGeometry,
-    slot.settings.refineLength,
+    slotSettings.refineLength,
     (progress) => {
       setSlotProgress(
         0.05 + progress * 0.35,
@@ -6887,7 +7093,7 @@ const previousActiveMapEntry = activeMapEntry;
 const previousSettings = { ...settings };
 
 activeMapEntry = slot.activeMapEntry;
-Object.assign(settings, slot.settings || {});
+Object.assign(settings, slotSettings);
 
 const exportEntry = getEffectiveMapEntry();
 
@@ -6900,7 +7106,7 @@ const displaced = await applyDisplacement(
   exportEntry.width,
   exportEntry.height,
     {
-      ...slot.settings,
+      ...slotSettings,
       faceMask
     },
     currentBounds,
@@ -6912,18 +7118,40 @@ const displaced = await applyDisplacement(
     }
   );
 
-  subdivided.dispose();
+subdivided.dispose();
 
-  setSlotProgress(0.95, `Finished ${slot.name}`);
+let finalGeometry = displaced;
+const dispTriCount = displaced.attributes.position.count / 3;
 
-  console.log(
-    'Built geometry for slot:',
-    slot.name,
-    displaced.attributes.position.count / 3,
-    'triangles'
+if (dispTriCount > slotSettings.maxTriangles) {
+  setSlotProgress(0.90, `Decimating ${slot.name}`);
+
+  finalGeometry = await runAsync(() =>
+    decimate(
+      displaced,
+      slotSettings.maxTriangles,
+      (p) => {
+        setSlotProgress(
+          0.90 + p * 0.05,
+          `Decimating ${slot.name} ${Math.round(p * 100)}%`
+        );
+      }
+    )
   );
 
-  return displaced;
+  displaced.dispose();
+}
+
+setSlotProgress(0.95, `Finished ${slot.name}`);
+
+console.log(
+  'Built geometry for slot:',
+  slot.name,
+  finalGeometry.attributes.position.count / 3,
+  'triangles'
+);
+
+return finalGeometry;
 }
 
 function setProgress(fraction, label) {

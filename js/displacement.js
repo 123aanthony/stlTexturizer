@@ -44,6 +44,31 @@ const faceMask = settings.faceMask || null;
   const aspectV = tmax / Math.max(imgHeight, 1);
   const settingsWithAspect = { ...settings, textureAspectU: aspectU, textureAspectV: aspectV };
 
+  // BumpForge multi-slot export support.
+  // settings.multiSlots lets Export All Slots compute all textures in ONE displacement pass.
+  // A single owner is chosen per unique vertex so all triangle copies of that position
+  // land at the exact same displaced point, avoiding cracks/non-manifold boundaries.
+  const multiSlots = Array.isArray(settings.multiSlots) && settings.multiSlots.length
+    ? settings.multiSlots
+    : null;
+  const multiSlotCount = multiSlots ? multiSlots.length : 0;
+  const multiSlotAspect = multiSlots
+    ? multiSlots.map(slot => {
+        const w = slot.width || 1;
+        const h = slot.height || 1;
+        const m = Math.max(w, h, 1);
+        return {
+          aspectU: m / Math.max(w, 1),
+          aspectV: m / Math.max(h, 1),
+          settingsWithAspect: {
+            ...(slot.settings || settings),
+            textureAspectU: m / Math.max(w, 1),
+            textureAspectV: m / Math.max(h, 1)
+          }
+        };
+      })
+    : null;
+
   // 10 µm vertex-dedup cells. Must match subdivision.js QUANTISE so the
   // displacement pipeline sees the same vertex-uniqueness that subdivision
   // produced — coarser cells (1e4) collapsed real fillet vertices on small
@@ -410,6 +435,58 @@ const faceMask = settings.faceMask || null;
     }
   }
 
+
+  // ── Multi-slot ownership ──────────────────────────────────────────────────
+  let multiOwner = null;
+  if (multiSlots) {
+    const scores = new Float64Array(uniqueCount * multiSlotCount);
+
+    for (let t = 0; t < count; t += 3) {
+      const triIdx = t / 3;
+      let owner = -1;
+
+      for (let s = 0; s < multiSlotCount; s++) {
+        const mask = multiSlots[s].faceMask;
+        if (mask && mask[triIdx]) {
+          owner = s;
+          break;
+        }
+      }
+
+      if (owner < 0) continue;
+
+      vA.fromBufferAttribute(posAttr, t);
+      vB.fromBufferAttribute(posAttr, t + 1);
+      vC.fromBufferAttribute(posAttr, t + 2);
+      edge1.subVectors(vB, vA);
+      edge2.subVectors(vC, vA);
+      faceNrm.crossVectors(edge1, edge2);
+      const areaWeight = Math.max(faceNrm.length(), 1e-12);
+
+      scores[vertexId[t] * multiSlotCount + owner] += areaWeight;
+      scores[vertexId[t + 1] * multiSlotCount + owner] += areaWeight;
+      scores[vertexId[t + 2] * multiSlotCount + owner] += areaWeight;
+    }
+
+    multiOwner = new Int16Array(uniqueCount);
+    multiOwner.fill(-1);
+
+    for (let vid = 0; vid < uniqueCount; vid++) {
+      let bestSlot = -1;
+      let bestScore = 0;
+
+      for (let s = 0; s < multiSlotCount; s++) {
+        const score = scores[vid * multiSlotCount + s];
+        if (score > bestScore) {
+          bestScore = score;
+          bestSlot = s;
+        }
+      }
+
+      multiOwner[vid] = bestSlot;
+    }
+  }
+
   // ── Pass 2: sample displacement texture once per unique position ──────────
 
   for (let i = 0; i < count; i++) {
@@ -419,26 +496,28 @@ const faceMask = settings.faceMask || null;
 
     tmpPos.fromBufferAttribute(posAttr, i);
 
-    // Cubic: derive blend weights from the *smooth* per-vertex normal so that
-    // adjacent vertices on a curved region (small fillets, rolled edges) see
-    // smoothly varying weights — this matches the per-fragment behaviour of
-    // the preview shader. The previous implementation summed per-face zone
-    // weights into per-vertex zoneArea[X|Y|Z]; on small fillets those sums
-    // change abruptly between neighbours because each face's dominant-axis
-    // membership is binary, which produced jagged "needle" displacement.
-    //
-    // The thin-plate edge case (top + bottom face normals cancel at a shared
-    // knife-edge vertex, leaving the smooth normal nearly zero) still needs
-    // the per-face zoneArea path. We detect that via smoothNrmReliability —
-    // length(rawSmoothNormal) / totalFaceArea, in [0, 1]. Surfaces with all
-    // normals broadly aligned read ≈1; perfectly cancelling pairs read 0.
-    // 0.5 is loose enough that a 90° cube edge (≈0.71) still uses the smooth
-    // path, but a near-180° fold falls back to face-area zones.
-    if (settings.mappingMode === 6 /* MODE_CUBIC */) {
+    const ownerSlot = multiOwner ? multiOwner[vid] : -1;
+    const sampleSlot = multiSlots && ownerSlot >= 0 ? multiSlots[ownerSlot] : null;
+    const sampleSettings = sampleSlot ? (sampleSlot.settings || settings) : settings;
+    const sampleSettingsWithAspect = sampleSlot
+      ? multiSlotAspect[ownerSlot].settingsWithAspect
+      : settingsWithAspect;
+    const sampleImageData = sampleSlot ? sampleSlot.imageData : imageData;
+    const sampleWidth = sampleSlot ? sampleSlot.width : imgWidth;
+    const sampleHeight = sampleSlot ? sampleSlot.height : imgHeight;
+    const sampleAspectU = sampleSlot ? multiSlotAspect[ownerSlot].aspectU : aspectU;
+    const sampleAspectV = sampleSlot ? multiSlotAspect[ownerSlot].aspectV : aspectV;
+
+    if (multiSlots && ownerSlot < 0) {
+      dispCacheVal[vid] = 0;
+      continue;
+    }
+
+    if (sampleSettings.mappingMode === 6 /* MODE_CUBIC */) {
       const md = Math.max(bounds.size.x, bounds.size.y, bounds.size.z, 1e-6);
-      const rotRad = (settings.rotation ?? 0) * Math.PI / 180;
-      const cubicBlend = settings.mappingBlend ?? 0;
-      const cubicBandWidth = settings.seamBandWidth ?? 0.35;
+      const rotRad = (sampleSettings.rotation ?? 0) * Math.PI / 180;
+      const cubicBlend = sampleSettings.mappingBlend ?? 0;
+      const cubicBandWidth = sampleSettings.seamBandWidth ?? 0.35;
 
       let wX = 0, wY = 0, wZ = 0;
       if (smoothNrmReliability[vid] > 0.5) {
@@ -453,50 +532,40 @@ const faceMask = settings.faceMask || null;
 
       if (wX + wY + wZ > 0) {
         let grey = 0;
-        // U-flip uses the *original* smoothNrm — it's a discrete sign decision
-        // about which face of the cube this vertex sits on. The smoothed blend
-        // normal can have small components flip sign during Laplacian smoothing
-        // (e.g. for vertices near the equator x≈0), which would mirror their
-        // texture sample relative to the true surface orientation.
-        if (wX > 0) { // X-dominant → YZ projection
+        if (wX > 0) {
           let rawU = (tmpPos.y-bounds.min.y)/md;
           if (smoothNrmX[vid] < 0) rawU = -rawU;
-          const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, settings, rotRad, aspectU, aspectV);
-          grey += sampleBilinear(imageData.data, imgWidth, imgHeight, uv.u, uv.v) * wX;
+          const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV);
+          grey += sampleBilinear(sampleImageData.data, sampleWidth, sampleHeight, uv.u, uv.v) * wX;
         }
-        if (wY > 0) { // Y-dominant → XZ projection
+        if (wY > 0) {
           let rawU = (tmpPos.x-bounds.min.x)/md;
           if (smoothNrmY[vid] > 0) rawU = -rawU;
-          const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, settings, rotRad, aspectU, aspectV);
-          grey += sampleBilinear(imageData.data, imgWidth, imgHeight, uv.u, uv.v) * wY;
+          const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV);
+          grey += sampleBilinear(sampleImageData.data, sampleWidth, sampleHeight, uv.u, uv.v) * wY;
         }
-        if (wZ > 0) { // Z-dominant → XY projection
+        if (wZ > 0) {
           let rawU = (tmpPos.x-bounds.min.x)/md;
           if (smoothNrmZ[vid] < 0) rawU = -rawU;
-          const uv = _cubicUV(rawU, (tmpPos.y-bounds.min.y)/md, settings, rotRad, aspectU, aspectV);
-          grey += sampleBilinear(imageData.data, imgWidth, imgHeight, uv.u, uv.v) * wZ;
+          const uv = _cubicUV(rawU, (tmpPos.y-bounds.min.y)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV);
+          grey += sampleBilinear(sampleImageData.data, sampleWidth, sampleHeight, uv.u, uv.v) * wZ;
         }
         dispCacheVal[vid] = grey;
         continue;
       }
     }
 
-    // Triplanar / cylindrical seam blends use the SMOOTHED blend normal so
-    // adjacent vertices in a blend zone don't see jittery weights driven by
-    // mesh-noise. Other modes ignore the normal for blending, so this is a
-    // no-op there. Displacement direction (Pass 3) stays on the unsmoothed
-    // smooth normal — only blend weights change here.
     tmpNrm.set(blendNrmX[vid], blendNrmY[vid], blendNrmZ[vid]);
 
-    const uvResult = computeUV(tmpPos, tmpNrm, settings.mappingMode, settingsWithAspect, bounds);
+    const uvResult = computeUV(tmpPos, tmpNrm, sampleSettings.mappingMode, sampleSettingsWithAspect, bounds);
     let grey;
     if (uvResult.triplanar) {
       grey = 0;
       for (const s of uvResult.samples) {
-        grey += sampleBilinear(imageData.data, imgWidth, imgHeight, s.u, s.v) * s.w;
+        grey += sampleBilinear(sampleImageData.data, sampleWidth, sampleHeight, s.u, s.v) * s.w;
       }
     } else {
-      grey = sampleBilinear(imageData.data, imgWidth, imgHeight, uvResult.u, uvResult.v);
+      grey = sampleBilinear(sampleImageData.data, sampleWidth, sampleHeight, uvResult.u, uvResult.v);
     }
     dispCacheVal[vid] = grey;
   }
@@ -509,11 +578,17 @@ const faceMask = settings.faceMask || null;
 
   for (let i = 0; i < count; i++) {
     const triIdx = Math.floor(i / 3);
-const maskedOut = faceMask && faceMask[triIdx] === 0;
     tmpPos.fromBufferAttribute(posAttr, i);
     tmpNrm.fromBufferAttribute(nrmAttr, i);
 
     const vid  = vertexId[i];
+    const ownerSlot = multiOwner ? multiOwner[vid] : -1;
+    const vertexSettings = multiSlots && ownerSlot >= 0
+      ? (multiSlots[ownerSlot].settings || settings)
+      : settings;
+    const maskedOut = multiSlots
+      ? ownerSlot < 0
+      : (faceMask && faceMask[triIdx] === 0);
     const grey = dispCacheVal[vid];
 
     // User-excluded faces get zero displacement; only angle-based masking uses
@@ -525,13 +600,13 @@ const maskedOut = faceMask && faceMask[triIdx] === 0;
     const isSealedBoundary = !isFaceExcluded && excludedPos && excludedPos[vid] === 1;
     const mfTotal = maskedFracTotal[vid];
     const maskedFrac = mfTotal > 0 ? maskedFracMasked[vid] / mfTotal : 0;
-    const centeredGrey = settings.symmetricDisplacement ? (grey - 0.5) : grey;
+    const centeredGrey = vertexSettings.symmetricDisplacement ? (grey - 0.5) : grey;
     const falloffFactor = falloffArr ? falloffArr[vid] : 1.0;
     let disp =
   falloffFactor *
   (1 - maskedFrac) *
   centeredGrey *
-  settings.amplitude;
+  vertexSettings.amplitude;
 
 if (maskedOut || isFaceExcluded || isSealedBoundary) {
   disp = 0;
@@ -545,14 +620,14 @@ if (maskedOut || isFaceExcluded || isSealedBoundary) {
     // Only triggers for vertices that are partly masked (maskedFrac > 0) and
     // whose displacement would push them toward the masked surface direction.
     if (maskedFrac > 0) {
-      if (settings.bottomAngleLimit > 0 && newZ < tmpPos.z) newZ = tmpPos.z;
-      if (settings.topAngleLimit    > 0 && newZ > tmpPos.z) newZ = tmpPos.z;
+      if (vertexSettings.bottomAngleLimit > 0 && newZ < tmpPos.z) newZ = tmpPos.z;
+      if (vertexSettings.topAngleLimit    > 0 && newZ > tmpPos.z) newZ = tmpPos.z;
     }
 
     // Overhang protection: never move a vertex below its original Z. X/Y
     // displacement is preserved so surface texture detail still appears,
     // it just gets pushed sideways instead of creating a new overhang.
-    if (settings.noDownwardZ && newZ < tmpPos.z) newZ = tmpPos.z;
+    if (vertexSettings.noDownwardZ && newZ < tmpPos.z) newZ = tmpPos.z;
 
     // Bottom-plane flat clamp: with overhang protection on, also clamp
     // upward motion when the original vertex sat on the print bottom plane.
@@ -563,7 +638,7 @@ if (maskedOut || isFaceExcluded || isSealedBoundary) {
     // tilted triangles with visibly varying shading. The clamp keeps the
     // bed-contact surface a single Z value while leaving any vertex above
     // the bottom plane (side fillets, etc.) free to follow texture detail.
-    if (settings.noDownwardZ && tmpPos.z <= bounds.min.z + 1e-5) {
+    if (vertexSettings.noDownwardZ && tmpPos.z <= bounds.min.z + 1e-5) {
       newZ = tmpPos.z;
     }
 
