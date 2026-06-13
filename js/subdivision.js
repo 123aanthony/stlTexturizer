@@ -13,6 +13,7 @@
  */
 
 import * as THREE from 'three';
+import { QuantizedPointMap } from './meshIndex.js';
 
 // 10 µm vertex-dedup cells. Below 1e5 (= 100 µm) small-fillet meshes have
 // distinct fillet vertices that round to the same key and merge incorrectly,
@@ -26,7 +27,10 @@ const QUANTISE   = 1e5;
 // that still completes reliably on typical desktop browsers; the Smart
 // recommender targets a conservative ~4M, but power users dragging the
 // resolution slider manually can push subdivision up to this hard cap.
-const SAFETY_CAP = 16_000_000;
+const SAFETY_CAP =
+  (typeof navigator !== 'undefined' && navigator.deviceMemory >= 8)
+    ? 32_000_000
+    : 16_000_000;
 
 // ── Public entry point ───────────────────────────────────────────────────────
 
@@ -133,18 +137,29 @@ export async function subdivide(geometry, maxEdgeLength, onProgress, faceWeights
 
 function subdividePass(positions, normals, weights, indices, maxEdgeLength, safetyCap, faceExcluded = null, canonIdx = null, posCanonMap = null, faceParentId = null) {
   const maxSq = maxEdgeLength * maxEdgeLength;
-  const midCache = new Map();
-  midCache._maxV = positions.length / 3; // set before any getMidpoint calls
+  // Typed-array hash maps avoid V8's Map/Set maximum-size limit on dense exports.
+  const midCache = new QuantizedPointMap(1, 1 << 16);
 
   // When canonIdx is available (accurate/export mode), use position-canonical
-  // edge keys so split-vertex faces on both sides of a sharp edge see the same
-  // split decision.  Otherwise (fast/preview mode) use simple index-based keys.
-  // NOTE: _maxV is computed once at pass start. During the pass, positions grows
-  // via getMidpoint, but splitEdges and midCache only use indices < _maxV.
-  const _maxV = positions.length / 3;
-  const _edgeKey = canonIdx
-    ? (a, b) => { const ca = canonIdx[a], cb = canonIdx[b]; return ca < cb ? ca * _maxV + cb : cb * _maxV + ca; }
-    : (a, b) => a < b ? a * _maxV + b : b * _maxV + a;
+  // edge ids so split-vertex faces on both sides of a sharp edge see the same
+  // split decision. Otherwise use raw vertex ids.
+  const _edgeIds = (a, b) => {
+    const u = canonIdx ? canonIdx[a] : a;
+    const v = canonIdx ? canonIdx[b] : b;
+    return u < v ? [u, v] : [v, u];
+  };
+
+  const splitEdges = new QuantizedPointMap(1, 1 << 16);
+
+  const markEdge = (a, b) => {
+    const [u, v] = _edgeIds(a, b);
+    splitEdges.getOrSet(u, v, 0, 1);
+  };
+
+  const isMarked = (a, b) => {
+    const [u, v] = _edgeIds(a, b);
+    return splitEdges.get(u, v, 0) !== -1;
+  };
 
   // ── Step 1: globally mark edges that need splitting ─────────────────────
   // Excluded triangles do NOT proactively mark their own edges – their
@@ -156,21 +171,12 @@ function subdividePass(positions, normals, weights, indices, maxEdgeLength, safe
   // dense input meshes (~11M+ triangles) where most edges still need to
   // split.  When that happens treat the pass as cap-aborted: returning
   // unchanged keeps the mesh watertight (no partial split, no T-junctions).
-  let splitEdges;
-  try {
-    splitEdges = new Set();
-    for (let t = 0; t < indices.length; t += 3) {
-      if (faceExcluded && faceExcluded[t / 3]) continue; // skip excluded faces
-      const a = indices[t], b = indices[t + 1], c = indices[t + 2];
-      if (edgeLenSq(positions, a, b) > maxSq) splitEdges.add(_edgeKey(a, b));
-      if (edgeLenSq(positions, b, c) > maxSq) splitEdges.add(_edgeKey(b, c));
-      if (edgeLenSq(positions, c, a) > maxSq) splitEdges.add(_edgeKey(c, a));
-    }
-  } catch (err) {
-    if (err instanceof RangeError) {
-      return { newIndices: indices, newFaceExcluded: faceExcluded, newFaceParentId: faceParentId, changed: false, capped: true };
-    }
-    throw err;
+  for (let t = 0; t < indices.length; t += 3) {
+    if (faceExcluded && faceExcluded[t / 3]) continue; // skip excluded faces
+    const a = indices[t], b = indices[t + 1], c = indices[t + 2];
+    if (edgeLenSq(positions, a, b) > maxSq) markEdge(a, b);
+    if (edgeLenSq(positions, b, c) > maxSq) markEdge(b, c);
+    if (edgeLenSq(positions, c, a) > maxSq) markEdge(c, a);
   }
 
   if (splitEdges.size === 0) return { newIndices: indices, newFaceExcluded: faceExcluded, newFaceParentId: faceParentId, changed: false };
@@ -185,9 +191,9 @@ function subdividePass(positions, normals, weights, indices, maxEdgeLength, safe
   let predictedTris = 0;
   for (let t = 0; t < indices.length; t += 3) {
     const a = indices[t], b = indices[t + 1], c = indices[t + 2];
-    const sAB = splitEdges.has(_edgeKey(a, b));
-    const sBC = splitEdges.has(_edgeKey(b, c));
-    const sCA = splitEdges.has(_edgeKey(c, a));
+    const sAB = isMarked(a, b);
+    const sBC = isMarked(b, c);
+    const sCA = isMarked(c, a);
     const n   = (sAB ? 1 : 0) + (sBC ? 1 : 0) + (sCA ? 1 : 0);
     predictedTris += n === 0 ? 1 : n + 1;   // 0→1, 1→2, 2→3, 3→4
   }
@@ -206,9 +212,9 @@ function subdividePass(positions, normals, weights, indices, maxEdgeLength, safe
     const fIdx = t / 3;
     const excl = faceExcluded ? faceExcluded[fIdx] : 0;
     const pid  = faceParentId ? faceParentId[fIdx] : 0;
-    const sAB = splitEdges.has(_edgeKey(a, b));
-    const sBC = splitEdges.has(_edgeKey(b, c));
-    const sCA = splitEdges.has(_edgeKey(c, a));
+    const sAB = isMarked(a, b);
+    const sBC = isMarked(b, c);
+    const sCA = isMarked(c, a);
     const n   = (sAB ? 1 : 0) + (sBC ? 1 : 0) + (sCA ? 1 : 0);
 
     if (n === 0) {
@@ -322,11 +328,11 @@ function edgeLenSq(pos, a, b) {
 }
 
 function getMidpoint(positions, normals, weights, cache, a, b, canonIdx, posCanonMap) {
-  // Numeric edge key: uses _maxV set on the cache by subdividePass at pass start.
-  // All lookups use indices < _maxV, so this is safe even as positions grows.
-  const _mv = cache._maxV;
-  const key = a < b ? a * _mv + b : b * _mv + a;
-  if (cache.has(key)) return cache.get(key);
+  // Midpoint cache keyed by raw unordered parent-vertex pair.
+  const u = a < b ? a : b;
+  const v = a < b ? b : a;
+  const cached = cache.get(u, v, 0);
+  if (cached !== -1) return cached;
 
   // Midpoint position
   const mx = (positions[a*3]   + positions[b*3])   / 2;
@@ -346,16 +352,15 @@ function getMidpoint(positions, normals, weights, cache, a, b, canonIdx, posCano
 
   // Maintain canonIdx when in accurate (export) mode.
   if (canonIdx) {
-    const pk = `${Math.round(mx * QUANTISE)}_${Math.round(my * QUANTISE)}_${Math.round(mz * QUANTISE)}`;
-    let cid = posCanonMap.get(pk);
-    if (cid === undefined) {
+    let cid = posCanonMap.get(mx, my, mz);
+    if (cid === -1) {
       cid = idx;
-      posCanonMap.set(pk, cid);
+      posCanonMap.getOrSet(mx, my, mz, cid);
     }
     canonIdx.push(cid);
   }
 
-  cache.set(key, idx);
+  cache.getOrSet(u, v, 0, idx);
   return idx;
 }
 
@@ -371,9 +376,9 @@ function toIndexedFast(geometry, nonIndexedWeights = null) {
   const normalSums = [];
   const weights    = nonIndexedWeights ? [] : null;
   const indices    = [];
-  const vertMap    = new Map();
-
   const n = posAttr.count;
+  const vertMap    = new QuantizedPointMap(QUANTISE, Math.min(n, 1 << 22));
+
   for (let i = 0; i < n; i++) {
     const px = posAttr.getX(i);
     const py = posAttr.getY(i);
@@ -382,15 +387,14 @@ function toIndexedFast(geometry, nonIndexedWeights = null) {
     const ny_ = nrmAttr ? nrmAttr.getY(i) : 0;
     const nz_ = nrmAttr ? nrmAttr.getZ(i) : 1;
 
-    const key = `${Math.round(px * QUANTISE)}_${Math.round(py * QUANTISE)}_${Math.round(pz * QUANTISE)}`;
-    let idx = vertMap.get(key);
-    if (idx === undefined) {
+    let idx = vertMap.get(px, py, pz);
+    if (idx === -1) {
       idx = positions.length / 3;
       positions.push(px, py, pz);
       normals.push(nx_, ny_, nz_);
       normalSums.push(nx_, ny_, nz_);
       if (weights) weights.push(nonIndexedWeights[i]);
-      vertMap.set(key, idx);
+      vertMap.getOrSet(px, py, pz, idx);
     } else {
       normalSums[idx * 3]     += nx_;
       normalSums[idx * 3 + 1] += ny_;
@@ -463,8 +467,8 @@ function toIndexed(geometry, nonIndexedWeights = null) {
   const weights    = nonIndexedWeights ? [] : null;
   const indices    = [];
   const canonIdx   = [];            // vertex idx → canonical position ID
-  const posCanonMap = new Map();    // posKey → first vertex idx at that position
-  const vertMap    = new Map();     // posKey → [{idx, fnU: [x,y,z]}]
+  const posCanonMap = new QuantizedPointMap(QUANTISE, Math.min(n, 1 << 22)); // position → first vertex idx
+  const clustersByCanon = new Map(); // canonical position ID → [{idx, fnU: [x,y,z]}]
 
   for (let i = 0; i < n; i++) {
     const px = posAttr.getX(i);
@@ -473,9 +477,8 @@ function toIndexed(geometry, nonIndexedWeights = null) {
     const fnUx = faceNrmUnit[i*3], fnUy = faceNrmUnit[i*3+1], fnUz = faceNrmUnit[i*3+2];
     const fnRx = faceNrmRaw[i*3],  fnRy = faceNrmRaw[i*3+1],  fnRz = faceNrmRaw[i*3+2];
 
-    const key = `${Math.round(px * QUANTISE)}_${Math.round(py * QUANTISE)}_${Math.round(pz * QUANTISE)}`;
-    let canonId = posCanonMap.get(key);
-    const clusters = vertMap.get(key);
+    let canonId = posCanonMap.get(px, py, pz);
+    const clusters = canonId !== -1 ? clustersByCanon.get(canonId) : undefined;
     if (clusters) {
       let matched = false;
       for (const cl of clusters) {
@@ -521,9 +524,9 @@ function toIndexed(geometry, nonIndexedWeights = null) {
       normalSums.push(fnRx, fnRy, fnRz);
       if (weights) weights.push(nonIndexedWeights[i]);
       canonId = idx;                  // first vertex at this position is canonical
-      posCanonMap.set(key, canonId);
+      posCanonMap.getOrSet(px, py, pz, canonId);
       canonIdx.push(canonId);
-      vertMap.set(key, [{idx, fnU: [fnUx, fnUy, fnUz]}]);
+      clustersByCanon.set(canonId, [{idx, fnU: [fnUx, fnUy, fnUz]}]);
       indices.push(idx);
     }
   }

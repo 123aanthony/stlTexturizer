@@ -6877,7 +6877,7 @@ async function buildExportGeometryForAllSlots(readySlots, myToken) {
 
     // Mirror the regularize/resubdivide path used by bakeTextures(), preserving the
     // original-face parent map so each slot can still build its mask on the shared mesh.
-    if (qualitySettings.regularizeEnabled) {
+   if (false && qualitySettings.regularizeEnabled) {
       setProgress(0.31, 'Regularizing shared mesh');
       await yieldFrame();
 
@@ -6984,7 +6984,7 @@ async function buildExportGeometryForAllSlots(readySlots, myToken) {
     finalGeometry = working;
     working = null;
 
-    if (dispTriCount > qualitySettings.maxTriangles) {
+    if (false && dispTriCount > qualitySettings.maxTriangles) {
       setProgress(0.84, `Decimating ${dispTriCount.toLocaleString()} → ${qualitySettings.maxTriangles.toLocaleString()}`);
       const beforeDecimate = finalGeometry;
       finalGeometry = await runAsync(() =>
