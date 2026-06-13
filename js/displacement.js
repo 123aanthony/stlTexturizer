@@ -471,12 +471,19 @@ const faceMask = settings.faceMask || null;
     multiOwner = new Int16Array(uniqueCount);
     multiOwner.fill(-1);
 
+    // Boundary vertices touch triangles from multiple slots.
+    // Pinning them prevents cross-slot height bleeding / comb artifacts.
+    var multiBoundary = new Uint8Array(uniqueCount);
+
     for (let vid = 0; vid < uniqueCount; vid++) {
       let bestSlot = -1;
       let bestScore = 0;
 
+      let positiveSlots = 0;
+
       for (let s = 0; s < multiSlotCount; s++) {
         const score = scores[vid * multiSlotCount + s];
+        if (score > 0) positiveSlots++;
         if (score > bestScore) {
           bestScore = score;
           bestSlot = s;
@@ -484,6 +491,7 @@ const faceMask = settings.faceMask || null;
       }
 
       multiOwner[vid] = bestSlot;
+      if (positiveSlots > 1) multiBoundary[vid] = 1;
     }
   }
 
@@ -607,6 +615,13 @@ const faceMask = settings.faceMask || null;
   (1 - maskedFrac) *
   centeredGrey *
   vertexSettings.amplitude;
+
+// Multi-slot seam guard:
+// vertices adjacent to more than one slot are pinned to the original surface.
+// This avoids a shared boundary vertex being pulled by the wrong texture.
+if (multiSlots && multiBoundary && multiBoundary[vid]) {
+  disp = 0;
+}
 
 if (maskedOut || isFaceExcluded || isSealedBoundary) {
   disp = 0;
