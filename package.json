@@ -1,0 +1,12 @@
+{
+  "name": "stlTexturizer",
+  "version": "1.0.0",
+  "main": "electron-main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^42.4.0"
+  }
+}
