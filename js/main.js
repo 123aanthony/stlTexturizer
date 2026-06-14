@@ -6816,6 +6816,40 @@ const baseName = `${currentStlName}_${slotLabel}_${texLabel}_amp${ampLabel}`;
 // BumpForge test: build exclusive per-slot masks on the shared subdivided mesh.
 // Each output sub-triangle is assigned to the first ready slot that owns its
 // original parent face. This prevents double-displacement when slots overlap.
+
+// BumpForge fix: build a UNION mask for Export All Slots subdivision.
+// The shared mesh must be refined only where at least one ready slot owns faces.
+// Without this, Export All Slots can refine the whole model and produce huge STL files.
+function buildUnionExcludedFacesForSlots(readySlots, geometry) {
+  const triCount = geometry?.attributes?.position
+    ? (geometry.attributes.position.count / 3) | 0
+    : 0;
+
+  const owned = new Set();
+
+  for (const slot of readySlots || []) {
+    for (const face of slot.assignedFaces || []) {
+      const idx = Number(face);
+      if (Number.isInteger(idx) && idx >= 0 && idx < triCount) {
+        owned.add(idx);
+      }
+    }
+  }
+
+  const excluded = new Set();
+  for (let i = 0; i < triCount; i++) {
+    if (!owned.has(i)) excluded.add(i);
+  }
+
+  console.log('Export All Slots union subdivision mask:', {
+    triCount,
+    owned: owned.size,
+    excluded: excluded.size
+  });
+
+  return excluded;
+}
+
 function buildExclusiveSlotFaceMasks(faceParentId, readySlots) {
   const masks = readySlots.map(() => new Uint8Array(faceParentId.length));
   const ownerByParent = new Map();
@@ -6853,15 +6887,24 @@ async function buildExportGeometryForAllSlots(readySlots, myToken) {
   let working = null;
   let finalGeometry = null;
   let faceParentId = null;
+  let sharedFaceWeights = null;
 
   try {
+    // Build one union face-weight mask before subdivision.
+    // This keeps Export All Slots from refining the whole model when a second slot exists.
+    const unionExcludedFaces = buildUnionExcludedFacesForSlots(readySlots, currentGeometry);
+    sharedFaceWeights = buildCombinedFaceWeights(
+      currentGeometry,
+      unionExcludedFaces,
+      false,
+      qualitySettings
+    );
+
     setProgress(0.02, 'Subdividing shared mesh');
     await yieldFrame();
     if (exportToken !== myToken) throw new Error('Export cancelled');
 
-    // Important: subdivide ONCE for all slots.
-    // The previous Export All Slots pipeline subdivided/displaced each slot separately
-    // then concatenated the buffers, which caused mismatched vertices and front-face artifacts.
+    // Important: subdivide ONCE for all slots, and only refine faces owned by at least one slot.
     ({ geometry: subdivided, faceParentId } = await subdivide(
       currentGeometry,
       qualitySettings.refineLength,
@@ -6871,7 +6914,7 @@ async function buildExportGeometryForAllSlots(readySlots, myToken) {
           : `Subdividing shared mesh ${Math.round(p * 100)}%`;
         setProgress(0.02 + p * 0.28, label);
       },
-      null
+      sharedFaceWeights
     ));
     if (exportToken !== myToken) throw new Error('Export cancelled');
 
