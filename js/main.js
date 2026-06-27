@@ -18,6 +18,8 @@ import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
 import { buildCombinedFaceWeights, buildUnionExcludedFacesForSlots,
          buildExclusiveSlotFaceMasks } from './slotMasks.js';
+import { normalizeFaceIndexArray, computeAssignedFaces,
+         buildFaceSignatures, restoreFacesFromSignatures } from './slotState.js';
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions, getShellAssignments } from './meshValidation.js';
 import { t, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
@@ -997,30 +999,9 @@ function withGlobalExportQuality(slotSettings = {}) {
 }
 
 function getAssignedFacesForCurrentSlot() {
-  const assigned = new Set();
-
-  if (!currentGeometry) {
-    for (const f of excludedFaces || []) assigned.add(f);
-    return assigned;
-  }
-
-  const triCount = (currentGeometry.attributes.position.count / 3) | 0;
-
-  if (selectionMode) {
-    // Include-only mode: painted faces are the material faces.
-    for (const f of excludedFaces || []) {
-      const idx = Number(f);
-      if (Number.isInteger(idx) && idx >= 0 && idx < triCount) assigned.add(idx);
-    }
-  } else {
-    // Exclude mode: painted faces are holes, so assigned faces are the complement.
-    const excluded = new Set(excludedFaces || []);
-    for (let i = 0; i < triCount; i++) {
-      if (!excluded.has(i)) assigned.add(i);
-    }
-  }
-
-  return assigned;
+  // Thin wrapper: data logic lives in slotState.computeAssignedFaces; main.js
+  // only supplies the current globals.
+  return computeAssignedFaces(currentGeometry, excludedFaces, selectionMode);
 }
 
 function updateSelectionModeUI() {
@@ -1028,131 +1009,6 @@ function updateSelectionModeUI() {
   exclModeIncludeBtn?.classList.toggle('active', selectionMode);
 }
 
-function _normalizeFaceIndexArray(value, triCount = Infinity) {
-  if (!Array.isArray(value)) return [];
-
-  const max = Number.isFinite(triCount) && triCount > 0 ? triCount : Infinity;
-
-  return value
-    .map(v => Number(v))
-    .filter(v => Number.isInteger(v) && v >= 0 && v < max);
-}
-
-function buildFaceSignatures(faceSet, geometry = currentGeometry) {
-  if (!geometry || !faceSet) return [];
-
-  const pos = geometry.attributes.position.array;
-  const triCount = geometry.attributes.position.count / 3;
-  const signatures = [];
-
-  const a = new THREE.Vector3();
-  const b = new THREE.Vector3();
-  const c = new THREE.Vector3();
-  const ab = new THREE.Vector3();
-  const ac = new THREE.Vector3();
-  const n = new THREE.Vector3();
-
-  for (const faceIndex of faceSet) {
-    const idx = Number(faceIndex);
-    if (!Number.isInteger(idx) || idx < 0 || idx >= triCount) continue;
-
-    const o = idx * 9;
-    a.set(pos[o],     pos[o + 1], pos[o + 2]);
-    b.set(pos[o + 3], pos[o + 4], pos[o + 5]);
-    c.set(pos[o + 6], pos[o + 7], pos[o + 8]);
-
-    n.crossVectors(ab.subVectors(b, a), ac.subVectors(c, a)).normalize();
-
-    signatures.push({
-      faceIndex: idx,
-      cx: (a.x + b.x + c.x) / 3,
-      cy: (a.y + b.y + c.y) / 3,
-      cz: (a.z + b.z + c.z) / 3,
-      nx: n.x,
-      ny: n.y,
-      nz: n.z
-    });
-  }
-
-  return signatures;
-}
-
-function restoreFacesFromSignatures(signatures, fallbackIndices = [], geometry = currentGeometry) {
-  const fallback = _normalizeFaceIndexArray(
-    fallbackIndices,
-    geometry ? ((geometry.attributes.position.count / 3) | 0) : Infinity
-  );
-
-  if (!geometry || !Array.isArray(signatures) || signatures.length === 0) {
-    return new Set(fallback);
-  }
-
-  const pos = geometry.attributes.position.array;
-  const triCount = geometry.attributes.position.count / 3;
-
-  const a = new THREE.Vector3();
-  const b = new THREE.Vector3();
-  const c = new THREE.Vector3();
-  const ab = new THREE.Vector3();
-  const ac = new THREE.Vector3();
-  const n = new THREE.Vector3();
-
-  const cents = new Float64Array(triCount * 3);
-  const nrms = new Float64Array(triCount * 3);
-
-  for (let idx = 0; idx < triCount; idx++) {
-    const o = idx * 9;
-    a.set(pos[o],     pos[o + 1], pos[o + 2]);
-    b.set(pos[o + 3], pos[o + 4], pos[o + 5]);
-    c.set(pos[o + 6], pos[o + 7], pos[o + 8]);
-
-    n.crossVectors(ab.subVectors(b, a), ac.subVectors(c, a)).normalize();
-
-    cents[idx * 3]     = (a.x + b.x + c.x) / 3;
-    cents[idx * 3 + 1] = (a.y + b.y + c.y) / 3;
-    cents[idx * 3 + 2] = (a.z + b.z + c.z) / 3;
-
-    nrms[idx * 3]     = n.x;
-    nrms[idx * 3 + 1] = n.y;
-    nrms[idx * 3 + 2] = n.z;
-  }
-
-  const out = new Set();
-
-  for (const sig of signatures) {
-    if (!sig) continue;
-
-    let bestIndex = -1;
-    let bestScore = Infinity;
-
-    for (let idx = 0; idx < triCount; idx++) {
-      const co = idx * 3;
-      const dx = cents[co]     - Number(sig.cx);
-      const dy = cents[co + 1] - Number(sig.cy);
-      const dz = cents[co + 2] - Number(sig.cz);
-
-      const dot =
-        nrms[co]     * Number(sig.nx) +
-        nrms[co + 1] * Number(sig.ny) +
-        nrms[co + 2] * Number(sig.nz);
-
-      const score = dx * dx + dy * dy + dz * dz + Math.max(0, 1 - dot) * 10000;
-
-      if (score < bestScore) {
-        bestScore = score;
-        bestIndex = idx;
-      }
-    }
-
-    if (bestIndex >= 0) out.add(bestIndex);
-  }
-
-  if (out.size === 0) {
-    for (const idx of fallback) out.add(idx);
-  }
-
-  return out;
-}
 
 function saveActiveSlotState() {
   const slot = getActiveTextureSlot();
@@ -2365,7 +2221,7 @@ function serializeProjectTextureSlots() {
       selectionMode: typeof slot.selectionMode === 'boolean' ? slot.selectionMode : true,
       excludedFaces: Array.from(slot.excludedFaces || []),
       assignedFaces: Array.from(slot.assignedFaces || slot.excludedFaces || []),
-      faceSignatures: buildFaceSignatures(slot.assignedFaces || slot.excludedFaces || new Set()),
+      faceSignatures: buildFaceSignatures(slot.assignedFaces || slot.excludedFaces || new Set(), currentGeometry),
       settings: { ...(slot.settings || {}) }
     };
   });
@@ -2408,8 +2264,8 @@ textureSlots = savedSlots.map((saved, index) => ({
     slot.settings = { ...(saved.settings || {}) };
     slot.selectionMode = typeof saved.selectionMode === 'boolean' ? saved.selectionMode : true;
 
-    const restoredUiFaces = new Set(_normalizeFaceIndexArray(saved.excludedFaces, triCount));
-    const validAssigned = _normalizeFaceIndexArray(saved.assignedFaces || saved.excludedFaces, triCount);
+    const restoredUiFaces = new Set(normalizeFaceIndexArray(saved.excludedFaces, triCount));
+    const validAssigned = normalizeFaceIndexArray(saved.assignedFaces || saved.excludedFaces, triCount);
     const restoredAssignedFaces = restoreFacesFromSignatures(
       saved.faceSignatures,
       validAssigned,
