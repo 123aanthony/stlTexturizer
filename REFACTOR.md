@@ -58,11 +58,16 @@ pourra alors appeler le vrai chemin de prod.
 | 0 | Golden-master géométrique (`test/golden.mjs`, 9 cas) | ✅ |
 | 1a | `slotMasks.js` (masques multi-slot, purs) + 7 unités | ✅ |
 | 1b | `slotState.js` — noyau de données pur (signatures round-trip, computeAssignedFaces, normalize) + 8 unités | ✅ |
-| 1c | Séparer la donnée du DOM dans `saveActiveSlotState`/`restoreSlotState`/`serializeTextureSlots` (déléguer à un état slot testable) | ⏳ à venir |
+| 1c | Contrat réglages per-slot/global extrait (`GLOBAL_EXPORT_QUALITY_KEYS` + pick/strip/with, purs) + 4 unités | ✅ |
+| 1d | Consolider `saveActiveSlotState`/`restoreSlotState`/`serializeTextureSlots` : donnée déléguée à slotState, DOM seul dans main.js | ⏳ à venir |
 | 2 | Trancher les `if(false)` (décimation/regularize en multi-slot) | ⏳ |
 | 3 | Source unique de vérité pour l'état slot (le vrai fix ch.8) | ⏳ |
 
-Cumul : `main.js` −240 lignes nettes sur 1a+1b ; 24 vérifs automatiques (15 unités + 9 golden).
+Cumul : `main.js` ≈ −263 lignes nettes (1a+1b+1c) ; 28 vérifs automatiques (19 unités + 9 golden).
+
+**Validation app** (utilisateur, après 1a/1b) : peinture 2 slots → save/reload projet
+(sélections restaurées) → Export All Slots. Le chemin réel de `main.js` — non couvert
+par le golden — est confirmé sain.
 
 ## Backlog process (quand le rythme sera pris)
 
