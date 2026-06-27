@@ -36,14 +36,16 @@ travers le slot actif, supprimer les globals miroirs).
   légitimement → ce n'est PAS une régression de code, mais ça impose un rebaseline
   conscient. (D'où `three` épinglé.)
 
-## Trou connu du filet (à combler)
+## Couverture du chemin `main.js` — état
 
-Le golden teste `subdivision`/`displacement` en direct et `slotMasks` en unités,
-mais **rien ne teste le chemin d'appel de `main.js`** (`buildExportGeometryForAllSlots`,
-les `if(false)` de décimation/regularize, la mutation/restauration de globals).
-→ **Objectif à double bénéfice** : extraire l'orchestration d'export en fonction
-**sans DOM** (`runExportPipeline(geometry, slots, settings) → geometry`) ; le golden
-pourra alors appeler le vrai chemin de prod.
+- **Export multi-slot : COUVERT** (étape B). L'orchestration est extraite dans
+  `exportPipeline.runMultiSlotExport` (sans DOM) ; le cas golden `cube-multislot`
+  appelle la vraie fonction de prod, pas un wrapper de test.
+- **Boot de l'app : COUVERT** (étape C) par un smoke test Playwright-Electron
+  (`test/e2e/`, `npm run test:e2e`) — ⚠️ exige un GPU/WebGL réel (cf. test/e2e/README).
+- **Reste non couvert headless** : `restoreSlotState` (écritures DOM) et le save/
+  load projet via IPC natif. Le round-trip *données* est couvert par
+  `test/slotState.mjs` ; le round-trip *UI/IPC* attend un E2E (window-API).
 
 ## Décisions actées
 
@@ -59,11 +61,13 @@ pourra alors appeler le vrai chemin de prod.
 | 1a | `slotMasks.js` (masques multi-slot, purs) + 7 unités | ✅ |
 | 1b | `slotState.js` — noyau de données pur (signatures round-trip, computeAssignedFaces, normalize) + 8 unités | ✅ |
 | 1c | Contrat réglages per-slot/global extrait (`GLOBAL_EXPORT_QUALITY_KEYS` + pick/strip/with, purs) + 4 unités | ✅ |
+| B  | Orchestration export multi-slot extraite (`exportPipeline.runMultiSlotExport`, sans DOM) ; golden branché sur le chemin réel ; blocs `if(false)` morts retirés | ✅ |
+| C  | Scaffold E2E Playwright-Electron (smoke boot) — exige GPU, à valider sur machine | ✅ |
 | 1d | Consolider `saveActiveSlotState`/`restoreSlotState`/`serializeTextureSlots` : donnée déléguée à slotState, DOM seul dans main.js | ⏳ à venir |
-| 2 | Trancher les `if(false)` (décimation/regularize en multi-slot) | ⏳ |
+| 2 | Décider décimation/regularize en multi-slot (les `if(false)` retirés ne tranchent pas la question) | ⏳ |
 | 3 | Source unique de vérité pour l'état slot (le vrai fix ch.8) | ⏳ |
 
-Cumul : `main.js` ≈ −263 lignes nettes (1a+1b+1c) ; 28 vérifs automatiques (19 unités + 9 golden).
+Cumul : `main.js` ≈ −470 lignes nettes (1a+1b+1c+B) ; 28 vérifs headless (19 unités + 9 golden) + smoke E2E.
 
 **Validation app** (utilisateur, après 1a/1b) : peinture 2 slots → save/reload projet
 (sélections restaurées) → Export All Slots. Le chemin réel de `main.js` — non couvert
