@@ -21,6 +21,7 @@ import { buildCombinedFaceWeights, buildUnionExcludedFacesForSlots,
 import { normalizeFaceIndexArray, computeAssignedFaces,
          buildFaceSignatures, restoreFacesFromSignatures,
          pickGlobalQuality, stripGlobalQuality, withGlobalQuality } from './slotState.js';
+import { runMultiSlotExport, snapBottomToFlat } from './exportPipeline.js';
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions, getShellAssignments } from './meshValidation.js';
 import { t, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
@@ -6618,203 +6619,30 @@ const baseName = `${currentStlName}_${slotLabel}_${texLabel}_amp${ampLabel}`;
 // The shared mesh must be refined only where at least one ready slot owns faces.
 // Without this, Export All Slots can refine the whole model and produce huge STL files.
 async function buildExportGeometryForAllSlots(readySlots, myToken) {
-  const qualitySettings = getGlobalExportQualitySnapshot();
-
-  let subdivided = null;
-  let working = null;
-  let finalGeometry = null;
-  let faceParentId = null;
-  let sharedFaceWeights = null;
-
-  try {
-    // Build one union face-weight mask before subdivision.
-    // This keeps Export All Slots from refining the whole model when a second slot exists.
-    const unionExcludedFaces = buildUnionExcludedFacesForSlots(readySlots, currentGeometry);
-    sharedFaceWeights = buildCombinedFaceWeights(
-      currentGeometry,
-      unionExcludedFaces,
-      false,
-      qualitySettings
-    );
-
-    setProgress(0.02, 'Subdividing shared mesh');
-    await yieldFrame();
-    if (exportToken !== myToken) throw new Error('Export cancelled');
-
-    // Important: subdivide ONCE for all slots, and only refine faces owned by at least one slot.
-    ({ geometry: subdivided, faceParentId } = await subdivide(
-      currentGeometry,
-      qualitySettings.refineLength,
-      (p, triCount, longestEdge) => {
-        const label = triCount != null
-          ? `Refining shared mesh ${Math.round(p * 100)}% — ${triCount.toLocaleString()} tris, edge ${longestEdge.toFixed(2)}`
-          : `Subdividing shared mesh ${Math.round(p * 100)}%`;
-        setProgress(0.02 + p * 0.28, label);
-      },
-      sharedFaceWeights
-    ));
-    if (exportToken !== myToken) throw new Error('Export cancelled');
-
-    // Mirror the regularize/resubdivide path used by bakeTextures(), preserving the
-    // original-face parent map so each slot can still build its mask on the shared mesh.
-   if (false && qualitySettings.regularizeEnabled) {
-      setProgress(0.31, 'Regularizing shared mesh');
-      await yieldFrame();
-
-      const reg = regularizeMesh(
-        subdivided,
-        faceParentId,
-        qualitySettings.refineLength,
-        _regularizeOpts()
-      );
-      subdivided.dispose();
-      subdivided = null;
-
-      const exclAttr = reg.geometry.attributes.excludeWeight;
-      const secondPassWeights = exclAttr ? exclAttr.array : null;
-
-      const { geometry: resub, faceParentId: resubParents } = await subdivide(
-        reg.geometry,
-        qualitySettings.refineLength * qualitySettings.regularizeSecondPassMul,
-        (p, triCount, longestEdge) => {
-          const label = triCount != null
-            ? `Re-refining shared mesh ${Math.round(p * 100)}% — ${triCount.toLocaleString()} tris, edge ${longestEdge.toFixed(2)}`
-            : `Re-subdividing shared mesh ${Math.round(p * 100)}%`;
-          setProgress(0.32 + p * 0.08, label);
-        },
-        secondPassWeights,
-        { fast: false }
-      );
-
-      reg.geometry.dispose();
-
-      const composed = new Int32Array(resubParents.length);
-      for (let i = 0; i < resubParents.length; i++) {
-        composed[i] = reg.faceParentId[resubParents[i]];
-      }
-
-      subdivided = resub;
-      faceParentId = composed;
-    }
-
-    working = subdivided;
-    subdivided = null;
-
-    const { masks: exclusiveFaceMasks, counts: exclusiveMaskCounts } =
-      buildExclusiveSlotFaceMasks(faceParentId, readySlots);
-
-    const multiSlots = [];
-    for (let i = 0; i < readySlots.length; i++) {
-      const slot = readySlots[i];
-      const slotSettings = withGlobalExportQuality(slot.settings || {});
-      const faceMask = exclusiveFaceMasks[i];
-
-      if (!faceMask || exclusiveMaskCounts[i] === 0) {
-        console.warn(`Skipping ${slot.name}: no exclusive triangles assigned`);
-        continue;
-      }
-
+  // Orchestration lives in exportPipeline.runMultiSlotExport (DOM-free, golden-
+  // covered). main.js only injects the UI coupling: progress, cancellation,
+  // frame-yielding, and the per-slot texture fetch (Canvas2D blur via globals).
+  return runMultiSlotExport({
+    geometry: currentGeometry,
+    bounds: currentBounds,
+    readySlots,
+    qualitySettings: getGlobalExportQualitySnapshot(),
+    getSlotImageData: (slot, slotSettings) => {
+      // Temporarily swap in this slot's map+settings so getEffectiveMapEntry()
+      // (which reads globals) returns the processed texture for this slot.
       const previousActiveMapEntry = activeMapEntry;
       const previousSettings = { ...settings };
-
       activeMapEntry = slot.activeMapEntry;
       Object.assign(settings, slotSettings);
       const exportEntry = getEffectiveMapEntry();
-
       activeMapEntry = previousActiveMapEntry;
       Object.assign(settings, previousSettings);
-
-      multiSlots.push({
-        name: slot.name || slot.id || `Slot ${i + 1}`,
-        imageData: exportEntry.imageData,
-        width: exportEntry.width,
-        height: exportEntry.height,
-        settings: slotSettings,
-        faceMask
-      });
-    }
-
-    if (multiSlots.length === 0) {
-      throw new Error('No exclusive slot triangles were generated.');
-    }
-
-    setProgress(0.40, `Applying ${multiSlots.length} texture slots in one pass`);
-    const displaced = await runAsync(() =>
-      applyDisplacement(
-        working,
-        multiSlots[0].imageData,
-        multiSlots[0].width,
-        multiSlots[0].height,
-        {
-          ...qualitySettings,
-          multiSlots
-        },
-        currentBounds,
-        (p) => setProgress(
-          0.40 + p * 0.42,
-          `Displacing multi-slot mesh ${Math.round(p * 100)}%`
-        )
-      )
-    );
-
-    working.dispose();
-    working = displaced;
-
-    const dispTriCount = working.attributes.position.count / 3;
-    finalGeometry = working;
-    working = null;
-
-    if (false && dispTriCount > qualitySettings.maxTriangles) {
-      setProgress(0.84, `Decimating ${dispTriCount.toLocaleString()} → ${qualitySettings.maxTriangles.toLocaleString()}`);
-      const beforeDecimate = finalGeometry;
-      finalGeometry = await runAsync(() =>
-        decimate(
-          beforeDecimate,
-          qualitySettings.maxTriangles,
-          (p) => setProgress(0.84 + p * 0.10, `Decimating ${Math.round(p * 100)}%`)
-        )
-      );
-      beforeDecimate.dispose();
-    }
-
-    // Same post-export finishing as the standard export path.
-    if (qualitySettings.bottomAngleLimit > 0) {
-      const bottomZ = currentBounds.min.z;
-      const pa = finalGeometry.attributes.position.array;
-      const na = finalGeometry.attributes.normal ? finalGeometry.attributes.normal.array : new Float32Array(pa.length);
-
-      for (let i = 0; i < pa.length; i += 9) {
-        let dirty = false;
-        if (pa[i+2] < bottomZ) { pa[i+2] = bottomZ; dirty = true; }
-        if (pa[i+5] < bottomZ) { pa[i+5] = bottomZ; dirty = true; }
-        if (pa[i+8] < bottomZ) { pa[i+8] = bottomZ; dirty = true; }
-
-        if (dirty) {
-          const ux = pa[i+3]-pa[i],   uy = pa[i+4]-pa[i+1], uz = pa[i+5]-pa[i+2];
-          const vx = pa[i+6]-pa[i],   vy = pa[i+7]-pa[i+1], vz = pa[i+8]-pa[i+2];
-          const nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx;
-          const len = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
-          na[i]   = na[i+3] = na[i+6] = nx/len;
-          na[i+1] = na[i+4] = na[i+7] = ny/len;
-          na[i+2] = na[i+5] = na[i+8] = nz/len;
-        }
-      }
-
-      finalGeometry.attributes.position.needsUpdate = true;
-      if (finalGeometry.attributes.normal) finalGeometry.attributes.normal.needsUpdate = true;
-    }
-
-    if (qualitySettings.smoothBottom) {
-      snapBottomToFlat(finalGeometry, currentBounds.min.z, 0.1);
-    }
-
-    return finalGeometry;
-  } catch (err) {
-    if (subdivided) subdivided.dispose();
-    if (working) working.dispose();
-    if (finalGeometry) finalGeometry.dispose();
-    throw err;
-  }
+      return { imageData: exportEntry.imageData, width: exportEntry.width, height: exportEntry.height };
+    },
+    onProgress: setProgress,
+    checkCancel: () => { if (exportToken !== myToken) throw new Error('Export cancelled'); },
+    yield: yieldFrame,
+  });
 }
 
 async function buildExportGeometryForSlot(slot, slotIndex = 0, totalSlots = 1) {
@@ -6953,41 +6781,6 @@ function setProgress(fraction, label) {
 // any printer's resolution, so legitimate above-bottom geometry (side
 // fillets, the rest of the model) is left alone. Caller passes `bottomZ`
 // explicitly so this function works on any geometry / coordinate system.
-function snapBottomToFlat(geometry, bottomZ, tol = 0.1) {
-  const pa = geometry.attributes.position.array;
-  const na = geometry.attributes.normal
-    ? geometry.attributes.normal.array
-    : new Float32Array(pa.length);
-  let dirtyTris = 0;
-
-  for (let i = 0; i < pa.length; i += 9) {
-    let dirty = false;
-    if (Math.abs(pa[i+2] - bottomZ) <= tol) { pa[i+2] = bottomZ; dirty = true; }
-    if (Math.abs(pa[i+5] - bottomZ) <= tol) { pa[i+5] = bottomZ; dirty = true; }
-    if (Math.abs(pa[i+8] - bottomZ) <= tol) { pa[i+8] = bottomZ; dirty = true; }
-    if (dirty) {
-      dirtyTris++;
-      const ux = pa[i+3]-pa[i],   uy = pa[i+4]-pa[i+1], uz = pa[i+5]-pa[i+2];
-      const vx = pa[i+6]-pa[i],   vy = pa[i+7]-pa[i+1], vz = pa[i+8]-pa[i+2];
-      const nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx;
-      const len = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
-      na[i]   = na[i+3] = na[i+6] = nx/len;
-      na[i+1] = na[i+4] = na[i+7] = ny/len;
-      na[i+2] = na[i+5] = na[i+8] = nz/len;
-    }
-  }
-
-  if (dirtyTris > 0) {
-    geometry.attributes.position.needsUpdate = true;
-    if (!geometry.attributes.normal) {
-      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(na, 3));
-    } else {
-      geometry.attributes.normal.needsUpdate = true;
-    }
-  }
-  return dirtyTris;
-}
-
 function setBakeProgress(fraction, label) {
   const pct = Math.round(fraction * 100);
   bakeProgBar.style.width = `${pct}%`;

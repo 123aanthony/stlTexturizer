@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { subdivide } from '../../js/subdivision.js';
 import { applyDisplacement } from '../../js/displacement.js';
+import { runMultiSlotExport } from '../../js/exportPipeline.js';
 
 /** Bounds object in the shape displacement.js expects ({min,max,center,size}). */
 export function computeBounds(geo) {
@@ -38,47 +39,48 @@ export async function runSingle(geo, { refineLength, settings, texture, faceWeig
 }
 
 /**
- * Multi-slot run: assign each ORIGINAL triangle to a slot, expand that to the
- * subdivided mesh via faceParentId (exactly as buildExclusiveSlotFaceMasks does
- * in main.js), then displace all slots in one pass.
+ * Multi-slot run through the REAL production orchestration
+ * (exportPipeline.runMultiSlotExport): assign each ORIGINAL triangle to a slot
+ * (or leave it unowned), then let the pipeline build the union mask, subdivide
+ * once, expand exclusive masks, and displace all slots in one pass.
  *
- * @param assignOriginal  (triIndex, centroid:{x,y,z}) => slotIndex | -1
+ * @param assignOriginal  (triIndex, centroid:{x,y,z}, normal:{x,y,z}) => slotIndex | -1
  * @param slots           [{ texture, settings }]
  */
 export async function runMultiSlot(geo, { refineLength, slots, assignOriginal }) {
-  const { geometry: sub, faceParentId } = await subdivide(geo, refineLength, null, null);
   const bounds = computeBounds(geo);
 
-  // Per-original-triangle slot assignment.
-  const origPos = geo.attributes.position.array;
-  const origTriCount = (origPos.length / 9) | 0;
-  const origAssign = new Int16Array(origTriCount);
-  for (let t = 0; t < origTriCount; t++) {
+  const readySlots = slots.map((s, si) => ({
+    name: `slot${si}`,
+    assignedFaces: new Set(),
+    settings: s.settings,
+    _texture: s.texture,
+  }));
+
+  const pos = geo.attributes.position.array;
+  const triCount = (pos.length / 9) | 0;
+  for (let t = 0; t < triCount; t++) {
     const b = t * 9;
-    const cx = (origPos[b] + origPos[b + 3] + origPos[b + 6]) / 3;
-    const cy = (origPos[b + 1] + origPos[b + 4] + origPos[b + 7]) / 3;
-    const cz = (origPos[b + 2] + origPos[b + 5] + origPos[b + 8]) / 3;
-    origAssign[t] = assignOriginal(t, { x: cx, y: cy, z: cz });
+    const cx = (pos[b]     + pos[b + 3] + pos[b + 6]) / 3;
+    const cy = (pos[b + 1] + pos[b + 4] + pos[b + 7]) / 3;
+    const cz = (pos[b + 2] + pos[b + 5] + pos[b + 8]) / 3;
+    const ux = pos[b + 3] - pos[b],     uy = pos[b + 4] - pos[b + 1], uz = pos[b + 5] - pos[b + 2];
+    const vx = pos[b + 6] - pos[b],     vy = pos[b + 7] - pos[b + 1], vz = pos[b + 8] - pos[b + 2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz) || 1; nx /= len; ny /= len; nz /= len;
+    const si = assignOriginal(t, { x: cx, y: cy, z: cz }, { x: nx, y: ny, z: nz });
+    if (si >= 0) readySlots[si].assignedFaces.add(t);
   }
 
-  // Expand to per-subdivided-face exclusive masks.
-  const subTriCount = (sub.attributes.position.array.length / 9) | 0;
-  const multiSlots = slots.map((s, si) => {
-    const faceMask = new Uint8Array(subTriCount);
-    for (let i = 0; i < subTriCount; i++) {
-      if (origAssign[faceParentId[i]] === si) faceMask[i] = 1;
-    }
-    return {
-      faceMask,
-      imageData: s.texture,
-      width: s.texture.width,
-      height: s.texture.height,
-      settings: s.settings,
-    };
+  return runMultiSlotExport({
+    geometry: geo,
+    bounds,
+    readySlots,
+    qualitySettings: { refineLength, smoothBottom: false },
+    getSlotImageData: (slot) => ({
+      imageData: slot._texture,
+      width: slot._texture.width,
+      height: slot._texture.height,
+    }),
   });
-
-  return applyDisplacement(
-    sub, multiSlots[0].imageData, multiSlots[0].width, multiSlots[0].height,
-    { ...baseSettings, multiSlots }, bounds, null,
-  );
 }

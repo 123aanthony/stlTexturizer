@@ -40,13 +40,17 @@ const cases = {
   'plate-noDownZ':     () => runSingle(fixture('plate'),    { refineLength: 2, settings: s({ amplitude: 0.5, noDownwardZ: true }), texture: sine }),
   'real-fillets':      () => runSingle(real('cubeWithSmallFillets.stl'), { refineLength: 4, settings: s({ amplitude: 1.0 }), texture: checker }),
   'real-laserplate':   () => runSingle(real('laserPlate.stl'),           { refineLength: 4, settings: s({ amplitude: 1.0 }), texture: checker }),
+  // Real production orchestration (exportPipeline.runMultiSlotExport). Top faces
+  // -> slot0, bottom -> slot1, the four walls left UNOWNED so the union-exclusion
+  // /shared-subdivision path is genuinely exercised (unowned faces aren't refined
+  // or displaced, and the result must stay watertight).
   'cube-multislot':    () => runMultiSlot(fixture('cube'), {
     refineLength: 4,
     slots: [
       { texture: checker, settings: s({ amplitude: 1.5 }) },
       { texture: sine,    settings: s({ amplitude: 1.0 }) },
     ],
-    assignOriginal: (_t, c) => (c.z >= 0 ? 0 : 1), // top half -> slot0, bottom -> slot1
+    assignOriginal: (_t, _c, n) => (n.z > 0.5 ? 0 : n.z < -0.5 ? 1 : -1),
   }),
 };
 
