@@ -10,9 +10,11 @@
     "test:masks": "node test/slotMasks.mjs",
     "test:state": "node test/slotState.mjs",
     "test:golden": "node test/golden.mjs",
-    "test:golden:update": "node test/golden.mjs --update"
+    "test:golden:update": "node test/golden.mjs --update",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "electron": "^42.4.0",
     "three": "^0.170.0"
   }

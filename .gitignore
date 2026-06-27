@@ -6,4 +6,6 @@ debug_out/
 test-*.mjs
 dist/
 
-dist/
+# Playwright E2E artifacts
+test-results/
+playwright-report/
