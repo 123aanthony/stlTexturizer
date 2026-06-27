@@ -19,7 +19,8 @@ import { buildAdjacency, bucketFill,
 import { buildCombinedFaceWeights, buildUnionExcludedFacesForSlots,
          buildExclusiveSlotFaceMasks } from './slotMasks.js';
 import { normalizeFaceIndexArray, computeAssignedFaces,
-         buildFaceSignatures, restoreFacesFromSignatures } from './slotState.js';
+         buildFaceSignatures, restoreFacesFromSignatures,
+         pickGlobalQuality, stripGlobalQuality, withGlobalQuality } from './slotState.js';
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions, getShellAssignments } from './meshValidation.js';
 import { t, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
@@ -959,43 +960,19 @@ function cloneSettings() {
   return { ...settings };
 }
 
-// BumpForge: these controls define export mesh quality and should stay global,
-// not per texture slot. Per-slot settings still control texture/projection/amplitude.
-const GLOBAL_EXPORT_QUALITY_KEYS = [
-  'refineLength',
-  'maxTriangles',
-  'smoothBottom',
-  'regularizeEnabled',
-  'regularizeAspectThreshold',
-  'regularizeSlack',
-  'regularizeAggressiveSlack',
-  'regularizeExtremeAspect',
-  'regularizeNormalDeg',
-  'regularizeAggressiveNormalDeg',
-  'regularizeSecondPassMul',
-];
-
+// Per-slot/global settings split lives in slotState.js (single source of truth
+// for GLOBAL_EXPORT_QUALITY_KEYS). These thin wrappers just supply the live
+// global `settings`.
 function getGlobalExportQualitySnapshot() {
-  const snap = {};
-  for (const key of GLOBAL_EXPORT_QUALITY_KEYS) {
-    snap[key] = settings[key];
-  }
-  return snap;
+  return pickGlobalQuality(settings);
 }
 
 function stripGlobalExportQualitySettings(snap) {
-  if (!snap) return snap;
-  for (const key of GLOBAL_EXPORT_QUALITY_KEYS) {
-    delete snap[key];
-  }
-  return snap;
+  return stripGlobalQuality(snap);
 }
 
 function withGlobalExportQuality(slotSettings = {}) {
-  return {
-    ...slotSettings,
-    ...getGlobalExportQualitySnapshot(),
-  };
+  return withGlobalQuality(slotSettings, settings);
 }
 
 function getAssignedFacesForCurrentSlot() {

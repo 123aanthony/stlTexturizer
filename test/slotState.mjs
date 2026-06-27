@@ -11,6 +11,10 @@ import {
   computeAssignedFaces,
   buildFaceSignatures,
   restoreFacesFromSignatures,
+  GLOBAL_EXPORT_QUALITY_KEYS,
+  pickGlobalQuality,
+  stripGlobalQuality,
+  withGlobalQuality,
 } from '../js/slotState.js';
 
 let passed = 0;
@@ -86,6 +90,39 @@ test('round-trip: survives mesh re-indexing (triangle reorder)', () => {
 test('round-trip: empty signatures fall back to provided indices', () => {
   const restored = restoreFacesFromSignatures([], [1, 3], geo());
   assert.deepEqual(set(restored), [1, 3]);
+});
+
+// ── Per-slot vs global settings split ────────────────────────────────────────
+// Sample with a per-slot setting + all global-quality keys defined.
+const fullSettings = () => ({
+  amplitude: 1.5, scaleU: 2,                 // per-slot
+  ...Object.fromEntries(GLOBAL_EXPORT_QUALITY_KEYS.map((k, i) => [k, i + 1])),
+});
+
+test('split: pick returns exactly the global keys', () => {
+  const picked = pickGlobalQuality(fullSettings());
+  assert.deepEqual(Object.keys(picked).sort(), [...GLOBAL_EXPORT_QUALITY_KEYS].sort());
+});
+
+test('split: strip removes global keys, keeps per-slot keys', () => {
+  const stripped = stripGlobalQuality(fullSettings());
+  assert.deepEqual(Object.keys(stripped).sort(), ['amplitude', 'scaleU']);
+});
+
+test('split: per-slot settings survive a save (strip) -> restore (with) round-trip', () => {
+  const full = fullSettings();
+  const savedSlot = stripGlobalQuality({ ...full });        // what gets stored per slot
+  const restored = withGlobalQuality(savedSlot, full);      // restored under current global
+  assert.deepEqual(restored, full);
+});
+
+test('split: switching slots keeps the CURRENT global quality, not the saved one', () => {
+  // Slot was saved long ago with refineLength 3; the live global is now 5.
+  const staleSlot = { amplitude: 1.0, refineLength: 3 };
+  const liveGlobal = { ...fullSettings(), refineLength: 5 };
+  const restored = withGlobalQuality(staleSlot, liveGlobal);
+  assert.equal(restored.refineLength, 5);  // global wins — no stale-quality leak
+  assert.equal(restored.amplitude, 1.0);   // per-slot preserved
 });
 
 console.error(`\nslotState: ${passed} checks passed${process.exitCode ? ' (with failures)' : ''}`);

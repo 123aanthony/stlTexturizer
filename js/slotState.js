@@ -173,3 +173,41 @@ export function restoreFacesFromSignatures(signatures, fallbackIndices = [], geo
 
   return out;
 }
+
+// ── Per-slot vs global settings split ────────────────────────────────────────
+// Export-mesh-quality controls are GLOBAL, not per texture slot. Per-slot
+// settings carry texture/projection/amplitude. This list is the single source
+// of truth for that split; switching slots must keep the CURRENT global quality
+// rather than resurrecting whatever quality a slot happened to be saved with.
+export const GLOBAL_EXPORT_QUALITY_KEYS = [
+  'refineLength',
+  'maxTriangles',
+  'smoothBottom',
+  'regularizeEnabled',
+  'regularizeAspectThreshold',
+  'regularizeSlack',
+  'regularizeAggressiveSlack',
+  'regularizeExtremeAspect',
+  'regularizeNormalDeg',
+  'regularizeAggressiveNormalDeg',
+  'regularizeSecondPassMul',
+];
+
+/** Snapshot of just the global export-quality settings (every key present). */
+export function pickGlobalQuality(settings) {
+  const snap = {};
+  for (const key of GLOBAL_EXPORT_QUALITY_KEYS) snap[key] = settings[key];
+  return snap;
+}
+
+/** Remove the global export-quality keys from a settings object (mutates + returns). */
+export function stripGlobalQuality(settings) {
+  if (!settings) return settings;
+  for (const key of GLOBAL_EXPORT_QUALITY_KEYS) delete settings[key];
+  return settings;
+}
+
+/** Overlay the current global export-quality onto per-slot settings (global wins). */
+export function withGlobalQuality(slotSettings = {}, globalSettings) {
+  return { ...slotSettings, ...pickGlobalQuality(globalSettings) };
+}
