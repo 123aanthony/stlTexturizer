@@ -57,9 +57,12 @@ pourra alors appeler le vrai chemin de prod.
 |---|---|---|
 | 0 | Golden-master géométrique (`test/golden.mjs`, 9 cas) | ✅ |
 | 1a | `slotMasks.js` (masques multi-slot, purs) + 7 unités | ✅ |
-| 1b | `slotState.js` — modèle de données des slots (données séparées du DOM) | ⏳ à venir |
+| 1b | `slotState.js` — noyau de données pur (signatures round-trip, computeAssignedFaces, normalize) + 8 unités | ✅ |
+| 1c | Séparer la donnée du DOM dans `saveActiveSlotState`/`restoreSlotState`/`serializeTextureSlots` (déléguer à un état slot testable) | ⏳ à venir |
 | 2 | Trancher les `if(false)` (décimation/regularize en multi-slot) | ⏳ |
 | 3 | Source unique de vérité pour l'état slot (le vrai fix ch.8) | ⏳ |
+
+Cumul : `main.js` −240 lignes nettes sur 1a+1b ; 24 vérifs automatiques (15 unités + 9 golden).
 
 ## Backlog process (quand le rythme sera pris)
 
