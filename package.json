@@ -4,9 +4,13 @@
   "main": "electron-main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron ."
+    "dev": "electron .",
+    "fixtures": "node test/genFixtures.mjs",
+    "test:golden": "node test/golden.mjs",
+    "test:golden:update": "node test/golden.mjs --update"
   },
   "devDependencies": {
-    "electron": "^42.4.0"
+    "electron": "^42.4.0",
+    "three": "^0.170.0"
   }
 }
