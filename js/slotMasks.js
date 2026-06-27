@@ -1,0 +1,121 @@
+// Multi-slot face-mask core.
+//
+// Pure geometry/data helpers, extracted verbatim from main.js so they can be
+// unit-tested headless (they were buried in the 8.5k-line UI module). No DOM,
+// no module globals — everything is passed in. The console.log debug lines are
+// kept as-is for a strictly behavior-preserving extraction; they will be
+// removed in the hygiene pass.
+
+import * as THREE from 'three';
+import { buildFaceWeights } from './exclusion.js';
+
+/**
+ * Per-vertex exclusion weights for the subdivision pass, combining painted
+ * exclusion with angle-based (top/bottom) masking.
+ */
+export function buildCombinedFaceWeights(geometry, excludedFaces, invert, settings) {
+  const weights = buildFaceWeights(geometry, excludedFaces, invert);
+
+  const hasAngleMask = settings.bottomAngleLimit > 0 || settings.topAngleLimit > 0;
+  if (!hasAngleMask) return weights;
+
+  const posAttr = geometry.attributes.position;
+  const triCount = posAttr.count / 3;
+  const vA = new THREE.Vector3();
+  const vB = new THREE.Vector3();
+  const vC = new THREE.Vector3();
+  const edge1 = new THREE.Vector3();
+  const edge2 = new THREE.Vector3();
+  const faceNrm = new THREE.Vector3();
+
+  for (let t = 0; t < triCount; t++) {
+    if (weights[t * 3] > 0.99) continue; // already excluded
+    vA.fromBufferAttribute(posAttr, t * 3);
+    vB.fromBufferAttribute(posAttr, t * 3 + 1);
+    vC.fromBufferAttribute(posAttr, t * 3 + 2);
+    edge1.subVectors(vB, vA);
+    edge2.subVectors(vC, vA);
+    faceNrm.crossVectors(edge1, edge2);
+    const faceArea  = faceNrm.length();
+    const faceNzNorm = faceArea > 1e-12 ? faceNrm.z / faceArea : 0;
+    const faceAngle  = Math.acos(Math.abs(faceNzNorm)) * (180 / Math.PI);
+    const angleMasked = faceNzNorm < 0
+      ? (settings.bottomAngleLimit > 0 && faceAngle <= settings.bottomAngleLimit)
+      : (settings.topAngleLimit    > 0 && faceAngle <= settings.topAngleLimit);
+    if (angleMasked) {
+      weights[t * 3]     = 1.0;
+      weights[t * 3 + 1] = 1.0;
+      weights[t * 3 + 2] = 1.0;
+    }
+  }
+  return weights;
+}
+
+/**
+ * Union of faces NOT owned by any slot, as the excluded set for the shared
+ * subdivision pass (so Export All Slots only refines faces some slot uses).
+ */
+export function buildUnionExcludedFacesForSlots(readySlots, geometry) {
+  const triCount = geometry?.attributes?.position
+    ? (geometry.attributes.position.count / 3) | 0
+    : 0;
+
+  const owned = new Set();
+
+  for (const slot of readySlots || []) {
+    for (const face of slot.assignedFaces || []) {
+      const idx = Number(face);
+      if (Number.isInteger(idx) && idx >= 0 && idx < triCount) {
+        owned.add(idx);
+      }
+    }
+  }
+
+  const excluded = new Set();
+  for (let i = 0; i < triCount; i++) {
+    if (!owned.has(i)) excluded.add(i);
+  }
+
+  console.log('Export All Slots union subdivision mask:', {
+    triCount,
+    owned: owned.size,
+    excluded: excluded.size
+  });
+
+  return excluded;
+}
+
+/**
+ * One exclusive face mask per slot on the SUBDIVIDED mesh: each original face is
+ * owned by the first slot that claims it (overlap resolved by slot order), then
+ * expanded to subdivided faces via faceParentId.
+ */
+export function buildExclusiveSlotFaceMasks(faceParentId, readySlots) {
+  const masks = readySlots.map(() => new Uint8Array(faceParentId.length));
+  const ownerByParent = new Map();
+
+  for (let slotIndex = 0; slotIndex < readySlots.length; slotIndex++) {
+    const assigned = readySlots[slotIndex].assignedFaces || new Set();
+
+    for (const face of assigned) {
+      const idx = Number(face);
+      if (!Number.isInteger(idx) || idx < 0) continue;
+      if (!ownerByParent.has(idx)) ownerByParent.set(idx, slotIndex);
+    }
+  }
+
+  const counts = new Array(readySlots.length).fill(0);
+
+  for (let subTri = 0; subTri < faceParentId.length; subTri++) {
+    const parent = faceParentId[subTri];
+    const owner = ownerByParent.get(parent);
+
+    if (owner != null) {
+      masks[owner][subTri] = 1;
+      counts[owner]++;
+    }
+  }
+
+  console.log('Exclusive slot mask triangle counts:', counts);
+  return { masks, counts };
+}

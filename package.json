@@ -6,6 +6,8 @@
     "start": "electron .",
     "dev": "electron .",
     "fixtures": "node test/genFixtures.mjs",
+    "test": "node test/slotMasks.mjs && node test/golden.mjs",
+    "test:masks": "node test/slotMasks.mjs",
     "test:golden": "node test/golden.mjs",
     "test:golden:update": "node test/golden.mjs --update"
   },
