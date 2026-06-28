@@ -42,8 +42,11 @@ export function renderTris(tris, opts) {
     const r = [p[0]-c.x, p[1]-c.y, p[2]-c.z];
     sx.push(dot(r, right)); sy.push(dot(r, trueUp)); sz.push(dot(r, v));
   }
-  const minX = Math.min(...sx), maxX = Math.max(...sx);
-  const minY = Math.min(...sy), maxY = Math.max(...sy);
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (let i = 0; i < sx.length; i++) {
+    if (sx[i] < minX) minX = sx[i]; if (sx[i] > maxX) maxX = sx[i];
+    if (sy[i] < minY) minY = sy[i]; if (sy[i] > maxY) maxY = sy[i];
+  }
   const margin = 0.9;
   const scale = margin * Math.min(W / (maxX - minX || 1), H / (maxY - minY || 1));
   const toPx = (X, Y) => [W/2 + (X - (minX+maxX)/2) * scale, H/2 - (Y - (minY+maxY)/2) * scale];

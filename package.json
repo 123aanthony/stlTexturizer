@@ -14,11 +14,13 @@
     "test:e2e": "playwright test",
     "test:export": "node test/exportPipeline.mjs",
     "test:scale": "node test/scaleSnap.mjs",
-    "render": "node test/render/renderMapping.mjs"
+    "render": "node test/render/renderMapping.mjs",
+    "render:disp": "node test/render/renderDisplaced.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "electron": "^42.4.0",
+    "jpeg-js": "^0.4.4",
     "pngjs": "^7.0.0",
     "three": "^0.170.0"
   }
