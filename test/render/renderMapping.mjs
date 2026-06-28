@@ -29,7 +29,9 @@ function grainTex(w = 128, h = 128) {
 
 // Beam: long axis = X. Optionally inclined about Z to expose world-axis wood
 // projection failing on non-axis-aligned timber.
-const geo = new THREE.BoxGeometry(120, 16, 16, 1, 1, 1).toNonIndexed();
+const by = parseFloat(process.argv[4] || '16');
+const bz = parseFloat(process.argv[5] || '16');
+const geo = new THREE.BoxGeometry(120, by, bz, 1, 1, 1).toNonIndexed();
 if (incline) geo.rotateY(incline * Math.PI / 180); // tilt in the vertical XZ plane (rafter)
 const pos = geo.attributes.position.array;
 geo.computeBoundingBox();
@@ -39,7 +41,9 @@ const bounds = {
   center: new THREE.Vector3().addVectors(bb.min, bb.max).multiplyScalar(0.5),
   size: new THREE.Vector3().subVectors(bb.max, bb.min),
 };
-const settings = { mappingMode: mode, scaleU: 0.5, scaleV: 0.5, offsetU: 0, offsetV: 0, rotation: 0, textureAspectU: 1, textureAspectV: 1 };
+const { computeBeamFrame } = await import('../../js/beamAxis.js');
+const rot = parseFloat(process.argv[6] || '0');
+const settings = { mappingMode: mode, scaleU: 0.5, scaleV: 0.5, offsetU: 0, offsetV: 0, rotation: rot, textureAspectU: 1, textureAspectV: 1, beamFrame: mode === 7 ? computeBeamFrame(pos) : null };
 
 const tris = [];
 const triCount = pos.length / 9;

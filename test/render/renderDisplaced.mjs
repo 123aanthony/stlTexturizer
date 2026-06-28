@@ -39,7 +39,9 @@ const texture = (texName === 'vbands' || texName === 'ubands')
 
 // Beam, long axis X, optional rafter tilt about Y.
 const axis = (process.argv[6] || 'z').toLowerCase(); // tilt axis: 'z' (plan) discriminates oriented vs world; 'y' is degenerate
-const geo = new THREE.BoxGeometry(90, 14, 14, 1, 1, 1).toNonIndexed();
+const by = parseFloat(process.argv[7] || '14');     // cross-section width (Y)
+const bz = parseFloat(process.argv[8] || '14');     // cross-section height (Z)
+const geo = new THREE.BoxGeometry(90, by, bz, 1, 1, 1).toNonIndexed();
 if (incline) (axis === 'y' ? geo.rotateY : geo.rotateZ).call(geo, incline * Math.PI / 180);
 
 const settings = {
