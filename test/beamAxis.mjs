@@ -44,16 +44,23 @@ test('oriented: rawU increases along the beam axis (any orientation)', () => {
   assert.ok(orientedRawUV(p1, n, f).rawU > orientedRawUV(p0, n, f).rawU);
 });
 
-test('oriented: rawV is normal-independent (no fan near edges)', () => {
+test('oriented: face normal selects the cross-axis (top face vs side face)', () => {
+  // Classification is by the FACE normal. On the export mesh normals are split
+  // per-face at sharp edges, so a top-face point (normal ∥ W) and a side-face
+  // point (normal ∥ V) map V to DIFFERENT cross-coordinates — that's what makes
+  // the grain run lengthwise on every face. (The earlier "normal-independent"
+  // guard was wrong: it assumed a fan that was actually a smooth-normal test
+  // artefact; the real subdivided mesh has per-face normals.)
   const f = computeBeamFrame(beamPositions(0));
   const c = f.center;
-  const p = { // a point off the axis (has both V and W components)
+  const p = { // off-axis: distinct V (3) and W (2) offsets so the two branches differ
     x: c[0] + f.V[0]*3 + f.W[0]*2, y: c[1] + f.V[1]*3 + f.W[1]*2, z: c[2] + f.V[2]*3 + f.W[2]*2,
   };
-  const nW = { x: f.W[0], y: f.W[1], z: f.W[2] };
-  const nV = { x: f.V[0], y: f.V[1], z: f.V[2] };
-  // Same surface point → same V whatever the (smooth/blended) normal: kills the fan.
-  assert.equal(orientedRawUV(p, nW, f).rawV, orientedRawUV(p, nV, f).rawV);
+  const nW = { x: f.W[0], y: f.W[1], z: f.W[2] }; // top face  → V follows the V-offset
+  const nV = { x: f.V[0], y: f.V[1], z: f.V[2] }; // side face → V follows the W-offset
+  assert.notEqual(orientedRawUV(p, nW, f).rawV, orientedRawUV(p, nV, f).rawV);
+  // W-normal (top): rawV tracks lvc≈3/md ; V-normal (side): rawV tracks lwc≈2/md
+  assert.ok(orientedRawUV(p, nW, f).rawV > orientedRawUV(p, nV, f).rawV);
 });
 
 test('PCA masked to a beam inside a larger model → beam axis, not model axis', () => {
