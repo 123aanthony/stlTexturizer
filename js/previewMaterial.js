@@ -138,9 +138,11 @@ const sharedGLSL = /* glsl */`
       float a = beamHalf.x, b = beamHalf.y;
       float nv = lvc / a, nw = lwc / b;
       float perim = 4.0 * (a + b);
+      // Seam (s=0≡perim) at the bottom-face centre → hidden on the underside.
       float s;
-      if (abs(nv) >= abs(nw)) s = (nv >= 0.0) ? (lwc + b) : (2.0*b + 2.0*a + (b - lwc));
-      else                    s = (nw >= 0.0) ? (2.0*b + (a - lvc)) : (4.0*b + 2.0*a + (lvc + a));
+      if (abs(nv) >= abs(nw)) s = (nv >= 0.0) ? (a + (lwc + b)) : (3.0*a + 2.0*b + (b - lwc));
+      else if (nw >= 0.0)     s = a + 2.0*b + (a - lvc);
+      else                    s = (lvc >= 0.0) ? lvc : (3.0*a + 4.0*b + (lvc + a));
       float oU = (lu - beamMin.x) / beamMd;
       return sampleMap(vec2(oU, s / perim));
     }
