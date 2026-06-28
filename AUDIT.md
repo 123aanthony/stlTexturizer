@@ -69,4 +69,10 @@ Deux racines : le **double-état** (#4 = étape 3) et une **persistance sédimen
 3. **#5** — `clearTextureSlot` : ne réinitialiser que le per-slot. ✅ FAIT (`stripGlobalQuality` sur les défauts → la qualité globale n'est plus touchée)
 4. **#7** — `decimateEnabled` ajouté à `DEFAULT_SETTINGS_SNAPSHOT`. ✅ FAIT
 5. **#6** — `duplicate` : préserver `selectionMode` + sélection, sens de données corrigé, rAF retiré. ✅ FAIT
-6. **#4** — source unique de vérité (étape 3, le gros morceau). ⏳ RESTE
+6. **#4** — source unique de vérité (étape 3). 🟡 EN COURS : accesseur unique
+   `resolveSlotState` (slotState.js, testé) ; TOUS les lecteurs live (slotHasContent,
+   getSlotFaceCount, getSlotOverlapCount, getSlotTooltip, renderTextureTabs) passent
+   par `getSlotState` → plus aucune divergence active-vs-stocké. **Reste optionnel**
+   (plus gros/risqué) : supprimer carrément les globals miroir
+   (`excludedFaces`/`selectionMode`/`settings`/`activeMapEntry`) au profit de l'écriture
+   directe dans le slot actif — non requis pour tuer le bug de divergence.
