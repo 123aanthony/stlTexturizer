@@ -13,7 +13,6 @@ import { dirname, join } from 'node:path';
 import { runSingle, baseSettings } from '../lib/pipeline.mjs';
 import { loadTexture } from './loadTexture.mjs';
 import { renderTris, savePNG } from './raster.mjs';
-import { computeBeamFrame } from '../../js/beamAxis.js';
 
 const MODES = { 'wood-auto': 7, 'wood-x': 8, 'wood-y': 9, 'wood-z': 10, 'triplanar': 5, 'cubic': 6 };
 const arg = process.argv[2] || 'wood-x';
@@ -49,8 +48,8 @@ const settings = {
   amplitude: 1.6,
   symmetricDisplacement: true,
   scaleU: scale, scaleV: scale,
-  // Wood Auto (mode 7) uses the beam's own PCA axis.
-  beamFrame: computeBeamFrame(geo.attributes.position.array),
+  // No explicit beamFrame: Wood Auto (mode 7) auto-computes it in applyDisplacement,
+  // exercising the real app export path.
 };
 
 const displaced = await runSingle(geo, { refineLength: 0.8, settings, texture });

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { computeUV, getDominantCubicAxis, getCubicBlendWeights } from './mapping.js';
 import { QuantizedPointMap } from './meshIndex.js';
+import { computeBeamFrame } from './beamAxis.js';
 
 /**
  * Apply displacement to every vertex of a non-indexed BufferGeometry.
@@ -53,18 +54,32 @@ const faceMask = settings.faceMask || null;
     ? settings.multiSlots
     : null;
   const multiSlotCount = multiSlots ? multiSlots.length : 0;
+
+  // Wood Auto (mode 7) projects along the piece's own long axis (PCA frame).
+  // Compute it once from this geometry when an active slot uses Wood Auto and no
+  // frame was supplied; computeUV reads it from settings.beamFrame. This is what
+  // makes the app's Wood Auto export beam-oriented — all export paths go through
+  // here, so no per-call-site wiring is needed.
+  const _woodAutoNeedsFrame = multiSlots
+    ? multiSlots.some(s => { const ss = s.settings || settings; return ss.mappingMode === 7 && !ss.beamFrame; })
+    : (settings.mappingMode === 7 && !settings.beamFrame);
+  const autoBeamFrame = _woodAutoNeedsFrame ? computeBeamFrame(posAttr.array) : null;
+  if (autoBeamFrame && !settingsWithAspect.beamFrame) settingsWithAspect.beamFrame = autoBeamFrame;
+
   const multiSlotAspect = multiSlots
     ? multiSlots.map(slot => {
         const w = slot.width || 1;
         const h = slot.height || 1;
         const m = Math.max(w, h, 1);
+        const ss = slot.settings || settings;
         return {
           aspectU: m / Math.max(w, 1),
           aspectV: m / Math.max(h, 1),
           settingsWithAspect: {
-            ...(slot.settings || settings),
+            ...ss,
             textureAspectU: m / Math.max(w, 1),
-            textureAspectV: m / Math.max(h, 1)
+            textureAspectV: m / Math.max(h, 1),
+            beamFrame: ss.beamFrame ?? autoBeamFrame,
           }
         };
       })
