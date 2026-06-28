@@ -111,7 +111,8 @@ drag de slider, chaque `input` ré-écrit `document.title` **et** un IPC `setWin
 ---
 
 ## Ordre de correction conseillé
-1. **B + C** (toast succès + verrou save) — petits, gros confort, base pour D.
+1. **B + C** (toast succès + verrou save) — petits, gros confort, base pour D. ✅ FAIT
+   (showToast + #toast-stack ; verrou `_saveInProgress` ; toasts succès/erreur sur save)
 2. **H + F** (early-return dirty ; fin-d'init au lieu du timer) — robustesse, peu de risque.
 3. **A** (récupération IndexedDB du projet complet) — le plus utile, plus de travail.
 4. **D + E** (dialogue 3 voies + close Electron) — qualité « app ».
