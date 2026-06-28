@@ -53,16 +53,29 @@ export function isWatertight(geometry) {
 }
 
 /**
- * Decimate to `target`, but if that breaks a previously-watertight mesh, keep
- * the original. Returns the same geometry reference when it no-ops or falls
- * back (caller should dispose only when the returned geometry !== input).
+ * Decimate to `target`, but never let decimation break the export:
+ *  - if decimation THROWS (e.g. the QEM edge-Map exceeds V8's ~16.7M entry cap
+ *    on very large meshes), keep the original mesh;
+ *  - if it produces a non-watertight result from a watertight input, keep the
+ *    original.
+ * Returns the same geometry reference when it no-ops or falls back (caller
+ * should dispose only when the returned geometry !== input).
+ *
+ * `decimateFn` is injectable for testing; defaults to the real QEM decimator.
  */
-export async function decimateWithGuard(geometry, target, onProgress) {
+export async function decimateWithGuard(geometry, target, onProgress, decimateFn = decimate) {
   const triCount = geometry.attributes.position.count / 3;
   if (triCount <= target) return geometry;
 
   const inputOk = isWatertight(geometry);
-  const decimated = await decimate(geometry, target, onProgress);
+
+  let decimated;
+  try {
+    decimated = await decimateFn(geometry, target, onProgress);
+  } catch (err) {
+    console.warn(`Decimation failed (${err.message}) — keeping un-decimated mesh (${triCount} tris).`);
+    return geometry;
+  }
 
   if (inputOk && !isWatertight(decimated)) {
     console.warn(`Decimation broke watertightness — keeping un-decimated mesh (${triCount} tris).`);
