@@ -66,6 +66,7 @@ Deux racines : le **double-état** (#4 = étape 3) et une **persistance sédimen
 
 1. **#3** — bug d'échelle : ne pas snapper `scaleU` au restore. ✅ FAIT (scaleSnap.js + test)
 2. **#1, #8** — supprimer la persistance morte. ✅ FAIT (serializeTextureSlots + handler mort + écritures `diorama-texture-slots` retirés ; `saveTextureSlotsToStorage`→`commitActiveSlotState` ; removeTextureSlot marque enfin le projet dirty)
-3. **#5** — `clearTextureSlot` : ne réinitialiser que le per-slot.
-4. **#6** — `duplicate` : préserver `selectionMode`, retirer le rAF.
-5. **#4** — source unique de vérité (étape 3, le gros morceau).
+3. **#5** — `clearTextureSlot` : ne réinitialiser que le per-slot. ✅ FAIT (`stripGlobalQuality` sur les défauts → la qualité globale n'est plus touchée)
+4. **#7** — `decimateEnabled` ajouté à `DEFAULT_SETTINGS_SNAPSHOT`. ✅ FAIT
+5. **#6** — `duplicate` : préserver `selectionMode` + sélection, sens de données corrigé, rAF retiré. ✅ FAIT
+6. **#4** — source unique de vérité (étape 3, le gros morceau). ⏳ RESTE
