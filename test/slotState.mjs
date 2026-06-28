@@ -17,6 +17,9 @@ import {
   withGlobalQuality,
   serializeSlotFaces,
   restoreSlotFaces,
+  resolveSlotState,
+  stateHasContent,
+  stateFaceCount,
 } from '../js/slotState.js';
 
 let passed = 0;
@@ -149,6 +152,42 @@ test('project: assignedFaces survive mesh re-indexing; excludedFaces stay raw in
   assert.deepEqual(set(restored.assignedFaces), [0, 1]);
   // excludedFaces are index-based (UI faces) -> not remapped.
   assert.deepEqual(set(restored.excludedFaces), [0, 2]);
+});
+
+// ── Single source of truth: resolveSlotState (audit #4) ──────────────────────
+const MAP = { name: 'preset' };
+
+test('resolve: active slot reads the LIVE globals, not its stale stored fields', () => {
+  // User just cleared the painted faces: live global is empty, slot field stale.
+  const slot = { id: 's1', excludedFaces: new Set([1, 2, 3]), assignedFaces: new Set([1, 2, 3]) };
+  const live = { activeMapEntry: null, excludedFaces: new Set(), assignedFaces: new Set(), selectionMode: false };
+  const st = resolveSlotState(slot, true, live);
+  assert.equal(st.excludedFaces.size, 0, 'live empty wins over stale stored');
+  assert.equal(stateHasContent(st), false);
+  assert.equal(stateFaceCount(st), 0);
+});
+
+test('resolve: non-active slot reads its stored fields', () => {
+  const slot = { id: 's2', activeMapEntry: MAP, excludedFaces: new Set([4]), assignedFaces: new Set([4, 5]) };
+  const st = resolveSlotState(slot, false, { excludedFaces: new Set([9, 9, 9]) });
+  assert.equal(st.activeMapEntry, MAP);
+  assert.deepEqual(set(st.assignedFaces), [4, 5]);  // ignores live globals
+  assert.equal(stateFaceCount(st), 2);              // assigned wins over excluded
+  assert.equal(stateHasContent(st), true);
+});
+
+test('resolve: active slot with a live map but no faces has content', () => {
+  const slot = { id: 's1' };
+  const live = { activeMapEntry: MAP, excludedFaces: new Set(), assignedFaces: new Set(), selectionMode: true };
+  const st = resolveSlotState(slot, true, live);
+  assert.equal(stateHasContent(st), true);
+  assert.equal(st.selectionMode, true);
+});
+
+test('resolve: null slot is empty, not a throw', () => {
+  const st = resolveSlotState(null, false, {});
+  assert.equal(stateHasContent(st), false);
+  assert.equal(stateFaceCount(st), 0);
 });
 
 console.error(`\nslotState: ${passed} checks passed${process.exitCode ? ' (with failures)' : ''}`);

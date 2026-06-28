@@ -19,7 +19,8 @@ import { buildCombinedFaceWeights, buildUnionExcludedFacesForSlots,
          buildExclusiveSlotFaceMasks } from './slotMasks.js';
 import { computeAssignedFaces,
          pickGlobalQuality, stripGlobalQuality, withGlobalQuality,
-         serializeSlotFaces, restoreSlotFaces } from './slotState.js';
+         serializeSlotFaces, restoreSlotFaces,
+         resolveSlotState, stateHasContent, stateFaceCount } from './slotState.js';
 import { runMultiSlotExport, snapBottomToFlat, decimateWithGuard } from './exportPipeline.js';
 import { resolveScaleU, snapScaleUForSeamlessWrap } from './scaleSnap.js';
 import { computeBeamFrame } from './beamAxis.js';
@@ -181,35 +182,30 @@ function normalizeTextureSlotId(id) {
   return legacy[id] || id;
 }
 
+// Single source of truth (audit #4): every slot reader resolves its state through
+// resolveSlotState — live globals for the active slot, stored fields otherwise —
+// so no two readers can disagree about what a slot holds.
+function liveSlotGlobals() {
+  return {
+    activeMapEntry,
+    excludedFaces,
+    assignedFaces: getAssignedFacesForCurrentSlot(),
+    selectionMode,
+  };
+}
+
+function getSlotState(slot) {
+  const isActive = !!slot && slot.id === activeTextureSlotId;
+  // liveSlotGlobals() runs computeAssignedFaces — only needed for the active slot.
+  return resolveSlotState(slot, isActive, isActive ? liveSlotGlobals() : undefined);
+}
+
 function slotHasContent(slot) {
-  if (!slot) return false;
-
-  if (slot.id === activeTextureSlotId) {
-    const liveAssigned = typeof getAssignedFacesForCurrentSlot === 'function'
-      ? getAssignedFacesForCurrentSlot()
-      : null;
-
-    return !!(
-      activeMapEntry ||
-      slot.activeMapEntry ||
-      slot.customMapEntry ||
-      (excludedFaces && excludedFaces.size > 0) ||
-      (liveAssigned && liveAssigned.size > 0) ||
-      (slot.excludedFaces && slot.excludedFaces.size > 0) ||
-      (slot.assignedFaces && slot.assignedFaces.size > 0)
-    );
-  }
-
-  return !!(
-    slot.activeMapEntry ||
-    slot.customMapEntry ||
-    (slot.excludedFaces && slot.excludedFaces.size > 0) ||
-    (slot.assignedFaces && slot.assignedFaces.size > 0)
-  );
+  return slot ? stateHasContent(getSlotState(slot)) : false;
 }
 
 function getSlotFaceCount(slot) {
-  return slot?.assignedFaces?.size || slot?.excludedFaces?.size || 0;
+  return stateFaceCount(getSlotState(slot));
 }
 
 function getSlotOverlapCount(slot) {

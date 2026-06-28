@@ -241,3 +241,55 @@ export function restoreSlotFaces(saved, geometry) {
   const assignedFaces = new Set(restoreFacesFromSignatures(saved.faceSignatures, validAssigned, geometry));
   return { excludedFaces, assignedFaces };
 }
+
+// ── Single source of truth for slot state (audit #4) ─────────────────────────
+// The globals (activeMapEntry/excludedFaces/selectionMode/…) mirror the ACTIVE
+// slot and are only re-synced at save/restoreSlotState boundaries. Readers that
+// each picked their own source (active globals vs stored fields) could diverge —
+// e.g. slotHasContent OR-ed both, getSlotFaceCount read only stored fields.
+// resolveSlotState funnels every reader through ONE rule: for the active slot the
+// live globals are authoritative; for any other slot its stored fields.
+
+const _EMPTY_SET = new Set();
+
+/**
+ * @param slot      slot object (may be null/undefined)
+ * @param isActive  whether `slot` is the currently active slot
+ * @param live      live globals for the active slot:
+ *                  { activeMapEntry, excludedFaces, assignedFaces, selectionMode }
+ * @returns {{ activeMapEntry, customMapEntry, excludedFaces:Set, assignedFaces:Set, selectionMode:boolean }}
+ */
+export function resolveSlotState(slot, isActive, live = {}) {
+  if (slot && isActive) {
+    return {
+      activeMapEntry: live.activeMapEntry || slot.activeMapEntry || null,
+      customMapEntry: slot.customMapEntry || null,
+      excludedFaces: live.excludedFaces || slot.excludedFaces || _EMPTY_SET,
+      assignedFaces: live.assignedFaces || slot.assignedFaces || _EMPTY_SET,
+      selectionMode: typeof live.selectionMode === 'boolean' ? live.selectionMode : !!slot.selectionMode,
+    };
+  }
+  return {
+    activeMapEntry: slot?.activeMapEntry || null,
+    customMapEntry: slot?.customMapEntry || null,
+    excludedFaces: slot?.excludedFaces || _EMPTY_SET,
+    assignedFaces: slot?.assignedFaces || _EMPTY_SET,
+    selectionMode: !!slot?.selectionMode,
+  };
+}
+
+/** True when a resolved slot state carries a map or any painted faces. */
+export function stateHasContent(state) {
+  return !!(
+    state.activeMapEntry ||
+    state.customMapEntry ||
+    (state.excludedFaces && state.excludedFaces.size > 0) ||
+    (state.assignedFaces && state.assignedFaces.size > 0)
+  );
+}
+
+/** Face count for a resolved slot state (assigned wins, else excluded). */
+export function stateFaceCount(state) {
+  return (state.assignedFaces && state.assignedFaces.size) ||
+         (state.excludedFaces && state.excludedFaces.size) || 0;
+}
