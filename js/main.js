@@ -209,13 +209,18 @@ function getSlotFaceCount(slot) {
 }
 
 function getSlotOverlapCount(slot) {
-  if (!slot?.assignedFaces || slot.assignedFaces.size === 0) return 0;
+  const assigned = getSlotState(slot).assignedFaces;
+  if (!assigned || assigned.size === 0) return 0;
+
+  // Resolve every slot's assigned faces once (active slot via live globals) so the
+  // overlap count can't be computed against the active slot's stale stored set.
+  const resolved = textureSlots.map(s => getSlotState(s).assignedFaces);
 
   let overlap = 0;
-  for (const face of slot.assignedFaces) {
+  for (const face of assigned) {
     let owners = 0;
-    for (const other of textureSlots) {
-      if (other.assignedFaces && other.assignedFaces.has(face)) owners++;
+    for (const other of resolved) {
+      if (other && other.has(face)) owners++;
       if (owners > 1) {
         overlap++;
         break;
@@ -228,9 +233,10 @@ function getSlotOverlapCount(slot) {
 function getSlotTooltip(slot) {
   if (!slot) return '';
 
-  const faceCount = getSlotFaceCount(slot);
-  const mapName = slot.activeMapEntry ? slot.activeMapEntry.name : 'No map';
-  const mode = slot.selectionMode ? 'Include' : 'Exclude';
+  const st = getSlotState(slot);
+  const faceCount = stateFaceCount(st);
+  const mapName = st.activeMapEntry ? st.activeMapEntry.name : 'No map';
+  const mode = st.selectionMode ? 'Include' : 'Exclude';
   const overlap = getSlotOverlapCount(slot);
 
   return [
@@ -498,8 +504,9 @@ if (label && slot) {
 
 const meta = btn.querySelector('.texture-tab-meta');
 if (meta && slot) {
-  const faces = getSlotFaceCount(slot);
-  const map = slot.activeMapEntry ? slot.activeMapEntry.name : 'No map';
+  const st = getSlotState(slot);
+  const faces = stateFaceCount(st);
+  const map = st.activeMapEntry ? st.activeMapEntry.name : 'No map';
   const label = faces === 1 ? 'tri' : 'tris';
 meta.innerHTML = `
   <span class="texture-tab-map">${map}</span>
@@ -508,7 +515,8 @@ meta.innerHTML = `
 }
 const thumb = btn.querySelector('.texture-tab-thumb');
 if (thumb && slot) {
-  const entry = slot.activeMapEntry || slot.customMapEntry;
+  const stThumb = getSlotState(slot);
+  const entry = stThumb.activeMapEntry || stThumb.customMapEntry;
 
   thumb.style.backgroundImage = '';
   thumb.classList.toggle('has-texture', !!entry);
