@@ -55,16 +55,17 @@ const faceMask = settings.faceMask || null;
     : null;
   const multiSlotCount = multiSlots ? multiSlots.length : 0;
 
-  // Wood Auto (mode 7) projects along the piece's own long axis (PCA frame).
-  // Compute it once from this geometry when an active slot uses Wood Auto and no
-  // frame was supplied; computeUV reads it from settings.beamFrame. This is what
-  // makes the app's Wood Auto export beam-oriented — all export paths go through
-  // here, so no per-call-site wiring is needed.
-  const _woodAutoNeedsFrame = multiSlots
-    ? multiSlots.some(s => { const ss = s.settings || settings; return ss.mappingMode === 7 && !ss.beamFrame; })
-    : (settings.mappingMode === 7 && !settings.beamFrame);
-  const autoBeamFrame = _woodAutoNeedsFrame ? computeBeamFrame(posAttr.array) : null;
-  if (autoBeamFrame && !settingsWithAspect.beamFrame) settingsWithAspect.beamFrame = autoBeamFrame;
+  // Wood Auto (mode 7) projects along the piece's own long axis. The frame is the
+  // PCA of the slot's OWN faces (a beam is a selection inside the model — using
+  // the whole mesh would give the building's axis). computeUV reads it from
+  // settings.beamFrame; all export paths go through here, so no per-call-site wiring.
+  const woodAutoFrame = (ss, mask) =>
+    ss.mappingMode === 7 && !ss.beamFrame ? computeBeamFrame(posAttr.array, mask || null) : (ss.beamFrame ?? null);
+
+  if (!multiSlots) {
+    const f = woodAutoFrame(settings, faceMask);
+    if (f) settingsWithAspect.beamFrame = f;
+  }
 
   const multiSlotAspect = multiSlots
     ? multiSlots.map(slot => {
@@ -79,7 +80,7 @@ const faceMask = settings.faceMask || null;
             ...ss,
             textureAspectU: m / Math.max(w, 1),
             textureAspectV: m / Math.max(h, 1),
-            beamFrame: ss.beamFrame ?? autoBeamFrame,
+            beamFrame: woodAutoFrame(ss, slot.faceMask),
           }
         };
       })

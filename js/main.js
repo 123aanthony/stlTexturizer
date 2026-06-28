@@ -24,16 +24,20 @@ import { runMultiSlotExport, snapBottomToFlat, decimateWithGuard } from './expor
 import { resolveScaleU, snapScaleUForSeamlessWrap } from './scaleSnap.js';
 import { computeBeamFrame } from './beamAxis.js';
 
-// Beam PCA frame for the live preview shader (Wood Auto). Memoized per geometry
-// so dragging sliders doesn't recompute the PCA every frame.
-let _beamFrameCache = null, _beamFrameGeo = null;
+// Beam PCA frame for the live preview shader (Wood Auto), from the ACTIVE slot's
+// selected faces (a beam is a selection inside the model — using the whole mesh
+// would orient to the building's axis). Recomputed per preview update (debounced;
+// PCA over the selection is cheap).
 function _previewBeamFrame() {
   if (settings.mappingMode !== 7 || !currentGeometry) return null;
-  if (_beamFrameGeo !== currentGeometry) {
-    _beamFrameCache = computeBeamFrame(currentGeometry.attributes.position.array);
-    _beamFrameGeo = currentGeometry;
+  const triCount = (currentGeometry.attributes.position.count / 3) | 0;
+  const assigned = getAssignedFacesForCurrentSlot();
+  let mask = null;
+  if (assigned && assigned.size > 0 && assigned.size < triCount) {
+    mask = new Uint8Array(triCount);
+    for (const f of assigned) { const i = Number(f); if (i >= 0 && i < triCount) mask[i] = 1; }
   }
-  return _beamFrameCache;
+  return computeBeamFrame(currentGeometry.attributes.position.array, mask);
 }
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions, getShellAssignments } from './meshValidation.js';

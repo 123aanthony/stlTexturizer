@@ -44,4 +44,19 @@ test('oriented: rawU increases along the beam axis (any orientation)', () => {
   assert.ok(orientedRawUV(p1, n, f).rawU > orientedRawUV(p0, n, f).rawU);
 });
 
+test('PCA masked to a beam inside a larger model → beam axis, not model axis', () => {
+  const slab = new THREE.BoxGeometry(40, 146, 8, 1, 1, 1).toNonIndexed();   // model long in Y
+  const beam = new THREE.BoxGeometry(60, 10, 10, 1, 1, 1).toNonIndexed();   // beam long in X
+  beam.translate(0, 0, 20);
+  const sp = slab.attributes.position.array, bp = beam.attributes.position.array;
+  const all = new Float32Array(sp.length + bp.length);
+  all.set(sp, 0); all.set(bp, sp.length);
+  const slabTris = sp.length / 9, beamTris = bp.length / 9;
+  const mask = new Uint8Array(slabTris + beamTris);
+  for (let t = slabTris; t < slabTris + beamTris; t++) mask[t] = 1; // only the beam
+
+  assert.ok(adot(computeBeamFrame(all).U, [0, 1, 0]) > 0.9, 'whole-model axis should be ~Y');
+  assert.ok(adot(computeBeamFrame(all, mask).U, [1, 0, 0]) > 0.9, 'masked axis should be ~X (the beam)');
+});
+
 console.error(`\nbeamAxis: ${passed} checks passed${process.exitCode ? ' (with failures)' : ''}`);

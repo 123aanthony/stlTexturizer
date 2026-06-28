@@ -7,19 +7,36 @@
 // orientedRawUV produces the per-vertex raw (U,V) the way the world-axis Wood
 // modes do — but in the beam's local frame.
 
-/** Dominant eigenvector of the vertex covariance = the beam's long axis. */
-export function computeBeamFrame(positions) {
-  const n = (positions.length / 3) | 0;
-  if (n === 0) return null;
+/**
+ * Dominant eigenvector of the vertex covariance = the long axis of the piece.
+ *
+ * @param {Float32Array} positions  non-indexed (9 floats per triangle)
+ * @param {Uint8Array}  [faceMask]  optional per-triangle mask; when given, only
+ *   the masked triangles' vertices are used. CRUCIAL: a beam is a SELECTION of
+ *   faces inside a larger model — without the mask the PCA returns the whole
+ *   model's axis (e.g. the building), not the beam's.
+ */
+export function computeBeamFrame(positions, faceMask = null) {
+  const triCount = (positions.length / 9) | 0;
+  const inc = faceMask ? (t) => faceMask[t] : () => true;
 
-  let cx = 0, cy = 0, cz = 0;
-  for (let i = 0; i < positions.length; i += 3) { cx += positions[i]; cy += positions[i+1]; cz += positions[i+2]; }
+  let cx = 0, cy = 0, cz = 0, n = 0;
+  for (let t = 0; t < triCount; t++) {
+    if (!inc(t)) continue;
+    const o = t * 9;
+    for (let v = 0; v < 3; v++) { cx += positions[o+v*3]; cy += positions[o+v*3+1]; cz += positions[o+v*3+2]; n++; }
+  }
+  if (n === 0) return null;
   cx /= n; cy /= n; cz /= n;
 
   let xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
-  for (let i = 0; i < positions.length; i += 3) {
-    const dx = positions[i] - cx, dy = positions[i+1] - cy, dz = positions[i+2] - cz;
-    xx += dx*dx; xy += dx*dy; xz += dx*dz; yy += dy*dy; yz += dy*dz; zz += dz*dz;
+  for (let t = 0; t < triCount; t++) {
+    if (!inc(t)) continue;
+    const o = t * 9;
+    for (let v = 0; v < 3; v++) {
+      const dx = positions[o+v*3] - cx, dy = positions[o+v*3+1] - cy, dz = positions[o+v*3+2] - cz;
+      xx += dx*dx; xy += dx*dy; xz += dx*dz; yy += dy*dy; yz += dy*dz; zz += dz*dz;
+    }
   }
 
   // Power iteration → dominant eigenvector (direction of greatest extent).
@@ -43,10 +60,14 @@ export function computeBeamFrame(positions) {
 
   // Local-frame extents (for normalising like the world modes' (pos-min)/md).
   let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity, minW = Infinity, maxW = -Infinity;
-  for (let i = 0; i < positions.length; i += 3) {
-    const dx = positions[i] - cx, dy = positions[i+1] - cy, dz = positions[i+2] - cz;
-    const u = dx*U[0]+dy*U[1]+dz*U[2], v = dx*V[0]+dy*V[1]+dz*V[2], w = dx*W[0]+dy*W[1]+dz*W[2];
-    if (u<minU)minU=u; if(u>maxU)maxU=u; if(v<minV)minV=v; if(v>maxV)maxV=v; if(w<minW)minW=w; if(w>maxW)maxW=w;
+  for (let t = 0; t < triCount; t++) {
+    if (!inc(t)) continue;
+    const o = t * 9;
+    for (let vtx = 0; vtx < 3; vtx++) {
+      const dx = positions[o+vtx*3] - cx, dy = positions[o+vtx*3+1] - cy, dz = positions[o+vtx*3+2] - cz;
+      const u = dx*U[0]+dy*U[1]+dz*U[2], v = dx*V[0]+dy*V[1]+dz*V[2], w = dx*W[0]+dy*W[1]+dz*W[2];
+      if (u<minU)minU=u; if(u>maxU)maxU=u; if(v<minV)minV=v; if(v>maxV)maxV=v; if(w<minW)minW=w; if(w>maxW)maxW=w;
+    }
   }
   const md = Math.max(maxU-minU, maxV-minV, maxW-minW, 1e-6);
   return { center: [cx, cy, cz], U, V, W, min: { u: minU, v: minV, w: minW }, md };
