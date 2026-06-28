@@ -216,5 +216,8 @@ export default {
   "ui.cylinderPanelLabel": "Define cylinder projection",
   "ui.cylinderNoModel1": "Load a model to position",
   "ui.cylinderNoModel2": "the cylinder axis",
-  "ui.cylinderPanelMinimize": "Minimize / restore"
+  "ui.cylinderPanelMinimize": "Minimize / restore",
+  "alerts.saveFailed": "Save failed: {msg}",
+  "toasts.projectSaved": "Project saved",
+  "toasts.projectDownloaded": "Project downloaded"
 };

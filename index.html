@@ -94,6 +94,31 @@
       border-color: rgba(250,204,21,.35);
       background: rgba(250,204,21,.10);
     }
+    /* Toasts — non-blocking feedback (save / export / errors). */
+    #toast-stack {
+      position: fixed; right: 16px; bottom: 16px; z-index: 9999;
+      display: flex; flex-direction: column; gap: 8px;
+      pointer-events: none;
+    }
+    .toast {
+      min-width: 200px; max-width: 360px;
+      padding: 10px 14px; border-radius: 10px;
+      background: rgba(15,23,42,.96); color: var(--text, #e5e7eb);
+      border: 1px solid rgba(148,163,184,.22);
+      border-left: 3px solid var(--accent, #7c6aff);
+      font-size: 12.5px; font-weight: 600; line-height: 1.35;
+      box-shadow: 0 8px 24px rgba(0,0,0,.35);
+      opacity: 0; transform: translateY(8px);
+      transition: opacity .18s ease, transform .18s ease;
+      pointer-events: auto; cursor: default;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.success { border-left-color: #22c55e; }
+    .toast.error   { border-left-color: #ef4444; }
+    .toast .toast-sub {
+      display: block; margin-top: 2px;
+      font-weight: 500; font-size: 11px; opacity: .65; word-break: break-all;
+    }
   </style>
 
 </head>
@@ -792,6 +817,8 @@
       <button id="welcome-got-it" class="sponsor-close-btn">Got it</button>
     </div>
   </div>
+
+  <div id="toast-stack" aria-live="polite" aria-atomic="false"></div>
 
   <script type="module" src="js/main.js"></script>
 </body>

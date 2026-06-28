@@ -7178,6 +7178,26 @@ function markProjectDirty() {
   updateProjectChrome();
 }
 
+// Non-blocking feedback (save / export success, errors). Click to dismiss early.
+function showToast(message, { type = 'info', sub = '', duration = 2600 } = {}) {
+  const stack = document.getElementById('toast-stack');
+  if (!stack) return;
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = message;
+  if (sub) {
+    const s = document.createElement('span');
+    s.className = 'toast-sub';
+    s.textContent = sub;
+    el.appendChild(s);
+  }
+  stack.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  const dismiss = () => { el.classList.remove('show'); setTimeout(() => el.remove(), 220); };
+  const timer = setTimeout(dismiss, duration);
+  el.addEventListener('click', () => { clearTimeout(timer); dismiss(); });
+}
+
 function markProjectClean(filePath = currentProjectPath) {
   currentProjectPath = filePath || null;
   currentProjectDisplayName = currentProjectPath ? _basenameFromPath(currentProjectPath) : 'Untitled';
@@ -7542,16 +7562,33 @@ async function saveProjectToPath(filePath) {
     });
 
     if (result?.error) throw new Error(result.error);
-    markProjectClean(result?.filePath || filePath);
+    const savedPath = result?.filePath || filePath;
+    markProjectClean(savedPath);
+    showToast(t('toasts.projectSaved'), { type: 'success', sub: _basenameFromPath(savedPath) });
     return result;
   }
 
   await _downloadBlob(new Blob([zipped], { type: 'application/octet-stream' }), _basenameFromPath(filePath));
   markProjectClean(null);
+  showToast(t('toasts.projectDownloaded'), { type: 'success', sub: _basenameFromPath(filePath) });
   return { filePath: null };
 }
 
-async function saveProjectAs() {
+// Serialize save operations: a second Ctrl+S / button click while a zip+write is
+// in flight is ignored, and the Save buttons are disabled for the duration (#C).
+let _saveInProgress = false;
+function _setSaveBusy(busy) {
+  _saveInProgress = busy;
+  for (const b of [projectSaveBtn, projectSaveAsBtn]) if (b) b.disabled = busy;
+}
+async function _runSave(fn) {
+  if (_saveInProgress) return { busy: true };
+  _setSaveBusy(true);
+  try { return await fn(); }
+  finally { _setSaveBusy(false); }
+}
+
+async function _saveProjectAsFlow() {
   if (window.bumpforgeElectron?.saveFile) {
     const result = await window.bumpforgeElectron.saveFile({
       title: 'Save BumpForge Project',
@@ -7566,9 +7603,13 @@ async function saveProjectAs() {
   return saveProjectToPath(_suggestProjectName());
 }
 
+async function saveProjectAs() {
+  return _runSave(_saveProjectAsFlow);
+}
+
 async function saveProject() {
-  if (!currentProjectPath) return saveProjectAs();
-  return saveProjectToPath(currentProjectPath);
+  return _runSave(() =>
+    currentProjectPath ? saveProjectToPath(currentProjectPath) : _saveProjectAsFlow());
 }
 
 async function openProjectFromPath(filePath) {
@@ -7679,12 +7720,14 @@ projectOpenBtn?.addEventListener('click', () => {
   openProject().catch(err => alert(t('alerts.importFailed', { msg: err.message })));
 });
 
+const _onSaveError = (err) => showToast(t('alerts.saveFailed', { msg: err.message }), { type: 'error', duration: 5000 });
+
 projectSaveBtn?.addEventListener('click', () => {
-  saveProject().catch(err => alert(t('alerts.exportFailed', { msg: err.message })));
+  saveProject().catch(_onSaveError);
 });
 
 projectSaveAsBtn?.addEventListener('click', () => {
-  saveProjectAs().catch(err => alert(t('alerts.exportFailed', { msg: err.message })));
+  saveProjectAs().catch(_onSaveError);
 });
 
 window.addEventListener('keydown', (event) => {
@@ -7694,8 +7737,8 @@ window.addEventListener('keydown', (event) => {
   const key = event.key.toLowerCase();
   if (key === 's') {
     event.preventDefault();
-    if (event.shiftKey) saveProjectAs().catch(err => alert(t('alerts.exportFailed', { msg: err.message })));
-    else saveProject().catch(err => alert(t('alerts.exportFailed', { msg: err.message })));
+    if (event.shiftKey) saveProjectAs().catch(_onSaveError);
+    else saveProject().catch(_onSaveError);
   } else if (key === 'o') {
     event.preventDefault();
     openProject().catch(err => alert(t('alerts.importFailed', { msg: err.message })));
