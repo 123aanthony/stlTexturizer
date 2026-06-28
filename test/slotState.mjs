@@ -15,6 +15,8 @@ import {
   pickGlobalQuality,
   stripGlobalQuality,
   withGlobalQuality,
+  serializeSlotFaces,
+  restoreSlotFaces,
 } from '../js/slotState.js';
 
 let passed = 0;
@@ -123,6 +125,30 @@ test('split: switching slots keeps the CURRENT global quality, not the saved one
   const restored = withGlobalQuality(staleSlot, liveGlobal);
   assert.equal(restored.refineLength, 5);  // global wins — no stale-quality leak
   assert.equal(restored.amplitude, 1.0);   // per-slot preserved
+});
+
+// ── Project save/load: face-selection round-trip ─────────────────────────────
+// Automates the manual "save project -> reload -> selections come back" check.
+test('project: serialize -> restore preserves selections (same geometry)', () => {
+  const slot = { excludedFaces: new Set([0, 2]), assignedFaces: new Set([0, 2]) };
+  const saved = serializeSlotFaces(slot, geo());
+  const restored = restoreSlotFaces(saved, geo());
+  assert.deepEqual(set(restored.excludedFaces), [0, 2]);
+  assert.deepEqual(set(restored.assignedFaces), [0, 2]);
+});
+
+test('project: assignedFaces survive mesh re-indexing; excludedFaces stay raw indices', () => {
+  const slot = { excludedFaces: new Set([0, 2]), assignedFaces: new Set([0, 2]) };
+  const saved = serializeSlotFaces(slot, geo());
+
+  const perm = [2, 0, 3, 1];                          // newIdx i holds old TRIS[perm[i]]
+  const reindexed = geoFromTris(perm.map(i => TRIS[i]));
+  const restored = restoreSlotFaces(saved, reindexed);
+
+  // assignedFaces use signatures -> remap to where T0/T2 now live (new idx 1/0).
+  assert.deepEqual(set(restored.assignedFaces), [0, 1]);
+  // excludedFaces are index-based (UI faces) -> not remapped.
+  assert.deepEqual(set(restored.excludedFaces), [0, 2]);
 });
 
 console.error(`\nslotState: ${passed} checks passed${process.exitCode ? ' (with failures)' : ''}`);

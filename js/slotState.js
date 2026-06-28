@@ -211,3 +211,32 @@ export function stripGlobalQuality(settings) {
 export function withGlobalQuality(slotSettings = {}, globalSettings) {
   return { ...slotSettings, ...pickGlobalQuality(globalSettings) };
 }
+
+// ── Project save/load: face-selection serialize/restore ──────────────────────
+// Symmetric pair pinning the "selections survive a project reload" contract
+// (the manual save→reload→selections-come-back check, now headless). The map/
+// texture entries (data URLs, presets) stay in main.js — those are DOM/async.
+
+/** Serialize a slot's face selection for a project file (indices + signatures). */
+export function serializeSlotFaces(slot, geometry) {
+  const faceSource = slot.assignedFaces || slot.excludedFaces || new Set();
+  return {
+    excludedFaces: Array.from(slot.excludedFaces || []),
+    assignedFaces: Array.from(slot.assignedFaces || slot.excludedFaces || []),
+    faceSignatures: buildFaceSignatures(faceSource, geometry),
+  };
+}
+
+/**
+ * Restore a slot's face selection from saved project data. Material faces are
+ * resolved from position signatures (so a re-indexed mesh still maps), falling
+ * back to the saved indices.
+ * @returns {{ excludedFaces: Set<number>, assignedFaces: Set<number> }}
+ */
+export function restoreSlotFaces(saved, geometry) {
+  const triCount = geometry ? ((geometry.attributes.position.count / 3) | 0) : Infinity;
+  const excludedFaces = new Set(normalizeFaceIndexArray(saved.excludedFaces, triCount));
+  const validAssigned = normalizeFaceIndexArray(saved.assignedFaces || saved.excludedFaces, triCount);
+  const assignedFaces = new Set(restoreFacesFromSignatures(saved.faceSignatures, validAssigned, geometry));
+  return { excludedFaces, assignedFaces };
+}

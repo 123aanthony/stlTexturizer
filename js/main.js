@@ -18,9 +18,9 @@ import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
 import { buildCombinedFaceWeights, buildUnionExcludedFacesForSlots,
          buildExclusiveSlotFaceMasks } from './slotMasks.js';
-import { normalizeFaceIndexArray, computeAssignedFaces,
-         buildFaceSignatures, restoreFacesFromSignatures,
-         pickGlobalQuality, stripGlobalQuality, withGlobalQuality } from './slotState.js';
+import { computeAssignedFaces,
+         pickGlobalQuality, stripGlobalQuality, withGlobalQuality,
+         serializeSlotFaces, restoreSlotFaces } from './slotState.js';
 import { runMultiSlotExport, snapBottomToFlat } from './exportPipeline.js';
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions, getShellAssignments } from './meshValidation.js';
@@ -2197,9 +2197,7 @@ function serializeProjectTextureSlots() {
       customMapName: customEntry ? customEntry.name : null,
       customMapDataUrl: customEntry ? customMapEntryToDataUrl(customEntry) : null,
       selectionMode: typeof slot.selectionMode === 'boolean' ? slot.selectionMode : true,
-      excludedFaces: Array.from(slot.excludedFaces || []),
-      assignedFaces: Array.from(slot.assignedFaces || slot.excludedFaces || []),
-      faceSignatures: buildFaceSignatures(slot.assignedFaces || slot.excludedFaces || new Set(), currentGeometry),
+      ...serializeSlotFaces(slot, currentGeometry),
       settings: { ...(slot.settings || {}) }
     };
   });
@@ -2242,18 +2240,10 @@ textureSlots = savedSlots.map((saved, index) => ({
     slot.settings = { ...(saved.settings || {}) };
     slot.selectionMode = typeof saved.selectionMode === 'boolean' ? saved.selectionMode : true;
 
-    const restoredUiFaces = new Set(normalizeFaceIndexArray(saved.excludedFaces, triCount));
-    const validAssigned = normalizeFaceIndexArray(saved.assignedFaces || saved.excludedFaces, triCount);
-    const restoredAssignedFaces = restoreFacesFromSignatures(
-      saved.faceSignatures,
-      validAssigned,
-      currentGeometry
-    );
-
-    // Store stable copies. UI faces and assigned material faces are intentionally separate:
-    // in include mode they usually match; in exclude mode assignedFaces is the complement.
-    const restoredSet = new Set(restoredUiFaces);
-    const restoredAssignedSet = new Set(restoredAssignedFaces);
+    // Face restore (pure, in slotState): UI faces + material faces, the latter
+    // resolved from position signatures so a re-indexed mesh still maps.
+    const { excludedFaces: restoredSet, assignedFaces: restoredAssignedSet } =
+      restoreSlotFaces(saved, currentGeometry);
     restoredFaceSets.set(slot.id, {
       excludedFaces: restoredSet,
       assignedFaces: restoredAssignedSet
