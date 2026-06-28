@@ -128,14 +128,11 @@ const sharedGLSL = /* glsl */`
     if (mappingMode == 7 && beamValid == 1) {
       vec3 rel = pos - beamCenter;
       float lu = dot(rel, beamU), lv = dot(rel, beamV), lw = dot(rel, beamW);
-      float nu = abs(dot(projN, beamU));
-      float nv = abs(dot(projN, beamV));
-      float nw = abs(dot(projN, beamW));
+      // U along the beam; V = angle around the cross-section so the texture wraps
+      // continuously around the faces. Normal-independent → no fan near edges
+      // (mirror of beamAxis.orientedRawUV).
       float oU = (lu - beamMin.x) / beamMd;
-      float oV;
-      if (nu >= nv && nu >= nw) oV = (lv - beamMin.y) / beamMd;
-      else if (nw >= nv)        oV = (lv - beamMin.y) / beamMd;
-      else                      oV = (lw - beamMin.z) / beamMd;
+      float oV = atan(lw, lv) / 6.28318530718 + 0.5;
       return sampleMap(vec2(oU, oV));
     }
 

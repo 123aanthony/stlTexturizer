@@ -44,6 +44,18 @@ test('oriented: rawU increases along the beam axis (any orientation)', () => {
   assert.ok(orientedRawUV(p1, n, f).rawU > orientedRawUV(p0, n, f).rawU);
 });
 
+test('oriented: rawV is normal-independent (no fan near edges)', () => {
+  const f = computeBeamFrame(beamPositions(0));
+  const c = f.center;
+  const p = { // a point off the axis (has both V and W components)
+    x: c[0] + f.V[0]*3 + f.W[0]*2, y: c[1] + f.V[1]*3 + f.W[1]*2, z: c[2] + f.V[2]*3 + f.W[2]*2,
+  };
+  const nW = { x: f.W[0], y: f.W[1], z: f.W[2] };
+  const nV = { x: f.V[0], y: f.V[1], z: f.V[2] };
+  // Same surface point → same V whatever the (smooth/blended) normal: kills the fan.
+  assert.equal(orientedRawUV(p, nW, f).rawV, orientedRawUV(p, nV, f).rawV);
+});
+
 test('PCA masked to a beam inside a larger model → beam axis, not model axis', () => {
   const slab = new THREE.BoxGeometry(40, 146, 8, 1, 1, 1).toNonIndexed();   // model long in Y
   const beam = new THREE.BoxGeometry(60, 10, 10, 1, 1, 1).toNonIndexed();   // beam long in X

@@ -78,20 +78,19 @@ export function computeBeamFrame(positions, faceMask = null) {
  * chosen from the cross axis the face faces, so the grain doesn't smear on the
  * perpendicular sides (mirrors the world-axis Wood logic, in local coords).
  */
-export function orientedRawUV(pos, normal, frame) {
+export function orientedRawUV(pos, _normal, frame) {
   const { center, U, V, W, min, md } = frame;
   const dx = pos.x - center[0], dy = pos.y - center[1], dz = pos.z - center[2];
   const lu = dx*U[0]+dy*U[1]+dz*U[2];
   const lv = dx*V[0]+dy*V[1]+dz*V[2];
   const lw = dx*W[0]+dy*W[1]+dz*W[2];
-  const nu = Math.abs(normal.x*U[0]+normal.y*U[1]+normal.z*U[2]);
-  const nv = Math.abs(normal.x*V[0]+normal.y*V[1]+normal.z*V[2]);
-  const nw = Math.abs(normal.x*W[0]+normal.y*W[1]+normal.z*W[2]);
 
+  // U = along the beam. V = angle around the cross-section, so the texture WRAPS
+  // continuously around the 4 faces. This is NORMAL-INDEPENDENT — a per-face,
+  // normal-based cross axis fans out where the smooth/interpolated normal bends
+  // near an edge (the visible defect on imported meshes). iso-V lines stay
+  // parallel to the beam on every face.
   const rawU = (lu - min.u) / md;
-  let rawV;
-  if (nu >= nv && nu >= nw) rawV = (lv - min.v) / md;        // end cap
-  else if (nw >= nv)        rawV = (lv - min.v) / md;        // top/bottom (normal ∥ W)
-  else                      rawV = (lw - min.w) / md;        // side (normal ∥ V)
+  const rawV = Math.atan2(lw, lv) / (2 * Math.PI) + 0.5;
   return { rawU, rawV };
 }

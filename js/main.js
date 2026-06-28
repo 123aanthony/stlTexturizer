@@ -37,17 +37,7 @@ function _previewBeamFrame() {
     mask = new Uint8Array(triCount);
     for (const f of assigned) { const i = Number(f); if (i >= 0 && i < triCount) mask[i] = 1; }
   }
-  const frame = computeBeamFrame(currentGeometry.attributes.position.array, mask);
-  // TEMP DIAG — remove once the beam-grain case is diagnosed.
-  if (frame) {
-    const key = frame.U.map(n => n.toFixed(2)).join(',');
-    if (key !== globalThis.__woodDiag) {
-      globalThis.__woodDiag = key;
-      const nMask = mask ? mask.reduce((a, b) => a + b, 0) : 'whole-mesh';
-      console.log(`[WoodAuto] axe poutre détecté U=[${key}]  V=[${frame.V.map(n=>n.toFixed(2))}]  W=[${frame.W.map(n=>n.toFixed(2))}]  | faces sélectionnées=${nMask}  | étendue=${frame.md.toFixed(1)}mm`);
-    }
-  }
-  return frame;
+  return computeBeamFrame(currentGeometry.attributes.position.array, mask);
 }
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions, getShellAssignments } from './meshValidation.js';
