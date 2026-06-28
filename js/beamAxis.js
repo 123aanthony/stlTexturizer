@@ -55,10 +55,7 @@ export function computeBeamFrame(positions, faceMask = null) {
   const ref = Math.abs(vz) < 0.9 ? [0, 0, 1] : [1, 0, 0];
   let Vx = ref[1]*vz - ref[2]*vy, Vy = ref[2]*vx - ref[0]*vz, Vz = ref[0]*vy - ref[1]*vx;
   const lv = Math.hypot(Vx, Vy, Vz) || 1; Vx /= lv; Vy /= lv; Vz /= lv;
-  let Wx = vy*Vz - vz*Vy, Wy = vz*Vx - vx*Vz, Wz = vx*Vy - vy*Vx;
-  // Orient W upward (world +Z) so the unwrap's seam (placed at -W) lands on the
-  // beam's underside — the least-visible / print-bed face.
-  if (Wz < 0) { Wx = -Wx; Wy = -Wy; Wz = -Wz; }
+  const Wx = vy*Vz - vz*Vy, Wy = vz*Vx - vx*Vz, Wz = vx*Vy - vy*Vx;
   const V = [Vx, Vy, Vz], W = [Wx, Wy, Wz];
 
   // Local-frame extents (for normalising like the world modes' (pos-min)/md).
@@ -101,19 +98,14 @@ export function orientedRawUV(pos, _normal, frame) {
   // near an edge (the visible defect on imported meshes). iso-V lines stay
   // parallel to the beam on every face.
   const rawU = (lu - min.u) / md;
-  // V = arc-length around the cross-section's bounding box (a "box unwrap"):
-  // even texture density on every face (no corner crush, unlike a raw angle),
-  // continuous around the faces (wraps), and NORMAL-INDEPENDENT (no fan at edges).
-  // lv/lw are re-centred on the box (frame.cmid) so the face classification holds.
+  // V = the cross-coordinate of whichever face the point is on, classified by
+  // POSITION (not the normal). Position-based → NORMAL-INDEPENDENT, so the smooth
+  // /interpolated normal can't make the grain fan near edges. Per-face (not a
+  // continuous wrap) → no seam and the side never "rides up" onto the top; even
+  // density (mm-based); grain stays parallel to the beam on every face. Patterns
+  // meet at the corners (natural). lv/lw re-centred on the box (frame.cmid).
   const a = frame.half[0], b = frame.half[1];
   const lvc = lv - frame.cmid[0], lwc = lw - frame.cmid[1];
-  const nv = lvc / a, nw = lwc / b;
-  const perim = 4 * (a + b);
-  // Seam (s = 0 ≡ perim) at the bottom-face centre, so it hides on the underside.
-  let s;
-  if (Math.abs(nv) >= Math.abs(nw)) s = (nv >= 0) ? (a + (lwc + b)) : (3 * a + 2 * b + (b - lwc)); // right / left
-  else if (nw >= 0)                 s = a + 2 * b + (a - lvc);                                     // top
-  else                              s = (lvc >= 0) ? lvc : (3 * a + 4 * b + (lvc + a));            // bottom (split = seam)
-  const rawV = s / perim;
+  const rawV = (Math.abs(lvc / a) >= Math.abs(lwc / b)) ? (lwc / md) : (lvc / md);
   return { rawU, rawV };
 }

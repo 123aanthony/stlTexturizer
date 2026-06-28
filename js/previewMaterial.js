@@ -132,19 +132,13 @@ const sharedGLSL = /* glsl */`
       float lu  = dot(rel, beamU);
       float lvc = dot(rel, beamV) - beamCmid.x;
       float lwc = dot(rel, beamW) - beamCmid.y;
-      // U along the beam; V = arc-length around the cross-section box (box unwrap):
-      // even density, wraps continuously, normal-independent → no fan near edges
-      // (mirror of beamAxis.orientedRawUV).
-      float a = beamHalf.x, b = beamHalf.y;
-      float nv = lvc / a, nw = lwc / b;
-      float perim = 4.0 * (a + b);
-      // Seam (s=0≡perim) at the bottom-face centre → hidden on the underside.
-      float s;
-      if (abs(nv) >= abs(nw)) s = (nv >= 0.0) ? (a + (lwc + b)) : (3.0*a + 2.0*b + (b - lwc));
-      else if (nw >= 0.0)     s = a + 2.0*b + (a - lvc);
-      else                    s = (lvc >= 0.0) ? lvc : (3.0*a + 4.0*b + (lvc + a));
+      // U along the beam; V = cross-coordinate of whichever face the point is on,
+      // classified by POSITION (not the normal) → normal-independent (no fan), per
+      // face (no seam, side never rides onto the top), even mm-density, grain
+      // parallel to the beam. Mirror of beamAxis.orientedRawUV.
       float oU = (lu - beamMin.x) / beamMd;
-      return sampleMap(vec2(oU, s / perim));
+      float oV = (abs(lvc / beamHalf.x) >= abs(lwc / beamHalf.y)) ? (lwc / beamMd) : (lvc / beamMd);
+      return sampleMap(vec2(oU, oV));
     }
 
     vec3 absN = abs(projN);
