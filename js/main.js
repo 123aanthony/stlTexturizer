@@ -22,6 +22,19 @@ import { computeAssignedFaces,
          serializeSlotFaces, restoreSlotFaces } from './slotState.js';
 import { runMultiSlotExport, snapBottomToFlat, decimateWithGuard } from './exportPipeline.js';
 import { resolveScaleU, snapScaleUForSeamlessWrap } from './scaleSnap.js';
+import { computeBeamFrame } from './beamAxis.js';
+
+// Beam PCA frame for the live preview shader (Wood Auto). Memoized per geometry
+// so dragging sliders doesn't recompute the PCA every frame.
+let _beamFrameCache = null, _beamFrameGeo = null;
+function _previewBeamFrame() {
+  if (settings.mappingMode !== 7 || !currentGeometry) return null;
+  if (_beamFrameGeo !== currentGeometry) {
+    _beamFrameCache = computeBeamFrame(currentGeometry.attributes.position.array);
+    _beamFrameGeo = currentGeometry;
+  }
+  return _beamFrameCache;
+}
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions, getShellAssignments } from './meshValidation.js';
 import { t, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
@@ -5677,6 +5690,7 @@ function updatePreview() {
     bounds: currentBounds,
     textureAspectU: tmax / Math.max(tw, 1),
     textureAspectV: tmax / Math.max(th, 1),
+    beamFrame: _previewBeamFrame(),
   };
 
   if (!activeMapEntry) {
@@ -6062,7 +6076,7 @@ async function toggleDisplacementPreview(enable) {
   if (!enable) {
     // Revert to original geometry with bump-only shading.
     if (currentGeometry && previewMaterial) {
-      updateMaterial(previewMaterial, getEffectiveMapEntry()?.texture, { ...settings, bounds: currentBounds });
+      updateMaterial(previewMaterial, getEffectiveMapEntry()?.texture, { ...settings, bounds: currentBounds, beamFrame: _previewBeamFrame() });
       updateFaceMask(currentGeometry);
       setMeshGeometry(currentGeometry);
     }
@@ -6166,7 +6180,7 @@ async function toggleDisplacementPreview(enable) {
       previewMaterial.dispose();
       previewMaterial = null;
     }
-    const fullSettings = { ...settings, bounds: currentBounds };
+    const fullSettings = { ...settings, bounds: currentBounds, beamFrame: _previewBeamFrame() };
     previewMaterial = createPreviewMaterial(getEffectiveMapEntry().texture, fullSettings);
     setMeshGeometry(dispPreviewGeometry);
     setMeshMaterial(previewMaterial);

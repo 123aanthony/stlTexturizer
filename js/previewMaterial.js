@@ -28,6 +28,14 @@ export const MODE_WOOD_Z      = 10;
 const sharedGLSL = /* glsl */`
   uniform sampler2D displacementMap;
   uniform int       mappingMode;
+  // Beam-oriented Wood Auto (mode 7): PCA frame of the piece (else beamValid=0).
+  uniform vec3      beamCenter;
+  uniform vec3      beamU;
+  uniform vec3      beamV;
+  uniform vec3      beamW;
+  uniform vec3      beamMin;   // mins along (U, V, W)
+  uniform float     beamMd;
+  uniform int       beamValid;
   uniform vec2      scaleUV;
   uniform float     amplitude;
   uniform vec2      offsetUV;
@@ -115,6 +123,22 @@ const sharedGLSL = /* glsl */`
   }
 
   float woodBeamHeight(vec3 pos, vec3 projN, float md) {
+    // Beam-oriented Wood Auto: project in the piece's own PCA frame so grain
+    // runs lengthwise at any orientation (mirror of beamAxis.orientedRawUV).
+    if (mappingMode == 7 && beamValid == 1) {
+      vec3 rel = pos - beamCenter;
+      float lu = dot(rel, beamU), lv = dot(rel, beamV), lw = dot(rel, beamW);
+      float nu = abs(dot(projN, beamU));
+      float nv = abs(dot(projN, beamV));
+      float nw = abs(dot(projN, beamW));
+      float oU = (lu - beamMin.x) / beamMd;
+      float oV;
+      if (nu >= nv && nu >= nw) oV = (lv - beamMin.y) / beamMd;
+      else if (nw >= nv)        oV = (lv - beamMin.y) / beamMd;
+      else                      oV = (lw - beamMin.z) / beamMd;
+      return sampleMap(vec2(oU, oV));
+    }
+
     vec3 absN = abs(projN);
     float rawU = 0.0;
     float rawV = 0.0;
@@ -469,8 +493,23 @@ export function createPreviewMaterial(displacementTexture, settings) {
 /**
  * Update existing ShaderMaterial uniforms in-place (no recreate).
  */
+function setBeamUniforms(u, frame) {
+  if (frame) {
+    u.beamCenter.value.set(frame.center[0], frame.center[1], frame.center[2]);
+    u.beamU.value.set(frame.U[0], frame.U[1], frame.U[2]);
+    u.beamV.value.set(frame.V[0], frame.V[1], frame.V[2]);
+    u.beamW.value.set(frame.W[0], frame.W[1], frame.W[2]);
+    u.beamMin.value.set(frame.min.u, frame.min.v, frame.min.w);
+    u.beamMd.value = frame.md;
+    u.beamValid.value = 1;
+  } else {
+    u.beamValid.value = 0;
+  }
+}
+
 export function updateMaterial(material, displacementTexture, settings) {
   const u = material.uniforms;
+  setBeamUniforms(u, settings.beamFrame);
   if (displacementTexture && u.displacementMap.value !== displacementTexture) {
     u.displacementMap.value = displacementTexture;
   }
@@ -510,9 +549,16 @@ function buildUniforms(tex, settings) {
     size:   new THREE.Vector3(1, 1, 1),
     center: new THREE.Vector3(),
   };
-  return {
+  const uniforms = {
     displacementMap: { value: tex || createFallbackTexture() },
     mappingMode:     { value: settings.mappingMode ?? MODE_TRIPLANAR },
+    beamCenter:      { value: new THREE.Vector3() },
+    beamU:           { value: new THREE.Vector3(1, 0, 0) },
+    beamV:           { value: new THREE.Vector3(0, 1, 0) },
+    beamW:           { value: new THREE.Vector3(0, 0, 1) },
+    beamMin:         { value: new THREE.Vector3() },
+    beamMd:          { value: 1.0 },
+    beamValid:       { value: 0 },
     scaleUV:         { value: new THREE.Vector2(settings.scaleU ?? 1, settings.scaleV ?? 1) },
     amplitude:       { value: settings.amplitude ?? 1.0 },
     offsetUV:        { value: new THREE.Vector2(settings.offsetU ?? 0, settings.offsetV ?? 0) },
@@ -539,6 +585,8 @@ function buildUniforms(tex, settings) {
     boundaryEdgeTexWidth:     { value: 1.0 },
     boundaryFalloffDist:        { value: settings.boundaryFalloff ?? 0.0 },
   };
+  setBeamUniforms(uniforms, settings.beamFrame);
+  return uniforms;
 }
 
 function createFallbackTexture() {
