@@ -47,7 +47,7 @@ export async function runSingle(geo, { refineLength, settings, texture, faceWeig
  * @param assignOriginal  (triIndex, centroid:{x,y,z}, normal:{x,y,z}) => slotIndex | -1
  * @param slots           [{ texture, settings }]
  */
-export async function runMultiSlot(geo, { refineLength, slots, assignOriginal }) {
+export async function runMultiSlot(geo, { refineLength, maxTriangles, slots, assignOriginal }) {
   const bounds = computeBounds(geo);
 
   const readySlots = slots.map((s, si) => ({
@@ -76,7 +76,7 @@ export async function runMultiSlot(geo, { refineLength, slots, assignOriginal })
     geometry: geo,
     bounds,
     readySlots,
-    qualitySettings: { refineLength, smoothBottom: false },
+    qualitySettings: { refineLength, smoothBottom: false, maxTriangles, decimateEnabled: maxTriangles != null },
     getSlotImageData: (slot) => ({
       imageData: slot._texture,
       width: slot._texture.width,

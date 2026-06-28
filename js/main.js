@@ -12,7 +12,6 @@ import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
 import { subdivide }          from './subdivision.js';
 import { regularizeMesh }     from './regularize.js';
 import { applyDisplacement }  from './displacement.js';
-import { decimate }           from './decimation.js';
 import { exportSTL, export3MF } from './exporter.js';
 import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
@@ -21,7 +20,7 @@ import { buildCombinedFaceWeights, buildUnionExcludedFacesForSlots,
 import { computeAssignedFaces,
          pickGlobalQuality, stripGlobalQuality, withGlobalQuality,
          serializeSlotFaces, restoreSlotFaces } from './slotState.js';
-import { runMultiSlotExport, snapBottomToFlat } from './exportPipeline.js';
+import { runMultiSlotExport, snapBottomToFlat, decimateWithGuard } from './exportPipeline.js';
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions, getShellAssignments } from './meshValidation.js';
 import { t, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
@@ -6495,8 +6494,8 @@ async function handleExport(format = 'stl') {
     finalGeometry = displaced;
     if (needsDecimation) {
       setProgress(0.71, t('progress.decimatingTo', { from: dispTriCount.toLocaleString(), to: settings.maxTriangles.toLocaleString() }));
-      finalGeometry = await runAsync(() =>
-        decimate(
+      const decResult = await runAsync(() =>
+        decimateWithGuard(
           displaced,
           settings.maxTriangles,
           (p) => {
@@ -6508,8 +6507,10 @@ async function handleExport(format = 'stl') {
           }
         )
       );
-      // Free pre-decimation geometry — decimate created a separate copy
-      displaced.dispose();
+      finalGeometry = decResult;
+      // Free pre-decimation geometry only if decimation produced a new mesh
+      // (the guard returns the original on watertight-fallback).
+      if (decResult !== displaced) displaced.dispose();
 	  if (exportToken !== myToken) return;
     }
 
@@ -6733,8 +6734,8 @@ const dispTriCount = displaced.attributes.position.count / 3;
 if (slotSettings.decimateEnabled !== false && dispTriCount > slotSettings.maxTriangles) {
   setSlotProgress(0.90, `Decimating ${slot.name}`);
 
-  finalGeometry = await runAsync(() =>
-    decimate(
+  const decResult = await runAsync(() =>
+    decimateWithGuard(
       displaced,
       slotSettings.maxTriangles,
       (p) => {
@@ -6746,7 +6747,8 @@ if (slotSettings.decimateEnabled !== false && dispTriCount > slotSettings.maxTri
     )
   );
 
-  displaced.dispose();
+  finalGeometry = decResult;
+  if (decResult !== displaced) displaced.dispose();
 }
 
 setSlotProgress(0.95, `Finished ${slot.name}`);

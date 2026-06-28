@@ -14,9 +14,63 @@
 import * as THREE from 'three';
 import { subdivide } from './subdivision.js';
 import { applyDisplacement } from './displacement.js';
+import { decimate } from './decimation.js';
 import { buildUnionExcludedFacesForSlots, buildCombinedFaceWeights,
          buildExclusiveSlotFaceMasks } from './slotMasks.js';
 import { withGlobalQuality } from './slotState.js';
+
+// ── Watertight guard for decimation ──────────────────────────────────────────
+// QEM decimation can open a closed mesh at aggressive targets — measured on both
+// the single-slot path (non-manifold at ~10%) and as a risk across multi-slot
+// material seams. `isWatertight` + `decimateWithGuard` make that failure
+// impossible to ship: if decimation breaks a previously-watertight mesh, we keep
+// the un-decimated one (larger file, but printable).
+
+/** True if every edge is shared by exactly two triangles (quantized to 1e-4 mm). */
+export function isWatertight(geometry) {
+  const pos = geometry.attributes.position.array;
+  const triCount = (pos.length / 9) | 0;
+  const vid = new Map();
+  const idOf = (o) => {
+    const k = Math.round(pos[o] * 1e4) + ',' + Math.round(pos[o + 1] * 1e4) + ',' + Math.round(pos[o + 2] * 1e4);
+    let v = vid.get(k);
+    if (v === undefined) { v = vid.size; vid.set(k, v); }
+    return v;
+  };
+  const edges = new Map();
+  const addEdge = (a, b) => {
+    if (a === b) return;
+    const k = a < b ? (a + '_' + b) : (b + '_' + a);
+    edges.set(k, (edges.get(k) || 0) + 1);
+  };
+  for (let t = 0; t < triCount; t++) {
+    const o = t * 9;
+    const a = idOf(o), b = idOf(o + 3), c = idOf(o + 6);
+    addEdge(a, b); addEdge(b, c); addEdge(c, a);
+  }
+  for (const cnt of edges.values()) if (cnt !== 2) return false;
+  return true;
+}
+
+/**
+ * Decimate to `target`, but if that breaks a previously-watertight mesh, keep
+ * the original. Returns the same geometry reference when it no-ops or falls
+ * back (caller should dispose only when the returned geometry !== input).
+ */
+export async function decimateWithGuard(geometry, target, onProgress) {
+  const triCount = geometry.attributes.position.count / 3;
+  if (triCount <= target) return geometry;
+
+  const inputOk = isWatertight(geometry);
+  const decimated = await decimate(geometry, target, onProgress);
+
+  if (inputOk && !isWatertight(decimated)) {
+    console.warn(`Decimation broke watertightness — keeping un-decimated mesh (${triCount} tris).`);
+    if (decimated && decimated !== geometry && decimated.dispose) decimated.dispose();
+    return geometry;
+  }
+  return decimated;
+}
 
 /** Snap near-bottom vertices to the exact bottom plane and refresh their normals. */
 export function snapBottomToFlat(geometry, bottomZ, tol = 0.1) {
@@ -156,6 +210,21 @@ export async function runMultiSlotExport({
     working = displaced;
     finalGeometry = working;
     working = null;
+
+    // Decimation, guarded: re-enabled for multi-slot (parity with single-slot).
+    // The guard falls back to the un-decimated mesh if it would break the
+    // watertight material seam.
+    const dispTriCount = finalGeometry.attributes.position.count / 3;
+    if (qualitySettings.decimateEnabled !== false && dispTriCount > qualitySettings.maxTriangles) {
+      onProgress(0.84, `Decimating ${dispTriCount.toLocaleString()} -> ${qualitySettings.maxTriangles.toLocaleString()}`);
+      await yieldFn();
+      const decimated = await decimateWithGuard(
+        finalGeometry,
+        qualitySettings.maxTriangles,
+        (p) => onProgress(0.84 + p * 0.10, `Decimating ${Math.round(p * 100)}%`)
+      );
+      if (decimated !== finalGeometry) { finalGeometry.dispose(); finalGeometry = decimated; }
+    }
 
     // Post-export finishing (matches the standard export path).
     if (qualitySettings.bottomAngleLimit > 0) {

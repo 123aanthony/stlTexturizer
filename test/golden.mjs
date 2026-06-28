@@ -52,6 +52,19 @@ const cases = {
     ],
     assignOriginal: (_t, _c, n) => (n.z > 0.5 ? 0 : n.z < -0.5 ? 1 : -1),
   }),
+
+  // Multi-slot WITH guarded decimation (step 2): all faces owned (real material
+  // seam), dense refine, then decimate toward maxTriangles. Pins that decimation
+  // runs, the watertight guard holds across the seam, and triangles are reduced.
+  'cube-multislot-decim': () => runMultiSlot(fixture('cube'), {
+    refineLength: 1.2,
+    maxTriangles: 12000,
+    slots: [
+      { texture: checker, settings: s({ amplitude: 1.5 }) },
+      { texture: sine,    settings: s({ amplitude: 1.0 }) },
+    ],
+    assignOriginal: (_t, _c, n) => (n.z >= 0 ? 0 : 1),  // all owned
+  }),
 };
 
 let pass = 0, fail = 0, wrote = 0;
