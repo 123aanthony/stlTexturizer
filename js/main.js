@@ -7127,7 +7127,21 @@ let currentProjectPath = null;
 let currentProjectDisplayName = 'Untitled';
 let projectDirty = false;
 let projectDirtyTrackingEnabled = false;
-setTimeout(() => { projectDirtyTrackingEnabled = true; updateProjectChrome(); }, 2000);
+// Enable dirty-tracking once the boot sequence has actually settled (window
+// 'load' + one frame), not on a fixed 2 s timer. The timer could miss a fast
+// edit made before 2 s (silent data loss) or, on a heavy initial model, fire
+// mid-load. Boot-time mutations all run before this point — and restores are
+// guarded by isRestoringProject — so they don't false-flag the project dirty.
+function _enableProjectDirtyTracking() {
+  if (projectDirtyTrackingEnabled) return;
+  projectDirtyTrackingEnabled = true;
+  updateProjectChrome();
+}
+if (document.readyState === 'complete') {
+  requestAnimationFrame(_enableProjectDirtyTracking);
+} else {
+  window.addEventListener('load', () => requestAnimationFrame(_enableProjectDirtyTracking), { once: true });
+}
 
 function _basenameFromPath(filePath) {
   if (!filePath) return '';
@@ -7174,6 +7188,7 @@ function updateProjectChrome() {
 
 function markProjectDirty() {
   if (!projectDirtyTrackingEnabled || isRestoringProject || _undoApplyDepth > 0) return;
+  if (projectDirty) return; // already dirty → chrome unchanged, skip redundant title/IPC write
   projectDirty = true;
   updateProjectChrome();
 }
