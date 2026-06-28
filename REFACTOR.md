@@ -66,10 +66,12 @@ travers le slot actif, supprimer les globals miroirs).
 | B  | Orchestration export multi-slot extraite (`exportPipeline.runMultiSlotExport`, sans DOM) ; golden branché sur le chemin réel ; blocs `if(false)` morts retirés | ✅ |
 | C  | E2E Playwright-Electron (smoke boot) — **vert sur machine GPU** (2,4 s) ; confirme que l'app boote après 1a+1b+1c+B | ✅ |
 | 1d | serialize/restore des faces de projet extrait (`serializeSlotFaces`/`restoreSlotFaces`, purs) + 2 round-trips | ✅ |
-| 2 | Décider décimation/regularize en multi-slot (les `if(false)` retirés ne tranchent pas la question) | ⏳ |
+| 2 | Décimation multi-slot réactivée avec **garde watertight** (`decimateWithGuard`) + checkbox `decimateEnabled` ; corrige aussi le bug non-manifold mono-slot. Variante golden `cube-multislot-decim` | ✅ |
 | 3 | Source unique de vérité pour l'état slot (le vrai fix ch.8) | ⏳ |
 
-Cumul : `main.js` ≈ −485 lignes nettes (1a+1b+1c+B+1d) ; 30 vérifs headless (21 unités + 9 golden) + smoke E2E.
+Cumul : `main.js` ≈ −485 lignes nettes (1a→1d) ; 31 vérifs headless (21 unités + 10 golden) + smoke E2E.
+
+Reste backlog : regularize multi-slot (toujours OFF, à décider) ; retrait des `console.log` debug ; supprimer le doublon `js/index.html` ; README amont à actualiser.
 
 **Validation app** (utilisateur, après 1a/1b) : peinture 2 slots → save/reload projet
 (sélections restaurées) → Export All Slots. Le chemin réel de `main.js` — non couvert
