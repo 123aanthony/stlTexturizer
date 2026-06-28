@@ -4,6 +4,8 @@
  * a bounds object { min, max, center, size } (all THREE.Vector3).
  */
 
+import { orientedRawUV } from './beamAxis.js';
+
 export const MODE_PLANAR_XY   = 0;
 export const MODE_PLANAR_XZ   = 1;
 export const MODE_PLANAR_YZ   = 2;
@@ -315,7 +317,17 @@ export function computeUV(pos, normal, mode, settings, bounds) {
       };
     }
 
-    case MODE_WOOD_AUTO:
+    case MODE_WOOD_AUTO: {
+      // Beam-oriented: project the grain along the piece's OWN long axis (PCA
+      // frame in settings.beamFrame), so it runs lengthwise at any orientation —
+      // fixing the world-axis Wood Auto limitation on inclined timber. Falls
+      // back to the legacy longest-world-axis pick when no frame was supplied.
+      if (settings.beamFrame) {
+        const { rawU, rawV } = orientedRawUV(pos, normal, settings.beamFrame);
+        return applyTransform(rawU, rawV, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
+      }
+      return computeWoodAutoUV();
+    }
     case MODE_WOOD_X:
     case MODE_WOOD_Y:
     case MODE_WOOD_Z: {

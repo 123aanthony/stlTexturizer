@@ -13,8 +13,9 @@ import { dirname, join } from 'node:path';
 import { runSingle, baseSettings } from '../lib/pipeline.mjs';
 import { loadTexture } from './loadTexture.mjs';
 import { renderTris, savePNG } from './raster.mjs';
+import { computeBeamFrame } from '../../js/beamAxis.js';
 
-const MODES = { 'wood-x': 8, 'wood-y': 9, 'wood-z': 10, 'triplanar': 5, 'cubic': 6 };
+const MODES = { 'wood-auto': 7, 'wood-x': 8, 'wood-y': 9, 'wood-z': 10, 'triplanar': 5, 'cubic': 6 };
 const arg = process.argv[2] || 'wood-x';
 const mode = MODES[arg] ?? 8;
 const incline = parseFloat(process.argv[3] || '0');
@@ -22,12 +23,25 @@ const texName = process.argv[4] || 'woodgrain_02';
 const scale = parseFloat(process.argv[5] || '0.5'); // texture scale (U & V)
 
 const here = dirname(fileURLToPath(import.meta.url));
-const texPath = join(here, '..', '..', 'textures', texName.includes('.') ? texName : `${texName}.jpg`);
-const texture = loadTexture(texPath);
+// Controlled procedural textures: 'vbands' grey varies with V (grain lines along
+// U), 'ubands' varies with U — to isolate which coordinate drives the grain.
+function procTex(kind, w = 256, h = 256) {
+  const d = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const coord = kind === 'ubands' ? x / w : y / h;
+    const g = (Math.floor(coord * 10) % 2) ? 235 : 25;
+    const i = (y * w + x) * 4; d[i] = d[i+1] = d[i+2] = g; d[i+3] = 255;
+  }
+  return { data: d, width: w, height: h };
+}
+const texture = (texName === 'vbands' || texName === 'ubands')
+  ? procTex(texName)
+  : loadTexture(join(here, '..', '..', 'textures', texName.includes('.') ? texName : `${texName}.jpg`));
 
 // Beam, long axis X, optional rafter tilt about Y.
+const axis = (process.argv[6] || 'z').toLowerCase(); // tilt axis: 'z' (plan) discriminates oriented vs world; 'y' is degenerate
 const geo = new THREE.BoxGeometry(90, 14, 14, 1, 1, 1).toNonIndexed();
-if (incline) geo.rotateY(incline * Math.PI / 180);
+if (incline) (axis === 'y' ? geo.rotateY : geo.rotateZ).call(geo, incline * Math.PI / 180);
 
 const settings = {
   ...baseSettings,
@@ -35,6 +49,8 @@ const settings = {
   amplitude: 1.6,
   symmetricDisplacement: true,
   scaleU: scale, scaleV: scale,
+  // Wood Auto (mode 7) uses the beam's own PCA axis.
+  beamFrame: computeBeamFrame(geo.attributes.position.array),
 };
 
 const displaced = await runSingle(geo, { refineLength: 0.8, settings, texture });

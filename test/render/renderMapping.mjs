@@ -12,7 +12,7 @@ import { renderTris, savePNG } from './raster.mjs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-const MODES = { 'wood-x': 8, 'wood-y': 9, 'wood-z': 10, 'triplanar': 5, 'cubic': 6 };
+const MODES = { 'wood-auto': 7, 'wood-x': 8, 'wood-y': 9, 'wood-z': 10, 'triplanar': 5, 'cubic': 6 };
 const arg = process.argv[2] || 'wood-x';
 const mode = MODES[arg] ?? 8;
 const incline = parseFloat(process.argv[3] || '0'); // degrees, rotate beam about Z
