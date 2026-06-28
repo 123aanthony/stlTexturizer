@@ -215,5 +215,13 @@ export default {
   "ui.cylinderPanelMinimize": "Réduire / restaurer",
   "alerts.saveFailed": "Échec de l'enregistrement : {msg}",
   "toasts.projectSaved": "Projet enregistré",
-  "toasts.projectDownloaded": "Projet téléchargé"
+  "toasts.projectDownloaded": "Projet téléchargé",
+  "recovery.banner": "Projet non enregistré récupéré",
+  "recovery.restore": "Restaurer",
+  "recovery.ignore": "Ignorer",
+  "recovery.restored": "Projet récupéré",
+  "recovery.age.sec": "il y a {n} s",
+  "recovery.age.min": "il y a {n} min",
+  "recovery.age.hour": "il y a {n} h",
+  "recovery.age.day": "il y a {n} j"
 };

@@ -24,6 +24,8 @@ import { computeAssignedFaces,
 import { runMultiSlotExport, snapBottomToFlat, decimateWithGuard } from './exportPipeline.js';
 import { resolveScaleU, snapScaleUForSeamlessWrap } from './scaleSnap.js';
 import { computeBeamFrame } from './beamAxis.js';
+import { idbGet, idbSet, idbDel } from './idbStore.js';
+import { shouldOfferRecovery, recoveryAgeParts } from './recovery.js';
 
 // Beam PCA frame for the live preview shader (Wood Auto), from the ACTIVE slot's
 // selected faces (a beam is a selection inside the model — using the whole mesh
@@ -7188,9 +7190,102 @@ function updateProjectChrome() {
 
 function markProjectDirty() {
   if (!projectDirtyTrackingEnabled || isRestoringProject || _undoApplyDepth > 0) return;
+  _scheduleRecoverySnapshot(); // refresh the durable crash-recovery draft (debounced)
   if (projectDirty) return; // already dirty → chrome unchanged, skip redundant title/IPC write
   projectDirty = true;
   updateProjectChrome();
+}
+
+// ── Durable crash recovery (IndexedDB) ───────────────────────────────────────
+// The sessionStorage auto-save only holds settings and dies with the tab. Here we
+// also keep a FULL project draft (model + slots + settings) in IndexedDB, written
+// debounced on changes, and offer to restore it on the next launch. Cleared on an
+// explicit save or New project.
+const RECOVERY_KEY = 'recovery-draft';
+let _recoveryTimer = null;
+
+function _scheduleRecoverySnapshot() {
+  clearTimeout(_recoveryTimer);
+  _recoveryTimer = setTimeout(_writeRecoverySnapshot, 6000);
+}
+
+async function _writeRecoverySnapshot() {
+  if (_saveInProgress || !projectDirty || isRestoringProject) return;
+  const run = async () => {
+    try {
+      const bytes = await buildProjectBytes();
+      await idbSet(RECOVERY_KEY, {
+        bytes,
+        savedAt: Date.now(),
+        path: currentProjectPath || null,
+        name: currentProjectDisplayName || null,
+      });
+    } catch { /* IndexedDB unavailable / quota / no geometry — ignore */ }
+  };
+  // Build+zip off the interaction path so a heavy model doesn't jank editing.
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(() => run());
+  else run();
+}
+
+function _clearRecoveryDraft() {
+  clearTimeout(_recoveryTimer);
+  idbDel(RECOVERY_KEY).catch(() => {});
+}
+
+// On launch, offer to restore a draft left behind by a crash/close-without-save.
+async function _maybeOfferRecovery() {
+  let draft;
+  try { draft = await idbGet(RECOVERY_KEY); } catch { return; }
+  if (!shouldOfferRecovery(draft)) return;
+  _showRecoveryBanner(draft);
+}
+
+function _recoveryAgeText(savedAt) {
+  const { unit, value } = recoveryAgeParts(savedAt);
+  return t(`recovery.age.${unit}`, { n: value });
+}
+
+function _showRecoveryBanner(draft) {
+  document.querySelector('.recovery-banner')?.remove();
+
+  const banner = document.createElement('div');
+  banner.className = 'recovery-banner';
+
+  const msg = document.createElement('div');
+  msg.className = 'recovery-msg';
+  msg.textContent = t('recovery.banner');
+  const sub = document.createElement('small');
+  sub.textContent = `${draft.name || 'Untitled'} · ${_recoveryAgeText(draft.savedAt)}`;
+  msg.appendChild(sub);
+
+  const restoreBtn = document.createElement('button');
+  restoreBtn.className = 'primary';
+  restoreBtn.textContent = t('recovery.restore');
+
+  const ignoreBtn = document.createElement('button');
+  ignoreBtn.textContent = t('recovery.ignore');
+
+  restoreBtn.addEventListener('click', async () => {
+    restoreBtn.disabled = ignoreBtn.disabled = true;
+    try {
+      const file = new File([draft.bytes], `${draft.name || 'recovered'}.bforge`, { type: 'application/octet-stream' });
+      await importProject(file);  // restores model + slots + settings; clears the draft
+      // Recovered work is UNSAVED: keep the prior file path (if any) but flag dirty.
+      if (draft.path) { currentProjectPath = draft.path; currentProjectDisplayName = _basenameFromPath(draft.path); }
+      projectDirty = true;
+      updateProjectChrome();
+      showToast(t('recovery.restored'), { type: 'success' });
+    } catch (err) {
+      showToast(t('alerts.importFailed', { msg: err.message }), { type: 'error', duration: 5000 });
+    } finally {
+      banner.remove();
+    }
+  });
+
+  ignoreBtn.addEventListener('click', () => { _clearRecoveryDraft(); banner.remove(); });
+
+  banner.append(msg, restoreBtn, ignoreBtn);
+  document.body.appendChild(banner);
 }
 
 // Non-blocking feedback (save / export success, errors). Click to dismiss early.
@@ -7217,6 +7312,7 @@ function markProjectClean(filePath = currentProjectPath) {
   currentProjectPath = filePath || null;
   currentProjectDisplayName = currentProjectPath ? _basenameFromPath(currentProjectPath) : 'Untitled';
   projectDirty = false;
+  _clearRecoveryDraft(); // saved/opened/new → the crash draft is obsolete
   updateProjectChrome();
 }
 
@@ -8101,3 +8197,6 @@ window.addEventListener('keydown', (e) => {
 _restoreSessionSettings();
 _baselineSnapshot = _captureUndoSnapshot();
 _updateUndoButtons();
+
+// Offer to restore a durable crash-recovery draft, if one outlived the last session.
+_maybeOfferRecovery();

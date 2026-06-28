@@ -17,7 +17,14 @@ Chaque point : **constat** (ancré `main.js:ligne`) → **écart aux bonnes prat
 
 ## 🔴 P1 — Forte valeur
 
-### A. L'« auto-save » n'est PAS une récupération après crash — CONFIRMÉ
+### A. L'« auto-save » n'est PAS une récupération après crash — ✅ CORRIGÉ
+> Récupération durable ajoutée : brouillon projet COMPLET (modèle+slots+réglages,
+> `buildProjectBytes`) écrit en **IndexedDB** (`idbStore.js`), débouncé 6 s sur
+> changement, en idle. À la réouverture, bannière « Projet non enregistré récupéré »
+> → Restaurer (via `importProject`) / Ignorer. Effacé sur save explicite / New. Logique
+> de décision pure et testée (`recovery.js` + `test/recovery.mjs`).
+
+_Constat d'origine :_
 `_autoSaveSettings` (:7359) écrit dans **sessionStorage** (:7366) et ne sérialise que
 `getSettingsSnapshot()` — **ni le modèle, ni les faces des slots**. sessionStorage est
 **effacé à la fermeture de l'app**. Donc après un crash/fermeture, on récupère au mieux
@@ -114,6 +121,6 @@ drag de slider, chaque `input` ré-écrit `document.title` **et** un IPC `setWin
 1. **B + C** (toast succès + verrou save) — petits, gros confort, base pour D. ✅ FAIT
    (showToast + #toast-stack ; verrou `_saveInProgress` ; toasts succès/erreur sur save)
 2. **H + F** (early-return dirty ; fin-d'init au lieu du timer) — robustesse, peu de risque. ✅ FAIT
-3. **A** (récupération IndexedDB du projet complet) — le plus utile, plus de travail.
+3. **A** (récupération IndexedDB du projet complet) — le plus utile, plus de travail. ✅ FAIT
 4. **D + E** (dialogue 3 voies + close Electron) — qualité « app ».
 5. **G + I + J** — clarté & dette.

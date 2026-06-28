@@ -119,6 +119,29 @@
       display: block; margin-top: 2px;
       font-weight: 500; font-size: 11px; opacity: .65; word-break: break-all;
     }
+    /* Crash-recovery banner (top-center, persistent until acted on). */
+    .recovery-banner {
+      position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+      z-index: 9998;
+      display: flex; align-items: center; gap: 12px; max-width: 92vw;
+      padding: 10px 14px; border-radius: 12px;
+      background: rgba(15,23,42,.98); color: var(--text, #e5e7eb);
+      border: 1px solid rgba(124,106,255,.5);
+      box-shadow: 0 10px 30px rgba(0,0,0,.45);
+      font-size: 12.5px; font-weight: 600;
+    }
+    .recovery-banner .recovery-msg { line-height: 1.3; }
+    .recovery-banner .recovery-msg small { display: block; opacity: .6; font-weight: 500; }
+    .recovery-banner button {
+      border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 700;
+      cursor: pointer; border: 1px solid rgba(148,163,184,.25);
+      background: rgba(255,255,255,.05); color: var(--text, #e5e7eb);
+    }
+    .recovery-banner button.primary {
+      background: rgba(124,106,255,.22); border-color: rgba(124,106,255,.6);
+    }
+    .recovery-banner button:hover { border-color: var(--accent, #7c6aff); }
+    .recovery-banner button:disabled { opacity: .5; cursor: default; }
   </style>
 
 </head>

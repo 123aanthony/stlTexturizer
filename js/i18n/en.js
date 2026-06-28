@@ -219,5 +219,13 @@ export default {
   "ui.cylinderPanelMinimize": "Minimize / restore",
   "alerts.saveFailed": "Save failed: {msg}",
   "toasts.projectSaved": "Project saved",
-  "toasts.projectDownloaded": "Project downloaded"
+  "toasts.projectDownloaded": "Project downloaded",
+  "recovery.banner": "Unsaved project recovered",
+  "recovery.restore": "Restore",
+  "recovery.ignore": "Ignore",
+  "recovery.restored": "Project recovered",
+  "recovery.age.sec": "{n}s ago",
+  "recovery.age.min": "{n}min ago",
+  "recovery.age.hour": "{n}h ago",
+  "recovery.age.day": "{n}d ago"
 };
