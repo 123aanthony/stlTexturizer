@@ -73,6 +73,17 @@ Cumul : `main.js` ≈ −485 lignes nettes (1a→1d) ; 31 vérifs headless (21 u
 
 Reste backlog : regularize multi-slot (toujours OFF, à décider) ; retrait des `console.log` debug ; supprimer le doublon `js/index.html` ; README amont à actualiser.
 
+### Bug à vérifier — échelle de texture qui dérive au save/reload de projet
+Signalé : après sauvegarde puis réouverture d'un projet, l'échelle de texture (`scaleU`)
+a changé. Investigation : `restoreSlotState` préserve pourtant `scaleU` (pas un réglage
+global). Donc cause plus subtile — 3 suspects :
+1. Snapping cylindrique `_snapScaleUForSeamlessWrap` (main.js:1366) via `_applyScaleU`
+   (main.js:3049) → arrondit `scaleU` en mode cylindrique.
+2. Défauts de preset `selectPreset(..., applyDefaults=true)` (main.js:2410/2420) qui
+   réécrit `scaleU` avec `entry.defaultScale`.
+3. Aspect d'une texture custom rechargée depuis dataURL → échelle visuelle `scaleU/aspect`.
+Repro à préciser : mode de projection (cylindrique ?) + preset vs upload.
+
 **Validation app** (utilisateur, après 1a/1b) : peinture 2 slots → save/reload projet
 (sélections restaurées) → Export All Slots. Le chemin réel de `main.js` — non couvert
 par le golden — est confirmé sain.
