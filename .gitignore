@@ -9,3 +9,6 @@ dist/
 # Playwright E2E artifacts
 test-results/
 playwright-report/
+
+# Headless render outputs (regenerable)
+test/render/*.png
