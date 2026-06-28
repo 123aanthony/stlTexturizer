@@ -123,6 +123,7 @@ export default {
   "ui.smartResInfo": "Smart : <b>{edge} mm</b> · max <b>{tris}</b> tri · PPE {ppe} · pixel {pix} mm · surface {area} cm²",
   "ui.smartResBudgetCapped": "limite mémoire",
   "labels.outputTriangles": "Triangles de sortie",
+  "labels.decimateEnabled": "Réduire aux triangles de sortie",
   "tooltips.outputTriangles": "Le maillage est d'abord entièrement subdivisé, puis réduit à ce nombre",
   "warnings.safetyCapHit": "⚠ Limite de sécurité de 8 M de triangles atteinte lors de la subdivision — le résultat peut être plus grossier que la longueur d'arête demandée.",
   "ui.exportStl": "Exporter STL",

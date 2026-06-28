@@ -887,6 +887,7 @@ const settings = {
   rotation:      0,
   refineLength:  1.0,
   maxTriangles:  750_000,
+  decimateEnabled: true,
   lockScale:     true,
   bottomAngleLimit: 5,
   topAngleLimit:    0,
@@ -952,6 +953,9 @@ function updateSettingsUIFromSettings() {
 
   maxTriSlider.value = settings.maxTriangles;
   maxTriVal.value = settings.maxTriangles.toLocaleString();
+
+  decimateEnabledChk.checked = settings.decimateEnabled !== false;
+  maxTriSlider.disabled = settings.decimateEnabled === false;
 
   invertDisplacementCheckbox.checked = settings.invertDisplacement;
   lockScaleBtn.classList.toggle('active', settings.lockScale);
@@ -1230,6 +1234,7 @@ const offsetVSlider   = document.getElementById('offset-v');
 const amplitudeSlider = document.getElementById('amplitude');
 const refineLenSlider = document.getElementById('refine-length');
 const maxTriSlider    = document.getElementById('max-triangles');
+const decimateEnabledChk = document.getElementById('decimate-enabled');
 
 const scaleUVal    = document.getElementById('scale-u-val');
 const scaleVVal    = document.getElementById('scale-v-val');
@@ -3138,6 +3143,10 @@ function wireEvents() {
   }, false);
   refineLenVal.addEventListener('change', checkResolutionWarning);
   linkSlider(maxTriSlider, maxTriVal, v => { settings.maxTriangles = v; return formatM(v); }, false);
+  decimateEnabledChk.addEventListener('change', () => {
+    settings.decimateEnabled = decimateEnabledChk.checked;
+    maxTriSlider.disabled = !decimateEnabledChk.checked;
+  });
   linkSlider(bottomAngleLimitSlider, bottomAngleLimitVal, v => { settings.bottomAngleLimit = v; _falloffDirty = true; return v; });
   linkSlider(topAngleLimitSlider,    topAngleLimitVal,    v => { settings.topAngleLimit    = v; _falloffDirty = true; return v; });
   linkSlider(seamBlendSlider,        seamBlendVal,        v => { settings.mappingBlend     = v; return v.toFixed(2); });
@@ -6479,7 +6488,7 @@ async function handleExport(format = 'stl') {
     subdivided.dispose();
 
     const dispTriCount = displaced.attributes.position.count / 3;
-    const needsDecimation = dispTriCount > settings.maxTriangles;
+    const needsDecimation = settings.decimateEnabled !== false && dispTriCount > settings.maxTriangles;
     triLimitWarning.classList.toggle('hidden', !safetyCapHit);
     triLimitWarning.textContent = t('warnings.safetyCapHit');
 
@@ -6721,7 +6730,7 @@ subdivided.dispose();
 let finalGeometry = displaced;
 const dispTriCount = displaced.attributes.position.count / 3;
 
-if (dispTriCount > slotSettings.maxTriangles) {
+if (slotSettings.decimateEnabled !== false && dispTriCount > slotSettings.maxTriangles) {
   setSlotProgress(0.90, `Decimating ${slot.name}`);
 
   finalGeometry = await runAsync(() =>

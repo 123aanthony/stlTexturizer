@@ -126,6 +126,7 @@ export default {
   "ui.smartResInfo": "Smart: <b>{edge} mm</b> · max <b>{tris}</b> tri · PPE {ppe} · pixel {pix} mm · surface {area} cm²",
   "ui.smartResBudgetCapped": "OOM-capped",
   "labels.outputTriangles": "Output Triangles",
+  "labels.decimateEnabled": "Reduce to Output Triangles",
   "tooltips.outputTriangles": "Mesh is fully subdivided first, then decimated down to this count",
   "warnings.safetyCapHit": "⚠ 16M-triangle safety cap hit during subdivision — result may still be coarser than requested edge length.",
   "ui.exportStl": "Export STL",

@@ -182,6 +182,7 @@ export function restoreFacesFromSignatures(signatures, fallbackIndices = [], geo
 export const GLOBAL_EXPORT_QUALITY_KEYS = [
   'refineLength',
   'maxTriangles',
+  'decimateEnabled',
   'smoothBottom',
   'regularizeEnabled',
   'regularizeAspectThreshold',
