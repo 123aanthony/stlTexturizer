@@ -4720,8 +4720,11 @@ async function handleModelFile(file) {
       previewMaterial = null;
     }
 
-    // Auto-select first preset on first load
-    if (!activeMapEntry && PRESETS.length > 0) {
+    // Auto-select first preset on first load — but NOT while restoring a project:
+    // importProject loads the model (here) before restoring the slots' own maps,
+    // and this fire-and-forget selectPreset would race and overwrite the restored
+    // texture with preset #0 (e.g. Basket). The project restore sets the map.
+    if (!activeMapEntry && PRESETS.length > 0 && !isRestoringProject) {
       const idx = PRESETS.findIndex(p => p != null);
       if (idx >= 0) {
         const swatches = document.querySelectorAll('.preset-swatch');
