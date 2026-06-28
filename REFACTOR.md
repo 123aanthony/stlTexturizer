@@ -42,7 +42,8 @@ travers le slot actif, supprimer les globals miroirs).
   `exportPipeline.runMultiSlotExport` (sans DOM) ; le cas golden `cube-multislot`
   appelle la vraie fonction de prod, pas un wrapper de test.
 - **Boot de l'app : COUVERT** (étape C) par un smoke test Playwright-Electron
-  (`test/e2e/`, `npm run test:e2e`) — ⚠️ exige un GPU/WebGL réel (cf. test/e2e/README).
+  (`test/e2e/`, `npm run test:e2e`) — vert sur machine GPU (exige WebGL réel ;
+  cf. test/e2e/README pour CI headless).
 - **Reste non couvert headless** : `restoreSlotState` (écritures DOM) et le save/
   load projet via IPC natif. Le round-trip *données* est couvert par
   `test/slotState.mjs` ; le round-trip *UI/IPC* attend un E2E (window-API).
@@ -62,7 +63,7 @@ travers le slot actif, supprimer les globals miroirs).
 | 1b | `slotState.js` — noyau de données pur (signatures round-trip, computeAssignedFaces, normalize) + 8 unités | ✅ |
 | 1c | Contrat réglages per-slot/global extrait (`GLOBAL_EXPORT_QUALITY_KEYS` + pick/strip/with, purs) + 4 unités | ✅ |
 | B  | Orchestration export multi-slot extraite (`exportPipeline.runMultiSlotExport`, sans DOM) ; golden branché sur le chemin réel ; blocs `if(false)` morts retirés | ✅ |
-| C  | Scaffold E2E Playwright-Electron (smoke boot) — exige GPU, à valider sur machine | ✅ |
+| C  | E2E Playwright-Electron (smoke boot) — **vert sur machine GPU** (2,4 s) ; confirme que l'app boote après 1a+1b+1c+B | ✅ |
 | 1d | Consolider `saveActiveSlotState`/`restoreSlotState`/`serializeTextureSlots` : donnée déléguée à slotState, DOM seul dans main.js | ⏳ à venir |
 | 2 | Décider décimation/regularize en multi-slot (les `if(false)` retirés ne tranchent pas la question) | ⏳ |
 | 3 | Source unique de vérité pour l'état slot (le vrai fix ch.8) | ⏳ |
