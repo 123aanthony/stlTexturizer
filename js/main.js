@@ -135,34 +135,29 @@ function duplicateTextureSlot(slotId) {
   const next = getNextTextureSlotIndex();
   const copy = createTextureSlot(next);
 
+  // Faithful copy: preserve the source's selection MODE and its painted faces.
+  // (#6 — the old code forced selectionMode=true and dropped the selection. A
+  // preserved Exclude mode with an empty selection would texture EVERYTHING, so
+  // the selection is copied with the mode; the overlap badge flags that the copy
+  // covers the same faces until the user edits one.)
   copy.name = `${source.name || 'Slot'} Copy`;
   copy.activeMapEntry = source.activeMapEntry || null;
   copy.customMapEntry = source.customMapEntry || null;
-  copy.selectionMode = true;
+  copy.selectionMode = source.selectionMode;
   copy.settings = { ...(source.settings || {}) };
-
-  copy.excludedFaces = new Set();
-  copy.assignedFaces = new Set();
+  copy.excludedFaces = new Set(source.excludedFaces || []);
+  copy.assignedFaces = new Set(source.assignedFaces || []);
 
   textureSlots.push(copy);
-  activeTextureSlotId = copy.id;
 
-  commitActiveSlotState();
+  // Make the copy active and load ITS fields into the live globals. #6 — no
+  // requestAnimationFrame race, and restoreSlotState (slot → globals) is the
+  // correct direction; the old commitActiveSlotState (globals → slot) ran after
+  // switching the active id and clobbered the copy with the previous slot's state.
+  activeTextureSlotId = copy.id;
   renderTextureTabs();
-
-requestAnimationFrame(() => {
-  activeTextureSlotId = copy.id;
   restoreSlotState(copy);
-
-  excludedFaces = new Set();
-  selectionMode = true;
-  updateSelectionModeUI();
-
-  refreshTextureTabsUI();
-  refreshExclusionOverlay();
-  updatePreview();
-  requestRender();
-});
+  markProjectDirty();
 }
 
 let textureSlots = TEXTURE_SLOT_DEFS.map(slot => ({
