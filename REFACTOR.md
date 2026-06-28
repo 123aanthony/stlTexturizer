@@ -44,9 +44,10 @@ travers le slot actif, supprimer les globals miroirs).
 - **Boot de l'app : COUVERT** (étape C) par un smoke test Playwright-Electron
   (`test/e2e/`, `npm run test:e2e`) — vert sur machine GPU (exige WebGL réel ;
   cf. test/e2e/README pour CI headless).
-- **Reste non couvert headless** : `restoreSlotState` (écritures DOM) et le save/
-  load projet via IPC natif. Le round-trip *données* est couvert par
-  `test/slotState.mjs` ; le round-trip *UI/IPC* attend un E2E (window-API).
+- **Données save/load projet : COUVERT** (étape 1d) — `serializeSlotFaces`/
+  `restoreSlotFaces` purs, round-trip headless (y compris ré-indexation).
+- **Reste non couvert headless** : `restoreSlotState` (écritures DOM) et le
+  transport IPC natif lui-même. Le round-trip *UI/IPC* attend un E2E (window-API).
 
 ## Décisions actées
 
@@ -64,11 +65,11 @@ travers le slot actif, supprimer les globals miroirs).
 | 1c | Contrat réglages per-slot/global extrait (`GLOBAL_EXPORT_QUALITY_KEYS` + pick/strip/with, purs) + 4 unités | ✅ |
 | B  | Orchestration export multi-slot extraite (`exportPipeline.runMultiSlotExport`, sans DOM) ; golden branché sur le chemin réel ; blocs `if(false)` morts retirés | ✅ |
 | C  | E2E Playwright-Electron (smoke boot) — **vert sur machine GPU** (2,4 s) ; confirme que l'app boote après 1a+1b+1c+B | ✅ |
-| 1d | Consolider `saveActiveSlotState`/`restoreSlotState`/`serializeTextureSlots` : donnée déléguée à slotState, DOM seul dans main.js | ⏳ à venir |
+| 1d | serialize/restore des faces de projet extrait (`serializeSlotFaces`/`restoreSlotFaces`, purs) + 2 round-trips | ✅ |
 | 2 | Décider décimation/regularize en multi-slot (les `if(false)` retirés ne tranchent pas la question) | ⏳ |
 | 3 | Source unique de vérité pour l'état slot (le vrai fix ch.8) | ⏳ |
 
-Cumul : `main.js` ≈ −470 lignes nettes (1a+1b+1c+B) ; 28 vérifs headless (19 unités + 9 golden) + smoke E2E.
+Cumul : `main.js` ≈ −485 lignes nettes (1a+1b+1c+B+1d) ; 30 vérifs headless (21 unités + 9 golden) + smoke E2E.
 
 **Validation app** (utilisateur, après 1a/1b) : peinture 2 slots → save/reload projet
 (sélections restaurées) → Export All Slots. Le chemin réel de `main.js` — non couvert
