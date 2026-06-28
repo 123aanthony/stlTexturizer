@@ -73,7 +73,7 @@ function addTextureSlot() {
   textureSlots.push(createTextureSlot(next));
 
   renderTextureTabs();
-  saveTextureSlotsToStorage();
+  commitActiveSlotState();
 }
 
 function removeTextureSlot(slotId) {
@@ -104,10 +104,9 @@ function removeTextureSlot(slotId) {
   refreshTextureTabsUI();
   requestRender();
 
-  sessionStorage.setItem(
-    'diorama-texture-slots',
-    JSON.stringify(serializeTextureSlots())
-  );
+  // Removing a slot must flag the project unsaved (previously this only happened
+  // via the now-removed dead storage write, so removals weren't persisted).
+  markProjectDirty();
 }
 
 function duplicateTextureSlot(slotId) {
@@ -131,7 +130,7 @@ function duplicateTextureSlot(slotId) {
   textureSlots.push(copy);
   activeTextureSlotId = copy.id;
 
-  saveTextureSlotsToStorage();
+  commitActiveSlotState();
   renderTextureTabs();
 
 requestAnimationFrame(() => {
@@ -371,7 +370,7 @@ function renderTextureTabs() {
         const nextName = input.value.trim();
         if (nextName) currentSlot.name = nextName;
         renderTextureTabs();
-        saveTextureSlotsToStorage();
+        commitActiveSlotState();
       };
 
       const cancel = () => {
@@ -1056,25 +1055,12 @@ function restoreSlotState(slot) {
   requestRender();
   refreshTextureTabsUI();
 }
-function serializeTextureSlots() {
-  return textureSlots.map(slot => ({
-    id: slot.id,
-    name: slot.name,
-    activeMapName: slot.activeMapEntry ? slot.activeMapEntry.name : null,
-    isCustomMap: !!slot.activeMapEntry?.isCustom,
-    customMapName: slot.customMapEntry ? slot.customMapEntry.name : null,
-    excludedFaces: Array.from(slot.excludedFaces || []),
-    settings: slot.settings || {}
-  }));
-}
-
-function saveTextureSlotsToStorage() {
+// Capture the live globals into the active slot and flag the project unsaved.
+// (Session/project persistence runs via getSettingsSnapshot/_autoSaveSettings;
+// the old per-slot `diorama-texture-slots` storage was write-only and removed.)
+function commitActiveSlotState() {
   saveActiveSlotState();
   markProjectDirty();
-  sessionStorage.setItem(
-    'diorama-texture-slots',
-    JSON.stringify(serializeTextureSlots())
-  );
 }
 // ── Canvas filter support (Safari / iOS WebView don't support ctx.filter) ────
 const CANVAS_FILTER_SUPPORTED = 'filter' in CanvasRenderingContext2D.prototype;
@@ -2042,20 +2028,8 @@ document.getElementById('texture-tabs')?.addEventListener('click', (e) => {
 // Manual save slots
 // ─────────────────────────────────────────────
 
-document.getElementById('save-slots-btn')?.addEventListener('click', () => {
-
-  saveActiveSlotState();
-
-  const serialized = serializeTextureSlots();
-
-  localStorage.setItem(
-    'diorama-texture-slots',
-    JSON.stringify(serialized)
-  );
-
-  console.log('Saved texture slots:', serialized);
-
-});
+// (Removed: dead `save-slots-btn` handler — no such button exists, and it wrote
+// the never-read `diorama-texture-slots` localStorage key.)
 
 // ─────────────────────────────────────────────
 // Material profile save/load (.stltprofile)
@@ -2426,7 +2400,7 @@ async function selectPreset(idx, swatchEl, applyDefaults = true) {
     const slot = getActiveTextureSlot();
     if (slot) {
       slot.activeMapEntry = entry;
-      //saveTextureSlotsToStorage();
+      //commitActiveSlotState();
     }
 
     updatePreview();

@@ -64,8 +64,8 @@ incohérent avec les autres réglages globaux).
 Deux racines : le **double-état** (#4 = étape 3) et une **persistance sédimentée**
 (#1, #2, #3, #8). Ordre recommandé (rentabilité ↓ risque ↑) :
 
-1. **#3** — bug d'échelle : ne pas snapper `scaleU` au restore. *(en cours)*
-2. **#1, #8** — supprimer la persistance morte.
+1. **#3** — bug d'échelle : ne pas snapper `scaleU` au restore. ✅ FAIT (scaleSnap.js + test)
+2. **#1, #8** — supprimer la persistance morte. ✅ FAIT (serializeTextureSlots + handler mort + écritures `diorama-texture-slots` retirés ; `saveTextureSlotsToStorage`→`commitActiveSlotState` ; removeTextureSlot marque enfin le projet dirty)
 3. **#5** — `clearTextureSlot` : ne réinitialiser que le per-slot.
 4. **#6** — `duplicate` : préserver `selectionMode`, retirer le rAF.
 5. **#4** — source unique de vérité (étape 3, le gros morceau).
