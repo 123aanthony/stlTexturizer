@@ -104,8 +104,13 @@ export function orientedRawUV(pos, _normal, frame) {
   // continuous wrap) → no seam and the side never "rides up" onto the top; even
   // density (mm-based); grain stays parallel to the beam on every face. Patterns
   // meet at the corners (natural). lv/lw re-centred on the box (frame.cmid).
-  const a = frame.half[0], b = frame.half[1];
   const lvc = lv - frame.cmid[0], lwc = lw - frame.cmid[1];
-  const rawV = (Math.abs(lvc / a) >= Math.abs(lwc / b)) ? (lwc / md) : (lvc / md);
+  // Classify the face by its NORMAL (which cross-axis it faces), then V = the
+  // OTHER cross-coordinate (the one that varies on that face). With the export
+  // mesh's per-face (split at sharp edges) normals this is clean per-face; the
+  // V is one value per position so watertight holds.
+  const nV = Math.abs(_normal.x*frame.V[0] + _normal.y*frame.V[1] + _normal.z*frame.V[2]);
+  const nW = Math.abs(_normal.x*frame.W[0] + _normal.y*frame.W[1] + _normal.z*frame.W[2]);
+  const rawV = (nV >= nW) ? (lwc / md) : (lvc / md);
   return { rawU, rawV };
 }

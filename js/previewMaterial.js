@@ -132,12 +132,14 @@ const sharedGLSL = /* glsl */`
       float lu  = dot(rel, beamU);
       float lvc = dot(rel, beamV) - beamCmid.x;
       float lwc = dot(rel, beamW) - beamCmid.y;
-      // U along the beam; V = cross-coordinate of whichever face the point is on,
-      // classified by POSITION (not the normal) → normal-independent (no fan), per
-      // face (no seam, side never rides onto the top), even mm-density, grain
-      // parallel to the beam. Mirror of beamAxis.orientedRawUV.
+      // U along the beam; classify the face by its NORMAL (which cross-axis it
+      // faces), then V = the OTHER cross-coordinate. On the subdivided mesh the
+      // normal is per-face (split at sharp edges) → clean per-face, grain parallel
+      // to the beam, no seam. Mirror of beamAxis.orientedRawUV.
+      float nV = abs(dot(projN, beamV));
+      float nW = abs(dot(projN, beamW));
       float oU = (lu - beamMin.x) / beamMd;
-      float oV = (abs(lvc / beamHalf.x) >= abs(lwc / beamHalf.y)) ? (lwc / beamMd) : (lvc / beamMd);
+      float oV = (nV >= nW) ? (lwc / beamMd) : (lvc / beamMd);
       return sampleMap(vec2(oU, oV));
     }
 
