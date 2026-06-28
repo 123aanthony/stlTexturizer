@@ -21,6 +21,7 @@ import { computeAssignedFaces,
          pickGlobalQuality, stripGlobalQuality, withGlobalQuality,
          serializeSlotFaces, restoreSlotFaces } from './slotState.js';
 import { runMultiSlotExport, snapBottomToFlat, decimateWithGuard } from './exportPipeline.js';
+import { resolveScaleU, snapScaleUForSeamlessWrap } from './scaleSnap.js';
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions, getShellAssignments } from './meshValidation.js';
 import { t, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
@@ -1365,19 +1366,16 @@ function _currentTextureAspectU() {
 //   tiles around circumference = aspectU / scaleU  →  must be a positive integer.
 // Returns the snapped scale, clamped to [aspectU/MAX_TILES, aspectU].
 function _snapScaleUForSeamlessWrap(scaleU) {
-  const aU = _currentTextureAspectU();
-  const MAX_TILES = 20;
-  let n = Math.round(aU / Math.max(scaleU, 1e-6));
-  if (!Number.isFinite(n) || n < 1) n = 1;
-  if (n > MAX_TILES) n = MAX_TILES;
-  return parseFloat((aU / n).toFixed(4));
+  return snapScaleUForSeamlessWrap(scaleU, _currentTextureAspectU());
 }
 
 function _applyScaleU(v) {
-  v = Math.max(0.01, Math.min(10, v));
-  if (settings.snapSeamlessWrap && settings.mappingMode === 3 /* MODE_CYLINDRICAL */ && !_suppressScaleSnap) {
-    v = _snapScaleUForSeamlessWrap(v);
-  }
+  v = resolveScaleU(v, {
+    mappingMode: settings.mappingMode,
+    snapSeamlessWrap: settings.snapSeamlessWrap,
+    suppressSnap: _suppressScaleSnap,
+    aspectU: _currentTextureAspectU(),
+  });
   settings.scaleU = v;
   scaleUSlider.value = scaleToPos(v);
   scaleUVal.value = v;
