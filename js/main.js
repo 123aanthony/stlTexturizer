@@ -833,6 +833,7 @@ setInterval(hideUpstreamPromoUI, 2000);
 })();
 // ── End BumpForge collapsible libraries ──
 
+let _suppressScaleSnap = false; // true while a snapshot is being restored: scaleU is set verbatim, never re-snapped (see AUDIT.md #3)
 let _lastCustomMap    = null;   // most recent uploaded/imported custom-map entry, kept across preset switches so the thumbnail can re-activate it
 let previewMaterial   = null;
 let isExporting       = false;
@@ -1374,7 +1375,7 @@ function _snapScaleUForSeamlessWrap(scaleU) {
 
 function _applyScaleU(v) {
   v = Math.max(0.01, Math.min(10, v));
-  if (settings.snapSeamlessWrap && settings.mappingMode === 3 /* MODE_CYLINDRICAL */) {
+  if (settings.snapSeamlessWrap && settings.mappingMode === 3 /* MODE_CYLINDRICAL */ && !_suppressScaleSnap) {
     v = _snapScaleUForSeamlessWrap(v);
   }
   settings.scaleU = v;
@@ -7240,8 +7241,23 @@ function getSettingsSnapshot() {
  * Apply a settings snapshot to the live UI. Drives each control through the
  * same event it fires on user input (via dispatchEvent), so linkSlider's
  * clamp/display/preview flow runs unchanged.
+ *
+ * Wrapper: suppress scaleU seamless-wrap snapping while restoring. A saved
+ * scaleU is authoritative; re-snapping it on restore drifts the scale —
+ * especially in cylindrical mode, where this runs before the texture is loaded
+ * so the aspect used by the snap is wrong. See AUDIT.md #3.
  */
 function applySettingsSnapshot(snap) {
+  if (!snap) return;
+  _suppressScaleSnap = true;
+  try {
+    _applySettingsSnapshotInner(snap);
+  } finally {
+    _suppressScaleSnap = false;
+  }
+}
+
+function _applySettingsSnapshotInner(snap) {
   if (!snap) return;
 
   // Mapping mode first — changes cap-angle row visibility and triggers preview.
