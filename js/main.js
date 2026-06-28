@@ -256,14 +256,16 @@ function clearTextureSlot(slotId = activeTextureSlotId) {
   if (!slot) return;
 
   const isActive = slot.id === activeTextureSlotId;
-  const defaultSettings = getDefaultSlotSettingsSnapshot();
+  // Per-slot defaults only: strip the GLOBAL export-quality keys (resolution,
+  // triangle budget, decimation…) so clearing a slot never resets them (#5).
+  const slotDefaults = stripGlobalQuality(getDefaultSlotSettingsSnapshot());
 
   slot.activeMapEntry = null;
   slot.customMapEntry = null;
   slot.excludedFaces = new Set();
   slot.assignedFaces = new Set();
   slot.selectionMode = true;
-  slot.settings = { ...defaultSettings };
+  slot.settings = { ...slotDefaults };
 
   if (isActive) {
     if (allSlotsPreviewActive) exitAllSlotsPreview();
@@ -272,7 +274,8 @@ function clearTextureSlot(slotId = activeTextureSlotId) {
     excludedFaces = new Set();
     selectionMode = true;
 
-    Object.assign(settings, defaultSettings);
+    // Global export-quality keys are absent from slotDefaults → untouched here.
+    Object.assign(settings, slotDefaults);
 
     activeMapName.textContent = 'No map selected';
     customMapSwatch?.classList.remove('active');
@@ -7401,7 +7404,7 @@ const DEFAULT_SETTINGS_SNAPSHOT = Object.freeze({
   symmetricDisplacement: false, noDownwardZ: false, smoothBottom: true, textureSmoothing: 0,
   mappingBlend: 1, seamBandWidth: 0.5, capAngle: 20, boundaryFalloff: 0,
   bottomAngleLimit: 5, topAngleLimit: 0,
-  refineLength: 1, maxTriangles: 750000,
+  refineLength: 1, maxTriangles: 750000, decimateEnabled: true,
   snapSeamlessWrap: true,
   cylinderCenterX: null, cylinderCenterY: null, cylinderRadius: null,
   cylinderPanelMinimized: false,
