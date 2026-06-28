@@ -16,6 +16,12 @@ import { decimate }           from './decimation.js';
 import { exportSTL, export3MF } from './exporter.js';
 import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
+import { buildCombinedFaceWeights, buildUnionExcludedFacesForSlots,
+         buildExclusiveSlotFaceMasks } from './slotMasks.js';
+import { computeAssignedFaces,
+         pickGlobalQuality, stripGlobalQuality, withGlobalQuality,
+         serializeSlotFaces, restoreSlotFaces } from './slotState.js';
+import { runMultiSlotExport, snapBottomToFlat } from './exportPipeline.js';
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions, getShellAssignments } from './meshValidation.js';
 import { t, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
@@ -955,70 +961,25 @@ function cloneSettings() {
   return { ...settings };
 }
 
-// BumpForge: these controls define export mesh quality and should stay global,
-// not per texture slot. Per-slot settings still control texture/projection/amplitude.
-const GLOBAL_EXPORT_QUALITY_KEYS = [
-  'refineLength',
-  'maxTriangles',
-  'smoothBottom',
-  'regularizeEnabled',
-  'regularizeAspectThreshold',
-  'regularizeSlack',
-  'regularizeAggressiveSlack',
-  'regularizeExtremeAspect',
-  'regularizeNormalDeg',
-  'regularizeAggressiveNormalDeg',
-  'regularizeSecondPassMul',
-];
-
+// Per-slot/global settings split lives in slotState.js (single source of truth
+// for GLOBAL_EXPORT_QUALITY_KEYS). These thin wrappers just supply the live
+// global `settings`.
 function getGlobalExportQualitySnapshot() {
-  const snap = {};
-  for (const key of GLOBAL_EXPORT_QUALITY_KEYS) {
-    snap[key] = settings[key];
-  }
-  return snap;
+  return pickGlobalQuality(settings);
 }
 
 function stripGlobalExportQualitySettings(snap) {
-  if (!snap) return snap;
-  for (const key of GLOBAL_EXPORT_QUALITY_KEYS) {
-    delete snap[key];
-  }
-  return snap;
+  return stripGlobalQuality(snap);
 }
 
 function withGlobalExportQuality(slotSettings = {}) {
-  return {
-    ...slotSettings,
-    ...getGlobalExportQualitySnapshot(),
-  };
+  return withGlobalQuality(slotSettings, settings);
 }
 
 function getAssignedFacesForCurrentSlot() {
-  const assigned = new Set();
-
-  if (!currentGeometry) {
-    for (const f of excludedFaces || []) assigned.add(f);
-    return assigned;
-  }
-
-  const triCount = (currentGeometry.attributes.position.count / 3) | 0;
-
-  if (selectionMode) {
-    // Include-only mode: painted faces are the material faces.
-    for (const f of excludedFaces || []) {
-      const idx = Number(f);
-      if (Number.isInteger(idx) && idx >= 0 && idx < triCount) assigned.add(idx);
-    }
-  } else {
-    // Exclude mode: painted faces are holes, so assigned faces are the complement.
-    const excluded = new Set(excludedFaces || []);
-    for (let i = 0; i < triCount; i++) {
-      if (!excluded.has(i)) assigned.add(i);
-    }
-  }
-
-  return assigned;
+  // Thin wrapper: data logic lives in slotState.computeAssignedFaces; main.js
+  // only supplies the current globals.
+  return computeAssignedFaces(currentGeometry, excludedFaces, selectionMode);
 }
 
 function updateSelectionModeUI() {
@@ -1026,131 +987,6 @@ function updateSelectionModeUI() {
   exclModeIncludeBtn?.classList.toggle('active', selectionMode);
 }
 
-function _normalizeFaceIndexArray(value, triCount = Infinity) {
-  if (!Array.isArray(value)) return [];
-
-  const max = Number.isFinite(triCount) && triCount > 0 ? triCount : Infinity;
-
-  return value
-    .map(v => Number(v))
-    .filter(v => Number.isInteger(v) && v >= 0 && v < max);
-}
-
-function buildFaceSignatures(faceSet, geometry = currentGeometry) {
-  if (!geometry || !faceSet) return [];
-
-  const pos = geometry.attributes.position.array;
-  const triCount = geometry.attributes.position.count / 3;
-  const signatures = [];
-
-  const a = new THREE.Vector3();
-  const b = new THREE.Vector3();
-  const c = new THREE.Vector3();
-  const ab = new THREE.Vector3();
-  const ac = new THREE.Vector3();
-  const n = new THREE.Vector3();
-
-  for (const faceIndex of faceSet) {
-    const idx = Number(faceIndex);
-    if (!Number.isInteger(idx) || idx < 0 || idx >= triCount) continue;
-
-    const o = idx * 9;
-    a.set(pos[o],     pos[o + 1], pos[o + 2]);
-    b.set(pos[o + 3], pos[o + 4], pos[o + 5]);
-    c.set(pos[o + 6], pos[o + 7], pos[o + 8]);
-
-    n.crossVectors(ab.subVectors(b, a), ac.subVectors(c, a)).normalize();
-
-    signatures.push({
-      faceIndex: idx,
-      cx: (a.x + b.x + c.x) / 3,
-      cy: (a.y + b.y + c.y) / 3,
-      cz: (a.z + b.z + c.z) / 3,
-      nx: n.x,
-      ny: n.y,
-      nz: n.z
-    });
-  }
-
-  return signatures;
-}
-
-function restoreFacesFromSignatures(signatures, fallbackIndices = [], geometry = currentGeometry) {
-  const fallback = _normalizeFaceIndexArray(
-    fallbackIndices,
-    geometry ? ((geometry.attributes.position.count / 3) | 0) : Infinity
-  );
-
-  if (!geometry || !Array.isArray(signatures) || signatures.length === 0) {
-    return new Set(fallback);
-  }
-
-  const pos = geometry.attributes.position.array;
-  const triCount = geometry.attributes.position.count / 3;
-
-  const a = new THREE.Vector3();
-  const b = new THREE.Vector3();
-  const c = new THREE.Vector3();
-  const ab = new THREE.Vector3();
-  const ac = new THREE.Vector3();
-  const n = new THREE.Vector3();
-
-  const cents = new Float64Array(triCount * 3);
-  const nrms = new Float64Array(triCount * 3);
-
-  for (let idx = 0; idx < triCount; idx++) {
-    const o = idx * 9;
-    a.set(pos[o],     pos[o + 1], pos[o + 2]);
-    b.set(pos[o + 3], pos[o + 4], pos[o + 5]);
-    c.set(pos[o + 6], pos[o + 7], pos[o + 8]);
-
-    n.crossVectors(ab.subVectors(b, a), ac.subVectors(c, a)).normalize();
-
-    cents[idx * 3]     = (a.x + b.x + c.x) / 3;
-    cents[idx * 3 + 1] = (a.y + b.y + c.y) / 3;
-    cents[idx * 3 + 2] = (a.z + b.z + c.z) / 3;
-
-    nrms[idx * 3]     = n.x;
-    nrms[idx * 3 + 1] = n.y;
-    nrms[idx * 3 + 2] = n.z;
-  }
-
-  const out = new Set();
-
-  for (const sig of signatures) {
-    if (!sig) continue;
-
-    let bestIndex = -1;
-    let bestScore = Infinity;
-
-    for (let idx = 0; idx < triCount; idx++) {
-      const co = idx * 3;
-      const dx = cents[co]     - Number(sig.cx);
-      const dy = cents[co + 1] - Number(sig.cy);
-      const dz = cents[co + 2] - Number(sig.cz);
-
-      const dot =
-        nrms[co]     * Number(sig.nx) +
-        nrms[co + 1] * Number(sig.ny) +
-        nrms[co + 2] * Number(sig.nz);
-
-      const score = dx * dx + dy * dy + dz * dz + Math.max(0, 1 - dot) * 10000;
-
-      if (score < bestScore) {
-        bestScore = score;
-        bestIndex = idx;
-      }
-    }
-
-    if (bestIndex >= 0) out.add(bestIndex);
-  }
-
-  if (out.size === 0) {
-    for (const idx of fallback) out.add(idx);
-  }
-
-  return out;
-}
 
 function saveActiveSlotState() {
   const slot = getActiveTextureSlot();
@@ -2361,9 +2197,7 @@ function serializeProjectTextureSlots() {
       customMapName: customEntry ? customEntry.name : null,
       customMapDataUrl: customEntry ? customMapEntryToDataUrl(customEntry) : null,
       selectionMode: typeof slot.selectionMode === 'boolean' ? slot.selectionMode : true,
-      excludedFaces: Array.from(slot.excludedFaces || []),
-      assignedFaces: Array.from(slot.assignedFaces || slot.excludedFaces || []),
-      faceSignatures: buildFaceSignatures(slot.assignedFaces || slot.excludedFaces || new Set()),
+      ...serializeSlotFaces(slot, currentGeometry),
       settings: { ...(slot.settings || {}) }
     };
   });
@@ -2406,18 +2240,10 @@ textureSlots = savedSlots.map((saved, index) => ({
     slot.settings = { ...(saved.settings || {}) };
     slot.selectionMode = typeof saved.selectionMode === 'boolean' ? saved.selectionMode : true;
 
-    const restoredUiFaces = new Set(_normalizeFaceIndexArray(saved.excludedFaces, triCount));
-    const validAssigned = _normalizeFaceIndexArray(saved.assignedFaces || saved.excludedFaces, triCount);
-    const restoredAssignedFaces = restoreFacesFromSignatures(
-      saved.faceSignatures,
-      validAssigned,
-      currentGeometry
-    );
-
-    // Store stable copies. UI faces and assigned material faces are intentionally separate:
-    // in include mode they usually match; in exclude mode assignedFaces is the complement.
-    const restoredSet = new Set(restoredUiFaces);
-    const restoredAssignedSet = new Set(restoredAssignedFaces);
+    // Face restore (pure, in slotState): UI faces + material faces, the latter
+    // resolved from position signatures so a re-indexed mesh still maps.
+    const { excludedFaces: restoredSet, assignedFaces: restoredAssignedSet } =
+      restoreSlotFaces(saved, currentGeometry);
     restoredFaceSets.set(slot.id, {
       excludedFaces: restoredSet,
       assignedFaces: restoredAssignedSet
@@ -6559,44 +6385,6 @@ setInterval(refreshExportAllSlotsButton, 500);
  * Builds per-non-indexed-vertex weights (1.0 = excluded from subdivision/displacement)
  * that combine the user-painted exclusion set AND the top/bottom angle mask.
  */
-function buildCombinedFaceWeights(geometry, excludedFaces, invert, settings) {
-  const weights = buildFaceWeights(geometry, excludedFaces, invert);
-
-  const hasAngleMask = settings.bottomAngleLimit > 0 || settings.topAngleLimit > 0;
-  if (!hasAngleMask) return weights;
-
-  const posAttr = geometry.attributes.position;
-  const triCount = posAttr.count / 3;
-  const vA = new THREE.Vector3();
-  const vB = new THREE.Vector3();
-  const vC = new THREE.Vector3();
-  const edge1 = new THREE.Vector3();
-  const edge2 = new THREE.Vector3();
-  const faceNrm = new THREE.Vector3();
-
-  for (let t = 0; t < triCount; t++) {
-    if (weights[t * 3] > 0.99) continue; // already excluded
-    vA.fromBufferAttribute(posAttr, t * 3);
-    vB.fromBufferAttribute(posAttr, t * 3 + 1);
-    vC.fromBufferAttribute(posAttr, t * 3 + 2);
-    edge1.subVectors(vB, vA);
-    edge2.subVectors(vC, vA);
-    faceNrm.crossVectors(edge1, edge2);
-    const faceArea  = faceNrm.length();
-    const faceNzNorm = faceArea > 1e-12 ? faceNrm.z / faceArea : 0;
-    const faceAngle  = Math.acos(Math.abs(faceNzNorm)) * (180 / Math.PI);
-    const angleMasked = faceNzNorm < 0
-      ? (settings.bottomAngleLimit > 0 && faceAngle <= settings.bottomAngleLimit)
-      : (settings.topAngleLimit    > 0 && faceAngle <= settings.topAngleLimit);
-    if (angleMasked) {
-      weights[t * 3]     = 1.0;
-      weights[t * 3 + 1] = 1.0;
-      weights[t * 3 + 2] = 1.0;
-    }
-  }
-  return weights;
-}
-
 async function handleExport(format = 'stl') {
   if (!currentGeometry || !activeMapEntry || isExporting || isBaking) return;
   const myToken = ++exportToken;
@@ -6820,264 +6608,31 @@ const baseName = `${currentStlName}_${slotLabel}_${texLabel}_amp${ampLabel}`;
 // BumpForge fix: build a UNION mask for Export All Slots subdivision.
 // The shared mesh must be refined only where at least one ready slot owns faces.
 // Without this, Export All Slots can refine the whole model and produce huge STL files.
-function buildUnionExcludedFacesForSlots(readySlots, geometry) {
-  const triCount = geometry?.attributes?.position
-    ? (geometry.attributes.position.count / 3) | 0
-    : 0;
-
-  const owned = new Set();
-
-  for (const slot of readySlots || []) {
-    for (const face of slot.assignedFaces || []) {
-      const idx = Number(face);
-      if (Number.isInteger(idx) && idx >= 0 && idx < triCount) {
-        owned.add(idx);
-      }
-    }
-  }
-
-  const excluded = new Set();
-  for (let i = 0; i < triCount; i++) {
-    if (!owned.has(i)) excluded.add(i);
-  }
-
-  console.log('Export All Slots union subdivision mask:', {
-    triCount,
-    owned: owned.size,
-    excluded: excluded.size
-  });
-
-  return excluded;
-}
-
-function buildExclusiveSlotFaceMasks(faceParentId, readySlots) {
-  const masks = readySlots.map(() => new Uint8Array(faceParentId.length));
-  const ownerByParent = new Map();
-
-  for (let slotIndex = 0; slotIndex < readySlots.length; slotIndex++) {
-    const assigned = readySlots[slotIndex].assignedFaces || new Set();
-
-    for (const face of assigned) {
-      const idx = Number(face);
-      if (!Number.isInteger(idx) || idx < 0) continue;
-      if (!ownerByParent.has(idx)) ownerByParent.set(idx, slotIndex);
-    }
-  }
-
-  const counts = new Array(readySlots.length).fill(0);
-
-  for (let subTri = 0; subTri < faceParentId.length; subTri++) {
-    const parent = faceParentId[subTri];
-    const owner = ownerByParent.get(parent);
-
-    if (owner != null) {
-      masks[owner][subTri] = 1;
-      counts[owner]++;
-    }
-  }
-
-  console.log('Exclusive slot mask triangle counts:', counts);
-  return { masks, counts };
-}
-
 async function buildExportGeometryForAllSlots(readySlots, myToken) {
-  const qualitySettings = getGlobalExportQualitySnapshot();
-
-  let subdivided = null;
-  let working = null;
-  let finalGeometry = null;
-  let faceParentId = null;
-  let sharedFaceWeights = null;
-
-  try {
-    // Build one union face-weight mask before subdivision.
-    // This keeps Export All Slots from refining the whole model when a second slot exists.
-    const unionExcludedFaces = buildUnionExcludedFacesForSlots(readySlots, currentGeometry);
-    sharedFaceWeights = buildCombinedFaceWeights(
-      currentGeometry,
-      unionExcludedFaces,
-      false,
-      qualitySettings
-    );
-
-    setProgress(0.02, 'Subdividing shared mesh');
-    await yieldFrame();
-    if (exportToken !== myToken) throw new Error('Export cancelled');
-
-    // Important: subdivide ONCE for all slots, and only refine faces owned by at least one slot.
-    ({ geometry: subdivided, faceParentId } = await subdivide(
-      currentGeometry,
-      qualitySettings.refineLength,
-      (p, triCount, longestEdge) => {
-        const label = triCount != null
-          ? `Refining shared mesh ${Math.round(p * 100)}% — ${triCount.toLocaleString()} tris, edge ${longestEdge.toFixed(2)}`
-          : `Subdividing shared mesh ${Math.round(p * 100)}%`;
-        setProgress(0.02 + p * 0.28, label);
-      },
-      sharedFaceWeights
-    ));
-    if (exportToken !== myToken) throw new Error('Export cancelled');
-
-    // Mirror the regularize/resubdivide path used by bakeTextures(), preserving the
-    // original-face parent map so each slot can still build its mask on the shared mesh.
-   if (false && qualitySettings.regularizeEnabled) {
-      setProgress(0.31, 'Regularizing shared mesh');
-      await yieldFrame();
-
-      const reg = regularizeMesh(
-        subdivided,
-        faceParentId,
-        qualitySettings.refineLength,
-        _regularizeOpts()
-      );
-      subdivided.dispose();
-      subdivided = null;
-
-      const exclAttr = reg.geometry.attributes.excludeWeight;
-      const secondPassWeights = exclAttr ? exclAttr.array : null;
-
-      const { geometry: resub, faceParentId: resubParents } = await subdivide(
-        reg.geometry,
-        qualitySettings.refineLength * qualitySettings.regularizeSecondPassMul,
-        (p, triCount, longestEdge) => {
-          const label = triCount != null
-            ? `Re-refining shared mesh ${Math.round(p * 100)}% — ${triCount.toLocaleString()} tris, edge ${longestEdge.toFixed(2)}`
-            : `Re-subdividing shared mesh ${Math.round(p * 100)}%`;
-          setProgress(0.32 + p * 0.08, label);
-        },
-        secondPassWeights,
-        { fast: false }
-      );
-
-      reg.geometry.dispose();
-
-      const composed = new Int32Array(resubParents.length);
-      for (let i = 0; i < resubParents.length; i++) {
-        composed[i] = reg.faceParentId[resubParents[i]];
-      }
-
-      subdivided = resub;
-      faceParentId = composed;
-    }
-
-    working = subdivided;
-    subdivided = null;
-
-    const { masks: exclusiveFaceMasks, counts: exclusiveMaskCounts } =
-      buildExclusiveSlotFaceMasks(faceParentId, readySlots);
-
-    const multiSlots = [];
-    for (let i = 0; i < readySlots.length; i++) {
-      const slot = readySlots[i];
-      const slotSettings = withGlobalExportQuality(slot.settings || {});
-      const faceMask = exclusiveFaceMasks[i];
-
-      if (!faceMask || exclusiveMaskCounts[i] === 0) {
-        console.warn(`Skipping ${slot.name}: no exclusive triangles assigned`);
-        continue;
-      }
-
+  // Orchestration lives in exportPipeline.runMultiSlotExport (DOM-free, golden-
+  // covered). main.js only injects the UI coupling: progress, cancellation,
+  // frame-yielding, and the per-slot texture fetch (Canvas2D blur via globals).
+  return runMultiSlotExport({
+    geometry: currentGeometry,
+    bounds: currentBounds,
+    readySlots,
+    qualitySettings: getGlobalExportQualitySnapshot(),
+    getSlotImageData: (slot, slotSettings) => {
+      // Temporarily swap in this slot's map+settings so getEffectiveMapEntry()
+      // (which reads globals) returns the processed texture for this slot.
       const previousActiveMapEntry = activeMapEntry;
       const previousSettings = { ...settings };
-
       activeMapEntry = slot.activeMapEntry;
       Object.assign(settings, slotSettings);
       const exportEntry = getEffectiveMapEntry();
-
       activeMapEntry = previousActiveMapEntry;
       Object.assign(settings, previousSettings);
-
-      multiSlots.push({
-        name: slot.name || slot.id || `Slot ${i + 1}`,
-        imageData: exportEntry.imageData,
-        width: exportEntry.width,
-        height: exportEntry.height,
-        settings: slotSettings,
-        faceMask
-      });
-    }
-
-    if (multiSlots.length === 0) {
-      throw new Error('No exclusive slot triangles were generated.');
-    }
-
-    setProgress(0.40, `Applying ${multiSlots.length} texture slots in one pass`);
-    const displaced = await runAsync(() =>
-      applyDisplacement(
-        working,
-        multiSlots[0].imageData,
-        multiSlots[0].width,
-        multiSlots[0].height,
-        {
-          ...qualitySettings,
-          multiSlots
-        },
-        currentBounds,
-        (p) => setProgress(
-          0.40 + p * 0.42,
-          `Displacing multi-slot mesh ${Math.round(p * 100)}%`
-        )
-      )
-    );
-
-    working.dispose();
-    working = displaced;
-
-    const dispTriCount = working.attributes.position.count / 3;
-    finalGeometry = working;
-    working = null;
-
-    if (false && dispTriCount > qualitySettings.maxTriangles) {
-      setProgress(0.84, `Decimating ${dispTriCount.toLocaleString()} → ${qualitySettings.maxTriangles.toLocaleString()}`);
-      const beforeDecimate = finalGeometry;
-      finalGeometry = await runAsync(() =>
-        decimate(
-          beforeDecimate,
-          qualitySettings.maxTriangles,
-          (p) => setProgress(0.84 + p * 0.10, `Decimating ${Math.round(p * 100)}%`)
-        )
-      );
-      beforeDecimate.dispose();
-    }
-
-    // Same post-export finishing as the standard export path.
-    if (qualitySettings.bottomAngleLimit > 0) {
-      const bottomZ = currentBounds.min.z;
-      const pa = finalGeometry.attributes.position.array;
-      const na = finalGeometry.attributes.normal ? finalGeometry.attributes.normal.array : new Float32Array(pa.length);
-
-      for (let i = 0; i < pa.length; i += 9) {
-        let dirty = false;
-        if (pa[i+2] < bottomZ) { pa[i+2] = bottomZ; dirty = true; }
-        if (pa[i+5] < bottomZ) { pa[i+5] = bottomZ; dirty = true; }
-        if (pa[i+8] < bottomZ) { pa[i+8] = bottomZ; dirty = true; }
-
-        if (dirty) {
-          const ux = pa[i+3]-pa[i],   uy = pa[i+4]-pa[i+1], uz = pa[i+5]-pa[i+2];
-          const vx = pa[i+6]-pa[i],   vy = pa[i+7]-pa[i+1], vz = pa[i+8]-pa[i+2];
-          const nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx;
-          const len = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
-          na[i]   = na[i+3] = na[i+6] = nx/len;
-          na[i+1] = na[i+4] = na[i+7] = ny/len;
-          na[i+2] = na[i+5] = na[i+8] = nz/len;
-        }
-      }
-
-      finalGeometry.attributes.position.needsUpdate = true;
-      if (finalGeometry.attributes.normal) finalGeometry.attributes.normal.needsUpdate = true;
-    }
-
-    if (qualitySettings.smoothBottom) {
-      snapBottomToFlat(finalGeometry, currentBounds.min.z, 0.1);
-    }
-
-    return finalGeometry;
-  } catch (err) {
-    if (subdivided) subdivided.dispose();
-    if (working) working.dispose();
-    if (finalGeometry) finalGeometry.dispose();
-    throw err;
-  }
+      return { imageData: exportEntry.imageData, width: exportEntry.width, height: exportEntry.height };
+    },
+    onProgress: setProgress,
+    checkCancel: () => { if (exportToken !== myToken) throw new Error('Export cancelled'); },
+    yield: yieldFrame,
+  });
 }
 
 async function buildExportGeometryForSlot(slot, slotIndex = 0, totalSlots = 1) {
@@ -7216,41 +6771,6 @@ function setProgress(fraction, label) {
 // any printer's resolution, so legitimate above-bottom geometry (side
 // fillets, the rest of the model) is left alone. Caller passes `bottomZ`
 // explicitly so this function works on any geometry / coordinate system.
-function snapBottomToFlat(geometry, bottomZ, tol = 0.1) {
-  const pa = geometry.attributes.position.array;
-  const na = geometry.attributes.normal
-    ? geometry.attributes.normal.array
-    : new Float32Array(pa.length);
-  let dirtyTris = 0;
-
-  for (let i = 0; i < pa.length; i += 9) {
-    let dirty = false;
-    if (Math.abs(pa[i+2] - bottomZ) <= tol) { pa[i+2] = bottomZ; dirty = true; }
-    if (Math.abs(pa[i+5] - bottomZ) <= tol) { pa[i+5] = bottomZ; dirty = true; }
-    if (Math.abs(pa[i+8] - bottomZ) <= tol) { pa[i+8] = bottomZ; dirty = true; }
-    if (dirty) {
-      dirtyTris++;
-      const ux = pa[i+3]-pa[i],   uy = pa[i+4]-pa[i+1], uz = pa[i+5]-pa[i+2];
-      const vx = pa[i+6]-pa[i],   vy = pa[i+7]-pa[i+1], vz = pa[i+8]-pa[i+2];
-      const nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx;
-      const len = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
-      na[i]   = na[i+3] = na[i+6] = nx/len;
-      na[i+1] = na[i+4] = na[i+7] = ny/len;
-      na[i+2] = na[i+5] = na[i+8] = nz/len;
-    }
-  }
-
-  if (dirtyTris > 0) {
-    geometry.attributes.position.needsUpdate = true;
-    if (!geometry.attributes.normal) {
-      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(na, 3));
-    } else {
-      geometry.attributes.normal.needsUpdate = true;
-    }
-  }
-  return dirtyTris;
-}
-
 function setBakeProgress(fraction, label) {
   const pct = Math.round(fraction * 100);
   bakeProgBar.style.width = `${pct}%`;

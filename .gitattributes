@@ -1,0 +1,17 @@
+# Normalize line endings: store as LF in the repo, check out as LF everywhere.
+# Stops the recurring "LF will be replaced by CRLF" warnings on Windows and
+# prevents phantom cross-platform diffs.
+* text=auto eol=lf
+
+# Binary assets — never normalize.
+*.stl      binary
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.ico      binary
+*.3mf      binary
+*.bumpmesh binary
+*.asar     binary
+*.exe      binary
+*.dll      binary

@@ -1,0 +1,16 @@
+{
+  "triangles": 7232,
+  "uniqueVerts": 3618,
+  "bbox": [
+    -15.2857,
+    -20.3039,
+    -15.2859,
+    15.2857,
+    20.3039,
+    15.2859
+  ],
+  "openEdges": 0,
+  "nonManifold": 0,
+  "watertight": true,
+  "vhash": "9b2ca0c0523cb98e"
+}
