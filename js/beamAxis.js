@@ -70,7 +70,14 @@ export function computeBeamFrame(positions, faceMask = null) {
     }
   }
   const md = Math.max(maxU-minU, maxV-minV, maxW-minW, 1e-6);
-  return { center: [cx, cy, cz], U, V, W, min: { u: minU, v: minV, w: minW }, md };
+  // Cross-section half-extents — used to normalise the wrap angle so the texture
+  // density is even on all faces (a raw angle crushes the texture on the narrow
+  // face of a flat beam).
+  const half = [Math.max((maxV-minV)/2, 1e-6), Math.max((maxW-minW)/2, 1e-6)];
+  // Cross-section box CENTER in V/W (the centroid is not the box center, so lv/lw
+  // must be re-centred before classifying which face a point is on).
+  const cmid = [(minV + maxV) / 2, (minW + maxW) / 2];
+  return { center: [cx, cy, cz], U, V, W, min: { u: minU, v: minV, w: minW }, md, half, cmid };
 }
 
 /**
@@ -91,6 +98,17 @@ export function orientedRawUV(pos, _normal, frame) {
   // near an edge (the visible defect on imported meshes). iso-V lines stay
   // parallel to the beam on every face.
   const rawU = (lu - min.u) / md;
-  const rawV = Math.atan2(lw, lv) / (2 * Math.PI) + 0.5;
+  // V = arc-length around the cross-section's bounding box (a "box unwrap"):
+  // even texture density on every face (no corner crush, unlike a raw angle),
+  // continuous around the faces (wraps), and NORMAL-INDEPENDENT (no fan at edges).
+  // lv/lw are re-centred on the box (frame.cmid) so the face classification holds.
+  const a = frame.half[0], b = frame.half[1];
+  const lvc = lv - frame.cmid[0], lwc = lw - frame.cmid[1];
+  const nv = lvc / a, nw = lwc / b;
+  const perim = 4 * (a + b);
+  let s;
+  if (Math.abs(nv) >= Math.abs(nw)) s = (nv >= 0) ? (lwc + b) : (2 * b + 2 * a + (b - lwc)); // right / left
+  else                              s = (nw >= 0) ? (2 * b + (a - lvc)) : (4 * b + 2 * a + (lvc + a)); // top / bottom
+  const rawV = s / perim;
   return { rawU, rawV };
 }

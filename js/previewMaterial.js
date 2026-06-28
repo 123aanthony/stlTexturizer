@@ -35,6 +35,8 @@ const sharedGLSL = /* glsl */`
   uniform vec3      beamW;
   uniform vec3      beamMin;   // mins along (U, V, W)
   uniform float     beamMd;
+  uniform vec2      beamHalf;  // cross-section half-extents (V, W)
+  uniform vec2      beamCmid;  // cross-section box centre (V, W)
   uniform int       beamValid;
   uniform vec2      scaleUV;
   uniform float     amplitude;
@@ -127,13 +129,20 @@ const sharedGLSL = /* glsl */`
     // runs lengthwise at any orientation (mirror of beamAxis.orientedRawUV).
     if (mappingMode == 7 && beamValid == 1) {
       vec3 rel = pos - beamCenter;
-      float lu = dot(rel, beamU), lv = dot(rel, beamV), lw = dot(rel, beamW);
-      // U along the beam; V = angle around the cross-section so the texture wraps
-      // continuously around the faces. Normal-independent → no fan near edges
+      float lu  = dot(rel, beamU);
+      float lvc = dot(rel, beamV) - beamCmid.x;
+      float lwc = dot(rel, beamW) - beamCmid.y;
+      // U along the beam; V = arc-length around the cross-section box (box unwrap):
+      // even density, wraps continuously, normal-independent → no fan near edges
       // (mirror of beamAxis.orientedRawUV).
+      float a = beamHalf.x, b = beamHalf.y;
+      float nv = lvc / a, nw = lwc / b;
+      float perim = 4.0 * (a + b);
+      float s;
+      if (abs(nv) >= abs(nw)) s = (nv >= 0.0) ? (lwc + b) : (2.0*b + 2.0*a + (b - lwc));
+      else                    s = (nw >= 0.0) ? (2.0*b + (a - lvc)) : (4.0*b + 2.0*a + (lvc + a));
       float oU = (lu - beamMin.x) / beamMd;
-      float oV = atan(lw, lv) / 6.28318530718 + 0.5;
-      return sampleMap(vec2(oU, oV));
+      return sampleMap(vec2(oU, s / perim));
     }
 
     vec3 absN = abs(projN);
@@ -498,6 +507,8 @@ function setBeamUniforms(u, frame) {
     u.beamW.value.set(frame.W[0], frame.W[1], frame.W[2]);
     u.beamMin.value.set(frame.min.u, frame.min.v, frame.min.w);
     u.beamMd.value = frame.md;
+    u.beamHalf.value.set(frame.half[0], frame.half[1]);
+    u.beamCmid.value.set(frame.cmid[0], frame.cmid[1]);
     u.beamValid.value = 1;
   } else {
     u.beamValid.value = 0;
@@ -555,6 +566,8 @@ function buildUniforms(tex, settings) {
     beamW:           { value: new THREE.Vector3(0, 0, 1) },
     beamMin:         { value: new THREE.Vector3() },
     beamMd:          { value: 1.0 },
+    beamHalf:        { value: new THREE.Vector2(1, 1) },
+    beamCmid:        { value: new THREE.Vector2(0, 0) },
     beamValid:       { value: 0 },
     scaleUV:         { value: new THREE.Vector2(settings.scaleU ?? 1, settings.scaleV ?? 1) },
     amplitude:       { value: settings.amplitude ?? 1.0 },
