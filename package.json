@@ -13,7 +13,8 @@
     "test:golden:update": "node test/golden.mjs --update",
     "test:e2e": "playwright test",
     "test:export": "node test/exportPipeline.mjs",
-    "test:scale": "node test/scaleSnap.mjs"
+    "test:scale": "node test/scaleSnap.mjs",
+    "render": "node test/render/renderMapping.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
