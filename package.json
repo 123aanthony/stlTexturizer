@@ -6,7 +6,7 @@
     "start": "electron .",
     "dev": "electron .",
     "fixtures": "node test/genFixtures.mjs",
-    "test": "node test/slotMasks.mjs && node test/slotState.mjs && node test/scaleSnap.mjs && node test/beamAxis.mjs && node test/recovery.mjs && node test/woodAutoExport.mjs && node test/exportPipeline.mjs && node test/golden.mjs",
+    "test": "node test/slotMasks.mjs && node test/slotState.mjs && node test/scaleSnap.mjs && node test/beamAxis.mjs && node test/recovery.mjs && node test/projectMigrate.mjs && node test/woodAutoExport.mjs && node test/exportPipeline.mjs && node test/golden.mjs",
     "test:beam": "node test/beamAxis.mjs",
     "test:masks": "node test/slotMasks.mjs",
     "test:state": "node test/slotState.mjs",

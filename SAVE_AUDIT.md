@@ -127,4 +127,12 @@ drag de slider, chaque `input` ré-écrit `document.title` **et** un IPC `setWin
    enchaîne le save. E : `electron-main` intercepte `close` → dialogue natif 3 voies →
    demande au renderer de sauver puis ferme ; `beforeunload` neutralisé en Electron pour
    éviter le double prompt. IPC set-dirty/set-close-prompt/app-save-request/app-save-done.)
-5. **G + I + J** — clarté & dette.
+5. **G + I + J** — clarté & dette. ✅ FAIT
+   (G : tooltips « Material = préréglage réutilisable, pas le projet » + commentaire
+   documentant les 3 couches de persistance. I : `projectMigrate.js` — scaffold de
+   migration pur+testé, câblé dans importProject + _restoreSessionSettings, avertit
+   sur fichier plus récent. J : commentaires de persistance.)
+
+---
+**Audit terminé : lots 1→5 tous FAITS.** Reste uniquement la validation en app par
+l'utilisateur (tout ce chantier est DOM/Electron-couplé).

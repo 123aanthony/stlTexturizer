@@ -26,6 +26,7 @@ import { resolveScaleU, snapScaleUForSeamlessWrap } from './scaleSnap.js';
 import { computeBeamFrame } from './beamAxis.js';
 import { idbGet, idbSet, idbDel } from './idbStore.js';
 import { shouldOfferRecovery, recoveryAgeParts } from './recovery.js';
+import { migrateProjectPayload } from './projectMigrate.js';
 
 // Beam PCA frame for the live preview shader (Wood Auto), from the ACTIVE slot's
 // selected faces (a beam is a selection inside the model — using the whole mesh
@@ -2067,12 +2068,15 @@ function _installProfileButtons() {
   saveBtn.className = 'secondary-btn material-action-btn';
   saveBtn.type = 'button';
   saveBtn.textContent = 'Save Material';
+  // Clarify vs project save (#G): this exports a REUSABLE material preset, not the project.
+  saveBtn.title = 'Export this slot as a reusable material preset (.stltprofile) — this is NOT the project. Use Save / Ctrl+S for the project.';
 
   const loadBtn = document.createElement('button');
   loadBtn.id = 'load-profile-btn';
   loadBtn.className = 'secondary-btn material-action-btn';
   loadBtn.type = 'button';
   loadBtn.textContent = 'Load Material';
+  loadBtn.title = 'Load a reusable material preset (.stltprofile) into the active slot.';
 
   const input = document.createElement('input');
   input.id = 'load-profile-input';
@@ -7120,6 +7124,15 @@ function yieldFrame() {
 // ── Project save/load (.bforge/.bumpmesh) + sessionStorage auto-save ─────────
 // The on-disk format remains backward-compatible with existing .bumpmesh files:
 // ZIP containing settings.json, optional model.stl, optional texture.png.
+//
+// Three DISTINCT persistence layers — don't conflate them:
+//   1. PROJECT (.bforge/.bumpmesh) — the whole doc (model + slots + settings).
+//      Explicit New/Open/Save/Save As, versioned (see projectMigrate.js).
+//   2. RECOVERY draft (IndexedDB, RECOVERY_KEY) — an invisible full-project
+//      snapshot for crash recovery; offered on next launch, cleared on save/New.
+//   3. SESSION settings (sessionStorage, PROJECT_STORAGE_KEY) — settings-only,
+//      lightweight, dies with the tab; restores sliders on a normal reload.
+//   ( "Save/Load Material" is a 4th, separate thing: a reusable per-slot preset. )
 
 const PROJECT_STORAGE_KEY = 'bumpmesh-settings';
 const PROJECT_VERSION     = 1;
@@ -7576,6 +7589,7 @@ function _restoreSessionSettings() {
   let data;
   try { data = JSON.parse(raw); } catch { return; }
   if (!data || typeof data !== 'object') return;
+  data = migrateProjectPayload(data, PROJECT_VERSION); // same forward-migration as project files
   applySettingsSnapshot(data);
   // Preset activation is handled by the thumbnail-load auto-select path —
   // it reads activeMapName from sessionStorage and suppresses defaults so
@@ -8071,7 +8085,11 @@ async function importProject(file, options = {}) {
     const unzipped = unzipSync(new Uint8Array(buf));
 
     const settingsBytes = unzipped['settings.json'];
-    const data = settingsBytes ? JSON.parse(strFromU8(settingsBytes)) : null;
+    let data = settingsBytes ? JSON.parse(strFromU8(settingsBytes)) : null;
+    data = migrateProjectPayload(data, PROJECT_VERSION); // forward-migrate old formats
+    if (data && data.__futureVersion) {
+      showToast(t('alerts.importFailed', { msg: `version ${data.__futureVersion} > ${PROJECT_VERSION}` }), { type: 'error', duration: 5000 });
+    }
 
     // 1) Load model first — handleModelFile resets scaleU/scaleV/offsets/refineLength
     //    AND clears any existing paint mask, so applied settings + restored mask
