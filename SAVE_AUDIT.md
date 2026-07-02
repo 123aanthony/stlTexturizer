@@ -122,5 +122,9 @@ drag de slider, chaque `input` ré-écrit `document.title` **et** un IPC `setWin
    (showToast + #toast-stack ; verrou `_saveInProgress` ; toasts succès/erreur sur save)
 2. **H + F** (early-return dirty ; fin-d'init au lieu du timer) — robustesse, peu de risque. ✅ FAIT
 3. **A** (récupération IndexedDB du projet complet) — le plus utile, plus de travail. ✅ FAIT
-4. **D + E** (dialogue 3 voies + close Electron) — qualité « app ».
+4. **D + E** (dialogue 3 voies + close Electron) — qualité « app ». ✅ FAIT
+   (D : modal stylé Enregistrer/Ne pas/Annuler pour New/Open, `confirmDiscardUnsavedChanges`
+   enchaîne le save. E : `electron-main` intercepte `close` → dialogue natif 3 voies →
+   demande au renderer de sauver puis ferme ; `beforeunload` neutralisé en Electron pour
+   éviter le double prompt. IPC set-dirty/set-close-prompt/app-save-request/app-save-done.)
 5. **G + I + J** — clarté & dette.

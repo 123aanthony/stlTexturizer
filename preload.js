@@ -28,5 +28,16 @@ contextBridge.exposeInMainWorld('bumpforgeElectron', {
     ipcRenderer.invoke('load-setting', key),
 
   scanTextureLibrary: (folderPath) =>
-    ipcRenderer.invoke('scan-texture-library', folderPath)
+    ipcRenderer.invoke('scan-texture-library', folderPath),
+
+  setWindowTitle: (title) =>
+    ipcRenderer.invoke('set-window-title', title),
+
+  // ── Save-before-quit (unsaved-changes guard on window close) ──
+  // Renderer keeps the main process informed of dirty state + localized prompt
+  // labels; main shows a native 3-way dialog on close and asks us to save.
+  setDirty: (dirty) => ipcRenderer.send('set-dirty', !!dirty),
+  setClosePrompt: (labels) => ipcRenderer.send('set-close-prompt', labels),
+  onSaveRequest: (cb) => ipcRenderer.on('app-save-request', () => cb()),
+  saveDone: (ok) => ipcRenderer.send('app-save-done', !!ok)
 });

@@ -1905,6 +1905,7 @@ function populateLanguageSelector() {
     // The cylinder panel paints its placeholder text via Canvas2D, which
     // applyTranslations() doesn't reach — re-render so the new locale lands.
     _scheduleCylinderPanelRedraw();
+    _syncClosePrompt(); // re-send the localized close-dialog labels to the main process
   });
 
   languageSelector.appendChild(select);
@@ -7180,6 +7181,8 @@ function updateProjectChrome() {
   if (window.bumpforgeElectron?.setWindowTitle) {
     window.bumpforgeElectron.setWindowTitle(title).catch(() => {});
   }
+  // Keep the main process in sync so its close handler can guard unsaved changes.
+  window.bumpforgeElectron?.setDirty?.(projectDirty);
 
   if (chip) {
     chip.textContent = `${label}${projectDirty ? ' *' : ''}`;
@@ -7327,9 +7330,75 @@ function detachProjectPathForNewModel(modelName) {
   updateProjectChrome();
 }
 
+// Styled 3-way "Save / Don't save / Cancel" dialog. Resolves to the chosen action.
+function confirmUnsavedChanges() {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'license-overlay';
+
+    const modal = document.createElement('div');
+    modal.className = 'license-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+
+    const h = document.createElement('h2');
+    h.textContent = t('confirm.unsavedTitle');
+
+    const p = document.createElement('p');
+    p.textContent = t('confirm.unsavedBody');
+    p.style.cssText = 'margin:0; color:var(--muted,#9ca3af); font-size:13px;';
+
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex; gap:8px; justify-content:flex-end; margin-top:6px; flex-wrap:wrap;';
+
+    const mkBtn = (label, cls) => {
+      const b = document.createElement('button');
+      b.className = 'project-action-btn' + (cls ? ` ${cls}` : '');
+      b.textContent = label;
+      return b;
+    };
+    const cancelBtn  = mkBtn(t('confirm.cancel'));
+    const discardBtn = mkBtn(t('confirm.dontSave'));
+    const saveBtn    = mkBtn(t('confirm.save'), 'primary');
+
+    let done = false;
+    const finish = (result) => {
+      if (done) return; done = true;
+      document.removeEventListener('keydown', onKey, true);
+      overlay.remove();
+      resolve(result);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape')      { e.preventDefault(); e.stopPropagation(); finish('cancel'); }
+      else if (e.key === 'Enter')  { e.preventDefault(); e.stopPropagation(); finish('save'); }
+    };
+
+    cancelBtn.addEventListener('click', () => finish('cancel'));
+    discardBtn.addEventListener('click', () => finish('discard'));
+    saveBtn.addEventListener('click', () => finish('save'));
+    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) finish('cancel'); });
+    document.addEventListener('keydown', onKey, true);
+
+    row.append(cancelBtn, discardBtn, saveBtn);
+    modal.append(h, p, row);
+    overlay.append(modal);
+    document.body.append(overlay);
+    saveBtn.focus();
+  });
+}
+
+// Returns true if the caller may proceed (destroy current state). A dirty project
+// prompts Save / Don't save / Cancel; on Save we only proceed if the save actually
+// completed (a cancelled Save-As aborts the whole action).
 async function confirmDiscardUnsavedChanges() {
   if (!projectDirty) return true;
-  return confirm('This project has unsaved changes. Continue and discard them?');
+  const choice = await confirmUnsavedChanges();
+  if (choice === 'cancel') return false;
+  if (choice === 'save') {
+    const r = await saveProject();
+    return !!r && !r.canceled && !r.busy && !r.error;
+  }
+  return true; // 'discard'
 }
 
 // Persisted setting keys — excludes `useDisplacement` (transient UI state).
@@ -7856,10 +7925,33 @@ window.addEventListener('keydown', (event) => {
   }
 });
 
+// Browser-mode fallback ONLY. In Electron the native close handler (below) owns
+// the prompt; letting beforeunload also fire would stack a second native dialog.
 window.addEventListener('beforeunload', (event) => {
+  if (window.bumpforgeElectron?.isElectron) return;
   if (!projectDirty) return;
   event.preventDefault();
   event.returnValue = '';
+});
+
+// ── Electron: save-before-quit on window close ───────────────────────────────
+// Send the localized 3-way dialog labels to the main process, and honour its save
+// request when the user chooses "Save" in that native dialog.
+function _syncClosePrompt() {
+  window.bumpforgeElectron?.setClosePrompt?.({
+    title:    t('confirm.unsavedTitle'),
+    body:     t('confirm.unsavedBody'),
+    save:     t('confirm.save'),
+    dontSave: t('confirm.dontSave'),
+    cancel:   t('confirm.cancel'),
+  });
+}
+_syncClosePrompt();
+window.bumpforgeElectron?.onSaveRequest?.(async () => {
+  let ok = false;
+  try { const r = await saveProject(); ok = !!r && !r.canceled && !r.busy && !r.error; }
+  catch { ok = false; }
+  window.bumpforgeElectron?.saveDone?.(ok);
 });
 
 updateProjectChrome();

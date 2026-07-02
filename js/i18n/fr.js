@@ -223,5 +223,10 @@ export default {
   "recovery.age.sec": "il y a {n} s",
   "recovery.age.min": "il y a {n} min",
   "recovery.age.hour": "il y a {n} h",
-  "recovery.age.day": "il y a {n} j"
+  "recovery.age.day": "il y a {n} j",
+  "confirm.unsavedTitle": "Modifications non enregistrées",
+  "confirm.unsavedBody": "Enregistrer les modifications avant de continuer ?",
+  "confirm.save": "Enregistrer",
+  "confirm.dontSave": "Ne pas enregistrer",
+  "confirm.cancel": "Annuler"
 };

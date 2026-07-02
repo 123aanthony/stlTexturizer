@@ -227,5 +227,10 @@ export default {
   "recovery.age.sec": "{n}s ago",
   "recovery.age.min": "{n}min ago",
   "recovery.age.hour": "{n}h ago",
-  "recovery.age.day": "{n}d ago"
+  "recovery.age.day": "{n}d ago",
+  "confirm.unsavedTitle": "Unsaved changes",
+  "confirm.unsavedBody": "Save changes before continuing?",
+  "confirm.save": "Save",
+  "confirm.dontSave": "Don't save",
+  "confirm.cancel": "Cancel"
 };

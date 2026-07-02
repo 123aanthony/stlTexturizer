@@ -84,6 +84,18 @@ function startLocalServer(rootDir) {
 let localServer = null;
 let mainWindow = null;
 
+// Unsaved-changes guard on window close. The renderer keeps `projectIsDirty` and
+// the localized prompt labels in sync; on close we show a native 3-way dialog and,
+// on "Save", ask the renderer to save and close once it confirms. `allowClose`
+// lets the real close through after a save / "Don't save" without re-prompting.
+let projectIsDirty = false;
+let allowClose = false;
+let closeLabels = {
+  title: 'Unsaved changes',
+  body: 'Save changes before closing?',
+  save: 'Save', dontSave: "Don't save", cancel: 'Cancel',
+};
+
 const SETTINGS_FILE = path.join(app.getPath('userData'), 'bumpforge-settings.json');
 const TEXTURE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 
@@ -156,6 +168,24 @@ async function createWindow() {
 
   mainWindow = win;
 
+  win.on('close', (e) => {
+    if (allowClose || !projectIsDirty) return; // clean, or a save/discard already cleared the way
+    e.preventDefault();
+    const choice = dialog.showMessageBoxSync(win, {
+      type: 'warning',
+      buttons: [closeLabels.save, closeLabels.dontSave, closeLabels.cancel],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true,
+      title: closeLabels.title,
+      message: closeLabels.title,
+      detail: closeLabels.body,
+    });
+    if (choice === 2) return;                              // Cancel — stay open
+    if (choice === 1) { allowClose = true; win.close(); return; } // Don't save
+    win.webContents.send('app-save-request');             // Save — renderer replies app-save-done
+  });
+
   await win.loadURL(`http://127.0.0.1:${PORT}/index.html`);
 
 }
@@ -225,6 +255,16 @@ ipcMain.handle('load-setting', (_, key) => {
 
 ipcMain.handle('scan-texture-library', (_, folderPath) => {
   return scanTextureLibraryFolder(folderPath);
+});
+
+ipcMain.on('set-dirty', (_, dirty) => { projectIsDirty = !!dirty; });
+
+ipcMain.on('set-close-prompt', (_, labels) => {
+  if (labels && typeof labels === 'object') closeLabels = { ...closeLabels, ...labels };
+});
+
+ipcMain.on('app-save-done', (_, ok) => {
+  if (ok && mainWindow) { allowClose = true; mainWindow.close(); }
 });
 
 
