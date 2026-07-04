@@ -14,13 +14,24 @@ as before", not "correct". A golden can therefore encode a known bug (see the
 ## Run
 
 ```bash
+npm test                    # full headless suite (units + golden + FreeCAD interop)
 npm run fixtures            # (re)generate the reference STL models
 npm run test:golden         # compare current pipeline output to goldens -> PASS/FAIL
 npm run test:golden:update  # rewrite goldens from current output (after an INTENDED change)
+npm run test:interop        # FreeCAD BREP-face interop only (committed fixtures)
+npm run test:interop:update # regenerate fixtures via FreeCADCmd (needs FreeCAD + FW repo)
 ```
 
 Requires `three@0.170.0` (pinned to match the production CDN version). Runs in
 plain Node — no DOM, no Electron.
+
+**Automated on commit**: `.githooks/pre-commit` runs `npm test` (activated via
+`git config core.hooksPath .githooks` — one-time per clone; bypass with
+`git commit --no-verify`).
+
+`test/fixtures/freecad/` holds COMMITTED sidecars exported by the real FreeCAD
+workbench (FW Diorama, gothic arch) so the interop contract is pinned without
+FreeCAD installed. Regenerate them after changing `fw_export_bumpforge.py`.
 
 ## What each case targets
 

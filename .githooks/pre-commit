@@ -1,0 +1,12 @@
+#!/bin/sh
+# Pre-commit: run the headless suite (units + golden + FreeCAD interop fixtures).
+# ~5 s. Bypass for an emergency commit with:  git commit --no-verify
+echo "pre-commit: npm test (bypass: --no-verify)"
+out=$(npm test --silent 2>&1)
+status=$?
+echo "$out" | grep -E "checks passed|VERDICT|✗"
+if [ $status -ne 0 ]; then
+  echo "pre-commit: TESTS FAILED — commit refused (bypass: git commit --no-verify)"
+  exit 1
+fi
+exit 0
