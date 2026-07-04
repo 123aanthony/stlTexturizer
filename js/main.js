@@ -56,6 +56,8 @@ let currentBounds     = null;   // bounds of the original geometry
 let currentStlName    = 'model'; // base filename of the loaded STL (no extension)
 let activeMapEntry    = null;   // { name, texture, imageData, width, height, isCustom? }
 let currentFaceSidecar = null;  // BREP-face sidecar of the loaded model (FreeCAD interop), null if untagged
+let _liveReloadInProgress = false; // true during a live-link auto-reload (keeps the project path attached)
+let _liveLinkDisable = () => {};   // rebound by the live-link setup (closure) so top-level code can cut the watch
 // ─────────────────────────────────────────────
 // Diorama multi-texture slots (POC V1)
 // ─────────────────────────────────────────────
@@ -2946,12 +2948,12 @@ function wireEvents() {
   // re-export we snapshot each slot's keys against the OLD sidecar, load the new
   // model, then re-match keys on the NEW sidecar → selections rebuild themselves.
 
-  async function _findSidecarFile(modelFile, droppedFiles = []) {
+  async function _findSidecarFile(modelFile, droppedFiles = [], knownPath = null) {
     // 1) dropped alongside the model
     const dropped = droppedFiles.find(f => /\.bumpforge-faces\.json$/i.test(f.name));
     if (dropped) return JSON.parse(await dropped.text());
     // 2) Electron: read it from disk next to the model
-    const p = window.bumpforgeElectron?.getFilePath?.(modelFile);
+    const p = knownPath || window.bumpforgeElectron?.getFilePath?.(modelFile);
     if (p && window.bumpforgeElectron?.readFile) {
       const side = p.replace(/\.(stl|obj|3mf)$/i, '') + '.bumpforge-faces.json';
       const r = await window.bumpforgeElectron.readFile({ filePath: side }).catch(() => null);
@@ -3000,8 +3002,8 @@ function wireEvents() {
               { type: orphaned ? 'info' : 'success', duration: 4500 });
   }
 
-  async function loadModelWithSidecar(modelFile, droppedFiles = []) {
-    const rawSidecar = await _findSidecarFile(modelFile, droppedFiles).catch(() => null);
+  async function loadModelWithSidecar(modelFile, droppedFiles = [], knownPath = null) {
+    const rawSidecar = await _findSidecarFile(modelFile, droppedFiles, knownPath).catch(() => null);
     const snapshot = _snapshotSlotFaceKeys(); // keys vs the OLD sidecar, pre-reset
     await handleModelFile(modelFile);
     currentFaceSidecar = null;
@@ -3016,7 +3018,63 @@ function wireEvents() {
       }
     }
     if (currentFaceSidecar && snapshot) _reapplySlotFaceKeys(snapshot);
+    // Live link: keep tagged FreeCAD models hot — watch the file and auto-reload
+    // on re-export. Untagged models would lose their selections on reload, so
+    // the watch is cut instead.
+    const modelPath = knownPath || window.bumpforgeElectron?.getFilePath?.(modelFile) || null;
+    if (currentFaceSidecar && modelPath) _enableLiveLink(modelPath);
+    else _disableLiveLink();
   }
+
+  // ── Live link: auto-reload on FreeCAD re-export ────────────────────────────
+  let _liveLinkPath = null;
+  let _liveLinkTimer = null;
+  let _liveLinkBusy = false;
+
+  function _enableLiveLink(path) {
+    if (!window.bumpforgeElectron?.watchModelFile) return;
+    const wasOn = _liveLinkPath === path;
+    _liveLinkPath = path;
+    window.bumpforgeElectron.watchModelFile(path);
+    if (!wasOn) showToast(t('interop.liveLinkOn'), { type: 'info', duration: 3500 });
+  }
+
+  function _disableLiveLink() {
+    if (!_liveLinkPath) return;
+    _liveLinkPath = null;
+    clearTimeout(_liveLinkTimer);
+    window.bumpforgeElectron?.unwatchModelFile?.();
+  }
+  _liveLinkDisable = _disableLiveLink; // let top-level code (New project) cut the watch
+
+  async function _liveLinkReload() {
+    if (!_liveLinkPath || _liveLinkBusy) return;
+    _liveLinkBusy = true;
+    const path = _liveLinkPath;
+    try {
+      const r = await window.bumpforgeElectron.readFile({ filePath: path });
+      if (!r || r.error || !r.data) return;
+      const name = path.split(/[\\/]/).pop();
+      const file = new File([new Uint8Array(r.data)], name, { type: 'application/octet-stream' });
+      _liveReloadInProgress = true; // keep the project path attached (same model evolving)
+      try { await loadModelWithSidecar(file, [], path); }
+      finally { _liveReloadInProgress = false; }
+      markProjectDirty();
+    } catch (err) {
+      console.warn('Live-link reload failed:', err);
+      showToast(t('interop.liveLinkFailed', { msg: err.message }), { type: 'error', duration: 5000 });
+    } finally {
+      _liveLinkBusy = false;
+    }
+  }
+
+  // FreeCAD writes the STL then the sidecar: debounce past the write burst so we
+  // read both files complete. A change landing DURING a reload re-arms the timer
+  // (busy-guard skips, then the trailing timer catches the final state).
+  window.bumpforgeElectron?.onModelFileChanged?.(() => {
+    clearTimeout(_liveLinkTimer);
+    _liveLinkTimer = setTimeout(_liveLinkReload, 900);
+  });
 
   stlFileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
@@ -4928,8 +4986,9 @@ async function handleModelFile(file) {
 
     // Loading a standalone 3D model into an existing project starts a variant.
     // Force the next Save to behave like Save As so the source .bforge/.bumpmesh
-    // is not overwritten accidentally.
-    if (!isRestoringProject) {
+    // is not overwritten accidentally. A live-link auto-reload is the SAME model
+    // evolving, not a new one — keep the project path attached (dirty is enough).
+    if (!isRestoringProject && !_liveReloadInProgress) {
       detachProjectPathForNewModel(file.name);
     }
   } catch (err) {
@@ -7946,6 +8005,7 @@ function resetProjectStateToStartup() {
     activeTextureSlotId = 'slot1';
     activeMapEntry = null;
     currentFaceSidecar = null;
+    _liveLinkDisable(); // New project: stop auto-reloading the previous model file
     _lastCustomMap = null;
     excludedFaces = new Set();
     precisionExcludedFaces = new Set();

@@ -235,5 +235,7 @@ export default {
   "confirm.cancel": "Cancel",
   "interop.tagged": "FreeCAD model: {n} faces recognized",
   "interop.sidecarRejected": "FreeCAD sidecar ignored: {msg}",
-  "interop.reapplied": "Selections re-matched: {n} face(s), {m} orphan(s)"
+  "interop.reapplied": "Selections re-matched: {n} face(s), {m} orphan(s)",
+  "interop.liveLinkOn": "Live link: auto-reload on each FreeCAD export",
+  "interop.liveLinkFailed": "Live link: reload failed: {msg}"
 };

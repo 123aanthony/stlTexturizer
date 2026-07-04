@@ -39,6 +39,11 @@ contextBridge.exposeInMainWorld('bumpforgeElectron', {
     try { return webUtils.getPathForFile(file) || null; } catch { return null; }
   },
 
+  // ── Live link (FreeCAD interop): auto-reload the model when re-exported ──
+  watchModelFile: (filePath) => ipcRenderer.send('watch-model-file', filePath),
+  unwatchModelFile: () => ipcRenderer.send('unwatch-model-file'),
+  onModelFileChanged: (cb) => ipcRenderer.on('model-file-changed', (_, p) => cb(p)),
+
   // ── Save-before-quit (unsaved-changes guard on window close) ──
   // Renderer keeps the main process informed of dirty state + localized prompt
   // labels; main shows a native 3-way dialog on close and asks us to save.

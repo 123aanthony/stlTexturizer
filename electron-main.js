@@ -259,6 +259,35 @@ ipcMain.handle('scan-texture-library', (_, folderPath) => {
 
 ipcMain.on('set-dirty', (_, dirty) => { projectIsDirty = !!dirty; });
 
+// ── Live link (FreeCAD interop): watch the loaded model file ─────────────────
+// Watch the model's DIRECTORY (robust to replace-by-rename, unlike watching the
+// file itself on Windows) and notify the renderer when the model OR its sidecar
+// is (re)written. The renderer debounces and reloads.
+let modelWatcher = null;
+
+ipcMain.on('watch-model-file', (event, filePath) => {
+  try { if (modelWatcher) modelWatcher.close(); } catch { /* ignore */ }
+  modelWatcher = null;
+  if (!filePath) return;
+  const dir = path.dirname(filePath);
+  const stlName = path.basename(filePath).toLowerCase();
+  const sideName = stlName.replace(/\.(stl|obj|3mf)$/i, '') + '.bumpforge-faces.json';
+  const sender = event.sender;
+  try {
+    modelWatcher = fs.watch(dir, (_evt, name) => {
+      const n = (name || '').toLowerCase();
+      if ((n === stlName || n === sideName) && !sender.isDestroyed()) {
+        sender.send('model-file-changed', filePath);
+      }
+    });
+  } catch { modelWatcher = null; }
+});
+
+ipcMain.on('unwatch-model-file', () => {
+  try { if (modelWatcher) modelWatcher.close(); } catch { /* ignore */ }
+  modelWatcher = null;
+});
+
 ipcMain.on('set-close-prompt', (_, labels) => {
   if (labels && typeof labels === 'object') closeLabels = { ...closeLabels, ...labels };
 });
