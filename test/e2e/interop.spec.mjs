@@ -1,7 +1,8 @@
-import { test, expect, _electron as electron } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdirSync, copyFileSync, rmSync } from 'node:fs';
+import { launchApp } from './launch.mjs';
 
 // FreeCAD interop — FULL-CHAIN e2e (real app, real GPU, real files on disk):
 //   load a tagged model (STL + sidecar found NEXT TO it via webUtils path)
@@ -24,12 +25,10 @@ test('tagged model: sidecar detected, selection painted, live re-export re-match
   copyFileSync(join(FIX, 'interop_A.stl'), join(TMP, 'model.stl'));
   copyFileSync(join(FIX, 'interop_A.bumpforge-faces.json'), join(TMP, 'model.bumpforge-faces.json'));
 
-  const app = await electron.launch({ args: [appRoot] });
+  const { app, page } = await launchApp(appRoot);
   try {
-    const page = await app.firstWindow();
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
-    await page.waitForLoadState('domcontentloaded');
     await expect(page.locator('#viewport')).toBeAttached();
 
     // ── 1. Load the tagged model through the real file input ──

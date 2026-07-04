@@ -1,6 +1,7 @@
-import { test, expect, _electron as electron } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { launchApp } from './launch.mjs';
 
 const appRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -13,17 +14,14 @@ const appRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 // so run this on a real desktop (or CI with GPU / ANGLE-swiftshader). See
 // test/e2e/README.md.
 test('app boots without uncaught errors and shows the viewer', async () => {
-  const app = await electron.launch({ args: [appRoot] });
+  const { app, page } = await launchApp(appRoot);
   try {
-    const page = await app.firstWindow();
-
     const errors = [];
     let crashed = false;
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
     page.on('crash', () => { crashed = true; });
 
-    await page.waitForLoadState('domcontentloaded');
     await expect(page).toHaveTitle(/bump|stl/i);
 
     // The viewer canvas (#viewport) is static in index.html but the WebGL

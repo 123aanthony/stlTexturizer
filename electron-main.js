@@ -3,6 +3,14 @@ const path = require('path');
 const http = require('http');
 const fs = require('fs');
 
+// E2E: isolate the profile. Tests launch with a fresh temp userData so they
+// never load the user's real settings/texture library (a large library floods
+// the Playwright CDP debug connection with hundreds of MB of dataURLs and kills
+// the test browser). Must run before anything reads app.getPath('userData').
+if (process.env.BF_TEST_USERDATA) {
+  app.setPath('userData', process.env.BF_TEST_USERDATA);
+}
+
 const PORT = 3927;
 
 function getMimeType(filePath) {
