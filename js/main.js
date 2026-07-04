@@ -27,6 +27,7 @@ import { computeBeamFrame } from './beamAxis.js';
 import { idbGet, idbSet, idbDel } from './idbStore.js';
 import { shouldOfferRecovery, recoveryAgeParts } from './recovery.js';
 import { migrateProjectPayload } from './projectMigrate.js';
+import { parseFaceSidecar, facesToTriangleSet, selectionToFaceKeys, matchFaceKeys } from './faceGroups.js';
 
 // Beam PCA frame for the live preview shader (Wood Auto), from the ACTIVE slot's
 // selected faces (a beam is a selection inside the model — using the whole mesh
@@ -54,6 +55,7 @@ let currentGeometry   = null;   // original loaded geometry
 let currentBounds     = null;   // bounds of the original geometry
 let currentStlName    = 'model'; // base filename of the loaded STL (no extension)
 let activeMapEntry    = null;   // { name, texture, imageData, width, height, isCustom? }
+let currentFaceSidecar = null;  // BREP-face sidecar of the loaded model (FreeCAD interop), null if untagged
 // ─────────────────────────────────────────────
 // Diorama multi-texture slots (POC V1)
 // ─────────────────────────────────────────────
@@ -2938,12 +2940,90 @@ function trapFocus(overlay) {
 
 function wireEvents() {
   // ── Model loading ──
+  // ── FreeCAD interop: BREP-face sidecar (see js/faceGroups.js) ──────────────
+  // When a model arrives with a `.bumpforge-faces.json` sidecar (FW Diorama
+  // "Exporter pour BumpForge"), selections are anchored to BREP-face KEYS. On a
+  // re-export we snapshot each slot's keys against the OLD sidecar, load the new
+  // model, then re-match keys on the NEW sidecar → selections rebuild themselves.
+
+  async function _findSidecarFile(modelFile, droppedFiles = []) {
+    // 1) dropped alongside the model
+    const dropped = droppedFiles.find(f => /\.bumpforge-faces\.json$/i.test(f.name));
+    if (dropped) return JSON.parse(await dropped.text());
+    // 2) Electron: read it from disk next to the model
+    const p = window.bumpforgeElectron?.getFilePath?.(modelFile);
+    if (p && window.bumpforgeElectron?.readFile) {
+      const side = p.replace(/\.(stl|obj|3mf)$/i, '') + '.bumpforge-faces.json';
+      const r = await window.bumpforgeElectron.readFile({ filePath: side }).catch(() => null);
+      if (r && !r.error && r.data) {
+        return JSON.parse(new TextDecoder().decode(new Uint8Array(r.data)));
+      }
+    }
+    return null;
+  }
+
+  function _snapshotSlotFaceKeys() {
+    if (!currentFaceSidecar) return null;
+    saveActiveSlotState(); // capture the live globals into the active slot first
+    const out = [];
+    for (const slot of textureSlots) {
+      const assigned = slot.assignedFaces;
+      if (!assigned || assigned.size === 0) continue;
+      const { keys } = selectionToFaceKeys(assigned, currentFaceSidecar);
+      if (keys.length) out.push({ slotId: slot.id, keys });
+    }
+    return out.length ? out : null;
+  }
+
+  function _reapplySlotFaceKeys(snapshot) {
+    let matched = 0, orphaned = 0;
+    for (const entry of snapshot) {
+      const slot = textureSlots.find(s => s.id === entry.slotId);
+      if (!slot) continue;
+      const { matches, orphans } = matchFaceKeys(entry.keys, currentFaceSidecar);
+      orphaned += orphans.length;
+      if (!matches.length) continue;
+      matched += matches.length;
+      const tris = facesToTriangleSet(matches.map(m => m.faceIndex), currentFaceSidecar);
+      slot.selectionMode = true;          // include-only: painted = textured
+      slot.excludedFaces = new Set(tris);
+      slot.assignedFaces = new Set(tris);
+    }
+    const active = getActiveTextureSlot();
+    if (active) restoreSlotState(active);
+    refreshTextureTabsUI();
+    refreshExclusionOverlay();
+    updatePreview();
+    requestRender();
+    markProjectDirty();
+    showToast(t('interop.reapplied', { n: matched, m: orphaned }),
+              { type: orphaned ? 'info' : 'success', duration: 4500 });
+  }
+
+  async function loadModelWithSidecar(modelFile, droppedFiles = []) {
+    const rawSidecar = await _findSidecarFile(modelFile, droppedFiles).catch(() => null);
+    const snapshot = _snapshotSlotFaceKeys(); // keys vs the OLD sidecar, pre-reset
+    await handleModelFile(modelFile);
+    currentFaceSidecar = null;
+    if (rawSidecar) {
+      try {
+        const triCount = (currentGeometry.attributes.position.count / 3) | 0;
+        currentFaceSidecar = parseFaceSidecar(rawSidecar, triCount);
+        showToast(t('interop.tagged', { n: currentFaceSidecar.faces.length }), { type: 'success' });
+      } catch (err) {
+        console.warn('BumpForge sidecar rejected:', err);
+        showToast(t('interop.sidecarRejected', { msg: err.message }), { type: 'error', duration: 5000 });
+      }
+    }
+    if (currentFaceSidecar && snapshot) _reapplySlotFaceKeys(snapshot);
+  }
+
   stlFileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     e.target.value = '';
     if (!(await confirmDiscardUnsavedChanges())) return;
-    handleModelFile(file);
+    loadModelWithSidecar(file);
   });
 
   // Drag & drop on the viewport section
@@ -2965,7 +3045,7 @@ function wireEvents() {
     const file = files.find(f => /\.(stl|obj|3mf)$/i.test(f.name));
     if (file) {
       if (!(await confirmDiscardUnsavedChanges())) return;
-      handleModelFile(file);
+      loadModelWithSidecar(file, files); // a .bumpforge-faces.json may ride along
     }
   });
 
@@ -7726,6 +7806,9 @@ function buildProjectPayload({ includeModel = true, includeTexture = true } = {}
     zipFiles['model.stl'] = _geometryToBinarySTL(currentGeometry);
     const mask = _collectCurrentMask();
     if (mask) zipFiles['mask.json'] = strToU8(JSON.stringify(mask));
+    // FreeCAD interop: keep the BREP-face sidecar with the project so selections
+    // can re-match a future re-export even after a save/reload cycle.
+    if (currentFaceSidecar) zipFiles['faces.json'] = strToU8(JSON.stringify(currentFaceSidecar));
   }
 
   return { zipFiles, customSource, shouldIncludeTexture };
@@ -7862,6 +7945,7 @@ function resetProjectStateToStartup() {
 
     activeTextureSlotId = 'slot1';
     activeMapEntry = null;
+    currentFaceSidecar = null;
     _lastCustomMap = null;
     excludedFaces = new Set();
     precisionExcludedFaces = new Set();
@@ -8098,6 +8182,15 @@ async function importProject(file, options = {}) {
     if (hasModel) {
       const stlFile = new File([unzipped['model.stl']], 'model.stl', { type: 'application/octet-stream' });
       await handleModelFile(stlFile);
+    }
+
+    // FreeCAD interop: restore the BREP-face sidecar bundled with the project.
+    currentFaceSidecar = null;
+    if (hasModel && unzipped['faces.json']) {
+      try {
+        const triCount = (currentGeometry.attributes.position.count / 3) | 0;
+        currentFaceSidecar = parseFaceSidecar(JSON.parse(strFromU8(unzipped['faces.json'])), triCount);
+      } catch (err) { console.warn('Project sidecar rejected:', err); }
     }
 
     // 2) Apply settings after any model reset.

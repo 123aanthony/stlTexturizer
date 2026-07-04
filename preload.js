@@ -1,4 +1,4 @@
-﻿const { contextBridge, ipcRenderer } = require('electron');
+﻿const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('bumpforgeElectron', {
   isElectron: true,
@@ -32,6 +32,12 @@ contextBridge.exposeInMainWorld('bumpforgeElectron', {
 
   setWindowTitle: (title) =>
     ipcRenderer.invoke('set-window-title', title),
+
+  // Real filesystem path of a dropped/picked File (File.path was removed from
+  // Electron). Lets the renderer find sidecar files next to a loaded model.
+  getFilePath: (file) => {
+    try { return webUtils.getPathForFile(file) || null; } catch { return null; }
+  },
 
   // ── Save-before-quit (unsaved-changes guard on window close) ──
   // Renderer keeps the main process informed of dirty state + localized prompt

@@ -228,5 +228,8 @@ export default {
   "confirm.unsavedBody": "Enregistrer les modifications avant de continuer ?",
   "confirm.save": "Enregistrer",
   "confirm.dontSave": "Ne pas enregistrer",
-  "confirm.cancel": "Annuler"
+  "confirm.cancel": "Annuler",
+  "interop.tagged": "Modèle FreeCAD : {n} faces reconnues",
+  "interop.sidecarRejected": "Sidecar FreeCAD ignoré : {msg}",
+  "interop.reapplied": "Sélections ré-appariées : {n} face(s), {m} orpheline(s)"
 };

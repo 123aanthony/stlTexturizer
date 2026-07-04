@@ -232,5 +232,8 @@ export default {
   "confirm.unsavedBody": "Save changes before continuing?",
   "confirm.save": "Save",
   "confirm.dontSave": "Don't save",
-  "confirm.cancel": "Cancel"
+  "confirm.cancel": "Cancel",
+  "interop.tagged": "FreeCAD model: {n} faces recognized",
+  "interop.sidecarRejected": "FreeCAD sidecar ignored: {msg}",
+  "interop.reapplied": "Selections re-matched: {n} face(s), {m} orphan(s)"
 };
