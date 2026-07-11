@@ -3025,11 +3025,14 @@ function wireEvents() {
     }
     if (currentFaceSidecar && snapshot) _reapplySlotFaceKeys(snapshot);
     // Auto-slots from FreeCAD material colors: a colored STEP landing on a
-    // BLANK slate (no selections to re-apply, every slot empty) pre-assigns one
-    // slot per color group — paint nothing, just pick textures. Never runs on a
-    // re-export (snapshot wins) or over existing work.
-    if (currentFaceSidecar && !snapshot && stepData?.colorGroupOfFace &&
-        !textureSlots.some(s => slotHasContent(s))) {
+    // BLANK slate pre-assigns one slot per color group — paint nothing, just
+    // pick textures. "Blank" = no PAINTED faces anywhere (slotHasContent would
+    // always block: a restored texture counts as content, and a fresh
+    // exclude-mode slot assigns ALL faces by complement). A picked texture must
+    // not block — it simply stays on the renamed slot. Never runs on a
+    // re-export (snapshot wins).
+    const nothingPainted = textureSlots.every(s => getSlotState(s).excludedFaces.size === 0);
+    if (currentFaceSidecar && !snapshot && stepData?.colorGroupOfFace && nothingPainted) {
       _autoSlotsFromColorGroups(stepData);
     }
     // Live link: keep tagged FreeCAD models hot — watch the file and auto-reload
