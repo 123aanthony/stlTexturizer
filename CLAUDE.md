@@ -2,8 +2,8 @@
 
 Application **Electron + JS vanilla** (sans framework ni bundler) de **texturisation
 par displacement** pour maquettes/dioramas imprimés en **FDM** (univers *Framed
-Worlds*). On charge un STL/OBJ/3MF nu, on lui applique des reliefs gravés à partir
-de textures (pierre, bois, tuile, métal) via **multi-slots** (un matériau = une
+Worlds*). On charge un STL/OBJ/3MF/**STEP** nu, on lui applique des reliefs gravés à
+partir de textures (pierre, bois, tuile, métal) via **multi-slots** (un matériau = une
 texture + une sélection de faces), puis on exporte un STL/3MF déplacé prêt à slicer.
 
 Fork de **`CNCKitchen/stlTexturizer`** (BumpMesh, Stefan Hermann). Le multi-slot,
@@ -29,6 +29,21 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
 - `mapping.js` — projection UV (planar/cylindrical/spherical/triplanar/cubic + Wood
   X/Y/Z). Modes : triplanar=5, cubic=6, wood X/Y/Z=8/9/10.
 - `slotMasks.js` — **cœur des masques multi-slot** (pur, extrait de main.js, testé).
+- `slotState.js` — état slot pur : signatures de faces, split réglages per-slot/
+  globaux, **`resolveSlotState` = source unique de vérité** des lecteurs de slot.
+- `exportPipeline.js` — orchestration export multi-slot sans DOM (+`decimateWithGuard`
+  watertight). `scaleSnap.js` — snap d'échelle cylindrique (fix dérive au reload).
+- `beamAxis.js` — **Wood Auto orienté poutre** : PCA des faces du slot ; V classifié
+  par la **normale de facette** (l'export subdivise avec normales splittées aux
+  arêtes vives — valider sur le VRAI pipeline, jamais sur un maillage re-normalé).
+- **Interop FreeCAD** (voir [INTEROP_FREECAD.md](INTEROP_FREECAD.md)) :
+  `faceGroups.js` (pur : sidecar, ré-appariement par clés, groupes couleur),
+  `stepImport.js` + `vendor/meshstep/` (import STEP direct), lien vif (fs.watch),
+  auto-slots par couleur. Sélections ancrées aux faces BREP → survivent aux
+  re-exports FreeCAD.
+- `recovery.js` + `idbStore.js` — récupération après crash (brouillon projet complet
+  en IndexedDB, bannière au relancement). `projectMigrate.js` — migration versionnée
+  du payload projet.
 - `exclusion.js` — peinture/poids d'exclusion de faces. `exporter.js` — STL/3MF
   binaire. `subdivision`/`decimation`/`regularize` — pipeline maille.
 - `viewer.js`, `previewMaterial.js`, `stlLoader.js`, `i18n.js`, `meshValidation.js`.
@@ -36,16 +51,23 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
 ## Tests — workflow OBLIGATOIRE après tout changement géométrique
 
 ```bash
-npm test            # unités slotMasks + golden-master géométrique
-npm run test:golden # golden seul (9 cas : cube/sphère/cylindre/plaque + multi-slot + 2 STL réels)
-npm run fixtures    # régénère les modèles de référence
+npm test                    # unités (slots/scale/beam/recovery/migrate/interop/STEP) + golden
+npm run test:golden         # golden seul (cube/sphère/cylindre/plaque + multi-slot + 2 STL réels)
+npm run fixtures            # régénère les modèles de référence
+npm run test:interop:update # régénère les fixtures FreeCAD (pilote FreeCADCmd)
+npm run test:e2e            # Playwright-Electron : smoke + interop×2 (machine GPU, app fermée)
 ```
-- Tourne en **headless** (Node + `three@0.170.0`, sans DOM/Electron).
+- `npm test` tourne en **headless** (Node + `three@0.170.0`, sans DOM/Electron) et
+  est lancé **à chaque commit** par le hook `.githooks/pre-commit`
+  (`git config core.hooksPath .githooks` une fois par clone ; bypass `--no-verify`).
 - Toute empreinte qui change = **régression**, sauf changement voulu → alors
   `npm run test:golden:update` **avec justification dans le commit** (cf. REFACTOR.md).
 - ⚠️ Le golden couvre le **cœur géométrique**, PAS le chemin d'appel de `main.js`.
   Pour un changement touchant l'orchestration d'export ou l'UI slots, **tester aussi
   l'app réelle** : `npm start` → vérifier un « Export All Slots ».
+- Les e2e exigent un **profil vierge** (géré par `test/e2e/launch.mjs` +
+  `BF_TEST_USERDATA`) : avec le vrai profil, le scan de la bibliothèque de textures
+  (~275 Mo de dataURLs) tue la connexion de debug Playwright.
 
 ## Contraintes permanentes
 
@@ -64,3 +86,7 @@ npm run fixtures    # régénère les modèles de référence
 
 - [REFACTOR.md](REFACTOR.md) — méthode du refacto, barre de vérif, carte des extractions.
 - [test/README.md](test/README.md) — harnais golden-master, modèles, bug latent connu.
+- [INTEROP_FREECAD.md](INTEROP_FREECAD.md) — pont FreeCAD (2 pipelines, contrat des
+  clés de faces, lien vif, auto-slots couleurs, pièges).
+- [AUDIT.md](AUDIT.md) — audit slots/persistance (tout traité sauf note #4 max).
+- [SAVE_AUDIT.md](SAVE_AUDIT.md) — audit UX sauvegarde (lots 1→5 tous faits).
