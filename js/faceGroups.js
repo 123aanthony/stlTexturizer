@@ -62,6 +62,40 @@ export function selectionToFaceKeys(selectedTris, sidecar, majority = 0.5) {
   return { keys, faceIndices };
 }
 
+/**
+ * Group BREP faces by their STEP color group (FreeCAD material colors → one
+ * texture slot per color). Returns groups sorted by triangle count (largest
+ * first), capped; ungrouped faces (colorGroup < 0) are ignored.
+ * @param colorGroupOfFace  per-face palette index (from stepImport)
+ * @param sidecar           face table (for triangle counts and part names)
+ * @param partOfFace        per-face part name (slot naming)
+ * @returns Array<{ colorGroup, faceIndices, triCount, name }>
+ */
+export function groupFacesByColor(colorGroupOfFace, sidecar, partOfFace = [], cap = 6) {
+  const byGroup = new Map();
+  for (let fi = 0; fi < colorGroupOfFace.length; fi++) {
+    const g = colorGroupOfFace[fi];
+    if (g < 0) continue;
+    let e = byGroup.get(g);
+    if (!e) byGroup.set(g, e = { colorGroup: g, faceIndices: [], triCount: 0, parts: new Map() });
+    e.faceIndices.push(fi);
+    e.triCount += sidecar.faces[fi] ? sidecar.faces[fi].range[1] : 0;
+    const p = partOfFace[fi];
+    if (p) e.parts.set(p, (e.parts.get(p) || 0) + 1);
+  }
+  const groups = [...byGroup.values()].sort((a, b) => b.triCount - a.triCount).slice(0, cap);
+  const used = new Map();
+  for (const g of groups) {
+    // Name the group after its dominant part, deduplicated ("FW_Porte", "FW_Porte 2").
+    const dominant = [...g.parts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 'Groupe';
+    const n = (used.get(dominant) || 0) + 1;
+    used.set(dominant, n);
+    g.name = n === 1 ? dominant : `${dominant} ${n}`;
+    delete g.parts;
+  }
+  return groups;
+}
+
 const _dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const _norm = (v) => Math.hypot(v[0], v[1], v[2]);
 

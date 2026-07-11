@@ -233,5 +233,6 @@ export default {
   "interop.sidecarRejected": "Sidecar FreeCAD ignoré : {msg}",
   "interop.reapplied": "Sélections ré-appariées : {n} face(s), {m} orpheline(s)",
   "interop.liveLinkOn": "Lien vif : rechargement auto à chaque export FreeCAD",
-  "interop.liveLinkFailed": "Lien vif : rechargement échoué : {msg}"
+  "interop.liveLinkFailed": "Lien vif : rechargement échoué : {msg}",
+  "interop.autoSlots": "{n} slots créés depuis les couleurs FreeCAD"
 };

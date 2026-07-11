@@ -10,6 +10,7 @@ import { dirname, join } from 'node:path';
 import { importStepText, tessOptionsForSize } from '../js/stepImport.js';
 import {
   parseFaceSidecar, facesToTriangleSet, selectionToFaceKeys, matchFaceKeys,
+  groupFacesByColor,
 } from '../js/faceGroups.js';
 
 const FIX = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'freecad');
@@ -75,6 +76,20 @@ test('mesh quality: no slivers (AR>20), tri count sane', () => {
   }
   assert.ok(tris > 1000, `${tris} tris`);
   assert.ok(slivers / tris < 0.005, `${slivers}/${tris} slivers`);
+});
+
+// GUI-exported STEP with real FreeCAD material colors (FW chain arch+frame+door;
+// headless exports can't carry colors, so this fixture is a real GUI export).
+const COL = await importStepText(readFileSync(join(FIX, 'interop_colored.step'), 'utf8'));
+
+test('GUI colors: palette extracted, faces grouped per color', () => {
+  assert.ok(COL.palette && COL.palette.length >= 3, `palette: ${COL.palette?.length}`);
+  const groups = groupFacesByColor(COL.colorGroupOfFace, COL.sidecar, COL.partOfFace, 6);
+  assert.ok(groups.length >= 3, `${groups.length} groups`);
+  // Largest group is the stone arch; groups are named after their dominant part.
+  assert.ok(/FW_/.test(groups[0].name), groups[0].name);
+  const total = groups.reduce((s, g) => s + g.faceIndices.length, 0);
+  assert.ok(total > 200, `${total} faces grouped`);
 });
 
 console.error(`\nstepImport: ${passed} checks passed${process.exitCode ? ' (with failures)' : ''}`);

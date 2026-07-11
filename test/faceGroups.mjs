@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import {
   parseFaceSidecar, facesToTriangleSet, selectionToFaceKeys, matchFaceKeys,
+  groupFacesByColor,
 } from '../js/faceGroups.js';
 
 let passed = 0;
@@ -107,6 +108,24 @@ test('match: zero mean normal (closed face) matches on centroid+area alone', () 
   const cyl = { version: 1, triCount: 4, faces: [face(0, 4, [10, 0, 5], [0, 0, 0], 314, 'Cyl.Face1')] };
   const { matches } = matchFaceKeys([{ c: [10, 0, 5.1], n: [0, 0, 0], area: 316 }], cyl);
   assert.equal(matches.length, 1);
+});
+
+test('color groups: grouped, sorted by size, named by dominant part, ungrouped skipped', () => {
+  // 4 faces: two stone (group 0), one wood (group 1), one untagged (-1)
+  const groups = groupFacesByColor([0, 0, 1, -1], SIDE, ['Arche', 'Arche', 'Porte', 'Seuil']);
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].name, 'Arche');           // 12 tris (faces 0+1) — biggest first
+  assert.deepEqual(groups[0].faceIndices, [0, 1]);
+  assert.equal(groups[0].triCount, 12);
+  assert.equal(groups[1].name, 'Porte');
+  assert.deepEqual(groups[1].faceIndices, [2]);
+});
+
+test('color groups: cap keeps the largest, duplicate part names deduplicated', () => {
+  const groups = groupFacesByColor([0, 1, 2, 3], SIDE, ['P', 'P', 'P', 'P'], 2);
+  assert.equal(groups.length, 2);                  // capped
+  assert.equal(groups[0].triCount >= groups[1].triCount, true);
+  assert.notEqual(groups[0].name, groups[1].name); // "P" vs "P 2"
 });
 
 console.error(`\nfaceGroups: ${passed} checks passed${process.exitCode ? ' (with failures)' : ''}`);

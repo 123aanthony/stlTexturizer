@@ -27,7 +27,7 @@ import { computeBeamFrame } from './beamAxis.js';
 import { idbGet, idbSet, idbDel } from './idbStore.js';
 import { shouldOfferRecovery, recoveryAgeParts } from './recovery.js';
 import { migrateProjectPayload } from './projectMigrate.js';
-import { parseFaceSidecar, facesToTriangleSet, selectionToFaceKeys, matchFaceKeys } from './faceGroups.js';
+import { parseFaceSidecar, facesToTriangleSet, selectionToFaceKeys, matchFaceKeys, groupFacesByColor } from './faceGroups.js';
 
 // Beam PCA frame for the live preview shader (Wood Auto), from the ACTIVE slot's
 // selected faces (a beam is a selection inside the model — using the whole mesh
@@ -3024,12 +3024,46 @@ function wireEvents() {
       }
     }
     if (currentFaceSidecar && snapshot) _reapplySlotFaceKeys(snapshot);
+    // Auto-slots from FreeCAD material colors: a colored STEP landing on a
+    // BLANK slate (no selections to re-apply, every slot empty) pre-assigns one
+    // slot per color group — paint nothing, just pick textures. Never runs on a
+    // re-export (snapshot wins) or over existing work.
+    if (currentFaceSidecar && !snapshot && stepData?.colorGroupOfFace &&
+        !textureSlots.some(s => slotHasContent(s))) {
+      _autoSlotsFromColorGroups(stepData);
+    }
     // Live link: keep tagged FreeCAD models hot — watch the file and auto-reload
     // on re-export. Untagged models would lose their selections on reload, so
     // the watch is cut instead.
     const modelPath = knownPath || window.bumpforgeElectron?.getFilePath?.(modelFile) || null;
     if (currentFaceSidecar && modelPath) _enableLiveLink(modelPath);
     else _disableLiveLink();
+  }
+
+  // One slot per FreeCAD color group (largest first, capped at 6): faces are
+  // pre-assigned in include-only mode; the user only picks textures.
+  function _autoSlotsFromColorGroups(stepData) {
+    const groups = groupFacesByColor(stepData.colorGroupOfFace, currentFaceSidecar,
+                                     stepData.partOfFace, 6);
+    if (groups.length < 2) return; // single color = nothing worth splitting
+
+    while (textureSlots.length < groups.length) {
+      textureSlots.push(createTextureSlot(getNextTextureSlotIndex()));
+    }
+    groups.forEach((g, i) => {
+      const slot = textureSlots[i];
+      const tris = facesToTriangleSet(g.faceIndices, currentFaceSidecar);
+      slot.name = g.name;
+      slot.selectionMode = true;
+      slot.excludedFaces = new Set(tris);
+      slot.assignedFaces = new Set(tris);
+    });
+
+    activeTextureSlotId = textureSlots[0].id;
+    renderTextureTabs();
+    restoreSlotState(textureSlots[0]);
+    markProjectDirty();
+    showToast(t('interop.autoSlots', { n: groups.length }), { type: 'success', duration: 4500 });
   }
 
   // ── Live link: auto-reload on FreeCAD re-export ────────────────────────────
