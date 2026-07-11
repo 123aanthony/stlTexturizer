@@ -29,9 +29,11 @@ plain Node — no DOM, no Electron.
 `git config core.hooksPath .githooks` — one-time per clone; bypass with
 `git commit --no-verify`).
 
-`test/fixtures/freecad/` holds COMMITTED sidecars exported by the real FreeCAD
-workbench (FW Diorama, gothic arch) so the interop contract is pinned without
-FreeCAD installed. Regenerate them after changing `fw_export_bumpforge.py`.
+`test/fixtures/freecad/` holds COMMITTED fixtures exported by the real FreeCAD
+workbench (FW Diorama, gothic arch): STL + sidecar JSONs (pipeline v1) and STEP
+files (pipeline v2, direct import through the vendored `js/vendor/meshstep/`).
+The interop contract is pinned without FreeCAD installed. Regenerate them after
+changing `fw_export_bumpforge.py` or updating the meshstep vendor.
 
 ## What each case targets
 

@@ -279,7 +279,7 @@ ipcMain.on('watch-model-file', (event, filePath) => {
   if (!filePath) return;
   const dir = path.dirname(filePath);
   const stlName = path.basename(filePath).toLowerCase();
-  const sideName = stlName.replace(/\.(stl|obj|3mf)$/i, '') + '.bumpforge-faces.json';
+  const sideName = stlName.replace(/\.(stl|obj|3mf|step|stp)$/i, '') + '.bumpforge-faces.json';
   const sender = event.sender;
   try {
     modelWatcher = fs.watch(dir, (_evt, name) => {

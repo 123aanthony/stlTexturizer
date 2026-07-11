@@ -460,6 +460,46 @@ function parse3MF(data) {
   return geometry;
 }
 
+// ── STEP import (FreeCAD interop v2, vendored meshStep) ─────────────────────
+// The STEP path yields the mesh AND an in-memory face sidecar in one parse. The
+// sidecar can't travel through loadModelFile's return contract (handleModelFile
+// only consumes geometry fields), so it is stashed here and collected by
+// main.js's loadModelWithSidecar right after the load (consumeStepSidecar).
+let _pendingStepSidecar = null;
+
+/** One-shot getter for the sidecar produced by the last STEP load. */
+export function consumeStepSidecar() {
+  const s = _pendingStepSidecar;
+  _pendingStepSidecar = null;
+  return s;
+}
+
+export async function loadStepFile(file) {
+  if (file.size > MAX_FILE_SIZE) {
+    throw new Error(
+      'File too large (' + Math.round(file.size / 1024 / 1024) + ' MB). Maximum supported: ' + (MAX_FILE_SIZE / 1024 / 1024) + ' MB.'
+    );
+  }
+  const { importStepText } = await import('./stepImport.js');
+  const r = await importStepText(await file.text());
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(r.positions, 3));
+  const { nanCount, degenerateCount } = setupGeometry(geometry);
+  // Dropped triangles would shift the sidecar's contiguous ranges — in that
+  // (unexpected: meshStep meshes are clean) case load untagged rather than
+  // mis-anchor selections.
+  if ((nanCount + degenerateCount) === 0) {
+    _pendingStepSidecar = { sidecar: r.sidecar, partOfFace: r.partOfFace,
+                            colorGroupOfFace: r.colorGroupOfFace, palette: r.palette };
+  } else {
+    _pendingStepSidecar = null;
+    console.warn(`STEP: ${nanCount + degenerateCount} triangle(s) dropped — face sidecar discarded`);
+  }
+  const bounds = computeBounds(geometry);
+  return { geometry, bounds, nanCount, degenerateCount };
+}
+
 /**
  * Unified loader: dispatches to the right parser based on file extension.
  */
@@ -467,6 +507,7 @@ export function loadModelFile(file) {
   const ext = file.name.split('.').pop().toLowerCase();
   if (ext === 'obj') return loadOBJFile(file);
   if (ext === '3mf') return load3MFFile(file);
+  if (ext === 'step' || ext === 'stp') return loadStepFile(file);
   return loadSTLFile(file);
 }
 

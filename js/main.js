@@ -5,7 +5,7 @@ import { initViewer, loadGeometry, setMeshMaterial, setMeshGeometry, setWirefram
          setProjection, requestRender,
          clearDiagOverlays, setDiagEdges, addDiagFaces,
          setRotationGizmo, isGizmoDragging } from './viewer.js';
-import { loadModelFile, computeBounds, getTriangleCount }  from './stlLoader.js';
+import { loadModelFile, computeBounds, getTriangleCount, consumeStepSidecar }  from './stlLoader.js';
 import { computeSmartResolution } from './smartResolution.js';
 import { loadAllThumbnails, loadFullPreset, loadCustomTexture, IMAGE_PRESETS }  from './presetTextures.js';
 import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
@@ -2955,7 +2955,7 @@ function wireEvents() {
     // 2) Electron: read it from disk next to the model
     const p = knownPath || window.bumpforgeElectron?.getFilePath?.(modelFile);
     if (p && window.bumpforgeElectron?.readFile) {
-      const side = p.replace(/\.(stl|obj|3mf)$/i, '') + '.bumpforge-faces.json';
+      const side = p.replace(/.(stl|obj|3mf|step|stp)$/i, '') + '.bumpforge-faces.json';
       const r = await window.bumpforgeElectron.readFile({ filePath: side }).catch(() => null);
       if (r && !r.error && r.data) {
         return JSON.parse(new TextDecoder().decode(new Uint8Array(r.data)));
@@ -3003,14 +3003,20 @@ function wireEvents() {
   }
 
   async function loadModelWithSidecar(modelFile, droppedFiles = [], knownPath = null) {
-    const rawSidecar = await _findSidecarFile(modelFile, droppedFiles, knownPath).catch(() => null);
+    // STEP (interop v2): the face table comes from the import itself (meshStep
+    // faceOfTri) — no external sidecar file to look for.
+    const isStep = /\.(step|stp)$/i.test(modelFile.name);
+    const rawSidecar = isStep ? null
+      : await _findSidecarFile(modelFile, droppedFiles, knownPath).catch(() => null);
     const snapshot = _snapshotSlotFaceKeys(); // keys vs the OLD sidecar, pre-reset
     await handleModelFile(modelFile);
     currentFaceSidecar = null;
-    if (rawSidecar) {
+    const stepData = isStep ? consumeStepSidecar() : null;
+    const sidecarData = stepData ? stepData.sidecar : rawSidecar;
+    if (sidecarData) {
       try {
         const triCount = (currentGeometry.attributes.position.count / 3) | 0;
-        currentFaceSidecar = parseFaceSidecar(rawSidecar, triCount);
+        currentFaceSidecar = parseFaceSidecar(sidecarData, triCount);
         showToast(t('interop.tagged', { n: currentFaceSidecar.faces.length }), { type: 'success' });
       } catch (err) {
         console.warn('BumpForge sidecar rejected:', err);
@@ -3100,7 +3106,7 @@ function wireEvents() {
       importProject(bmFile).catch(err => alert(t('alerts.importFailed', { msg: err.message })));
       return;
     }
-    const file = files.find(f => /\.(stl|obj|3mf)$/i.test(f.name));
+    const file = files.find(f => /.(stl|obj|3mf|step|stp)$/i.test(f.name));
     if (file) {
       if (!(await confirmDiscardUnsavedChanges())) return;
       loadModelWithSidecar(file, files); // a .bumpforge-faces.json may ride along
@@ -4854,7 +4860,7 @@ async function handleModelFile(file) {
 
     currentGeometry = geometry;
     currentBounds   = bounds;
-    currentStlName  = file.name.replace(/\.(stl|obj|3mf)$/i, '');
+    currentStlName  = file.name.replace(/.(stl|obj|3mf|step|stp)$/i, '');
     checkAmplitudeWarning();
 
     // Log (but don't block the user with an alert) if bad triangles were
@@ -7474,9 +7480,9 @@ function markProjectClean(filePath = currentProjectPath) {
 function detachProjectPathForNewModel(modelName) {
   if (currentProjectPath) {
     currentProjectPath = null;
-    currentProjectDisplayName = `${(modelName || currentStlName || 'Untitled').replace(/\.(stl|obj|3mf)$/i, '')} — Save As required`;
+    currentProjectDisplayName = `${(modelName || currentStlName || 'Untitled').replace(/.(stl|obj|3mf|step|stp)$/i, '')} — Save As required`;
   } else {
-    currentProjectDisplayName = (modelName || currentStlName || 'Untitled').replace(/\.(stl|obj|3mf)$/i, '') || 'Untitled';
+    currentProjectDisplayName = (modelName || currentStlName || 'Untitled').replace(/.(stl|obj|3mf|step|stp)$/i, '') || 'Untitled';
   }
   projectDirty = true;
   updateProjectChrome();
