@@ -12,15 +12,22 @@ ré-appariement, lien vif, slots) est partagé.
 .step  via meshStep vendorisé ─┘        (v2 — Fichier → Exporter STEP natif)
 ```
 
-## Flux recommandé (v2, STEP direct)
+## Flux recommandé (v2, STEP direct + lien de sauvegarde)
 
 1. **FreeCAD** : colorier les matériaux (les chaînes FW ont déjà leurs couleurs de
-   groupe) → sélectionner les objets → **Fichier → Exporter** en `.step`.
-2. **BumpForge** : déposer le `.step` (ou Charger un modèle). Toasts :
-   « N faces reconnues » + « Lien vif » + « N slots créés depuis les couleurs ».
+   groupe) → sélectionner les objets à exporter → commande **« Lier à
+   BumpForge »** (toolbar *FW — Outils*) → choisir le fichier `.step` cible.
+   La sélection + le chemin sont mémorisés dans le document (objet
+   `BumpForge_Link`) et **chaque Ctrl+S ré-exporte automatiquement** ce STEP.
+2. **BumpForge** : déposer le `.step` une fois. Toasts : « N faces reconnues » +
+   « Lien vif » + « N slots créés depuis les couleurs ».
 3. Choisir une texture par slot (les faces sont déjà assignées par couleur).
-4. **Modifier dans FreeCAD → ré-exporter sur le même fichier** : BumpForge se
-   recharge tout seul et ré-apparie les sélections (toast « ré-appariées »).
+4. **Modifier dans FreeCAD → Ctrl+S** : le STEP se ré-exporte, BumpForge se
+   recharge et ré-apparie les sélections tout seul. **Un seul geste.**
+
+Relancer « Lier à BumpForge » avec une nouvelle sélection met le périmètre à
+jour ; sans sélection, la commande propose de délier. (L'export manuel
+Fichier → Exporter reste possible — le lien vif réagit pareil.)
 
 Le flux v1 (STL + sidecar JSON via la commande FW « Exporter pour BumpForge »,
 toolbar *FW — Outils*) reste supporté à l'identique — c'est le **repli** pour un
