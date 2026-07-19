@@ -59,6 +59,19 @@ function makeContinu() {
   };
 }
 
+// ── v2 « continu contrasté » : bruit RIDGÉ (crêtes vives, façon roche taillée)
+// Verdict T0 : 0,6 doux = « beaucoup trop subtile » → amp 0,9, fréquences
+// moyennes dominantes, crêtes anguleuses (1-|2n-1| plie le bruit en arêtes).
+function makeContinuV2() {
+  const o1 = periodicNoise(6, 111), o2 = periodicNoise(12, 222), o3 = periodicNoise(24, 333);
+  const ridge = (n) => 1 - Math.abs(2 * n - 1);
+  return (x, y) => {
+    const u = (((x / W) % 1) + 1) % 1, v = (((y / W) % 1) + 1) % 1;
+    const n = 0.5 * ridge(o1(u, v)) + 0.35 * ridge(o2(u, v)) + 0.15 * o3(u, v);
+    return Math.pow(n, 1.4) * 0.9; // gamma > 1 creuse les vallées, garde les crêtes
+  };
+}
+
 // ── Heightmap « rainure » : pavés 25,4 + mortier aux frontières ──────────────
 // Le joint (0,9 de large, plein creux) tombe sur les bords de dalle → chaque
 // bord porte une DEMI-rainure ; deux dalles côte à côte = un joint complet.
@@ -83,7 +96,12 @@ function makeRainure() {
 }
 
 // ── Maillage : height-field box (dessus déplacé AXIALEMENT, parois planes) ───
-function buildTile(hmap) {
+// softChamfer (pilote v2) : micro-chanfrein 0,3 sur la PAIRE MOLLE (les 2
+// chants VERTICAUX à l'impression = X-min/X-max, la dalle étant debout sur
+// Y-min) — verdict T0 : la buse arrondit ces coins, 2 arrondis = gap en V ;
+// 2 chanfreins définis = ligne de joint voulue. Implémenté en atténuant le
+// relief vers 0 sur la largeur du chanfrein + biseau du bord supérieur.
+function buildTile(hmap, softChamfer = 0) {
   const N = Math.round(W / STEP);                 // cellules par côté
   const vTop = [], vBot = [];
   for (let j = 0; j <= N; j++) {
@@ -91,7 +109,15 @@ function buildTile(hmap) {
       const x = (i / N) * W, y = (j / N) * W;
       // échantillonner à x mod W : la colonne i=N relit EXACTEMENT i=0 → bords
       // identiques par construction (le contrat du mode Tileable)
-      vTop.push([x, y, TH + hmap(x % W, y % W)]);
+      let h = hmap(x % W, y % W);
+      if (softChamfer > 0) {
+        const dEdge = Math.min(x, W - x);         // distance aux chants X (paire molle)
+        if (dEdge < softChamfer) {
+          const t = dEdge / softChamfer;
+          h = h * t - softChamfer * (1 - t);      // relief → 0 puis biseau sous le nu
+        }
+      }
+      vTop.push([x, y, TH + h]);
       vBot.push([x, y, 0]);
     }
   }
@@ -165,14 +191,22 @@ function edgeOracle(hmap) {
 }
 
 mkdirSync(OUT, { recursive: true });
-for (const [name, hmap] of [['continu', makeContinu()], ['rainure', makeRainure()]]) {
+// v1 : continu doux / rainure — v2 (post-verdict T0) : texture contrastée +
+// micro-chanfrein 0,3 sur la paire molle, en continu ET en rainure.
+const TILES = [
+  ['continu', makeContinu(), 0],
+  ['rainure', makeRainure(), 0],
+  ['v2_continu', makeContinuV2(), 0.3],
+  ['v2_rainure', makeRainure(), 0.3],
+];
+for (const [name, hmap, chamfer] of TILES) {
   const oracleGap = edgeOracle(hmap);
-  const flat = buildTile(hmap);
+  const flat = buildTile(hmap, chamfer);
   const up = upright(flat);
   const vol = signedVolume(up);
   writeSTL(up, join(OUT, `pilote_${name}.stl`));
-  console.log(`pilote_${name}.stl : ${up.length} tris, volume ${vol.toFixed(0)} mm³, oracle bords = ${oracleGap.toExponential(1)} mm`);
+  console.log(`pilote_${name}.stl : ${up.length} tris, volume ${vol.toFixed(0)} mm³, oracle bords = ${oracleGap.toExponential(1)} mm, chanfrein paire molle = ${chamfer}`);
   if (oracleGap > 1e-9) throw new Error(`bords non identiques (${name})`);
-  if (vol < W * W * TH * 0.9) throw new Error(`volume suspect (${name})`);
+  if (vol < W * W * (TH - 0.5) * 0.9) throw new Error(`volume suspect (${name})`);
 }
 console.log(`\nSortie : ${OUT}`);
