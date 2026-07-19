@@ -139,6 +139,52 @@ function makePaves() {
   };
 }
 
+// ── v4 « dallage médiéval » : pierres IRRÉGULIÈRES, inclinées, ébréchées ─────
+// Verdict v3 : « un peu mieux » = grille d'usine, trop régulière. Les leviers
+// du réalisme (cf. tuiles commerciales) : tailles de pierres VARIÉES par rang,
+// INCLINAISON aléatoire par pierre (le n°1), hauteurs dispersées, arêtes
+// ébréchées. Tout reste périodique : les motifs de rangs somment à W exact.
+function makeDallage() {
+  const rnd = mulberry32(909);
+  // hauteurs de rangs irrégulières sommant à W (50,8)
+  const ROWS = [8.9, 11.4, 7.6, 12.7, 10.2];
+  // largeurs de pierres par rang (chaque motif somme à W), décalées d'un rang à l'autre
+  const WIDTHS = [
+    [14.0, 9.6, 15.2, 12.0],
+    [10.4, 16.0, 11.2, 13.2],
+    [15.6, 10.8, 13.6, 10.8],
+    [12.4, 14.8, 9.2, 14.4],
+    [11.6, 13.2, 15.6, 10.4],
+  ];
+  const GROUT = 1.1;
+  // par pierre : hauteur de base + inclinaison (gx, gy) + ébréchures de bord
+  const stones = ROWS.map((_, r) => WIDTHS[r].map(() => ({
+    h: 0.75 + rnd() * 0.45,
+    gx: (rnd() - 0.5) * 0.055,          // pente mm/mm → ±0,35 sur une pierre
+    gy: (rnd() - 0.5) * 0.045,
+  })));
+  const chip = periodicNoise(32, 1010); // ébréchures le long des joints
+  const micro = periodicNoise(20, 1111);
+  const rowY = [0]; for (const h of ROWS) rowY.push(rowY[rowY.length - 1] + h);
+  return (x, y) => {
+    const u = ((x % W) + W) % W, v = ((y % W) + W) % W;
+    let r = 0; while (v >= rowY[r + 1]) r++;
+    const ly = v - rowY[r], RH = ROWS[r];
+    const ws = WIDTHS[r];
+    let cx = 0, sx = 0; while (u >= sx + ws[cx]) { sx += ws[cx]; cx++; }
+    const lx = u - sx, SW = ws[cx];
+    // ébréchure : la largeur d'épaule varie le long du joint
+    const rag = 0.45 + chip(u / W, v / W) * 0.75;
+    const d = Math.min(lx, SW - lx, ly, RH - ly) - GROUT / 2;
+    if (d <= 0) return 0;                                 // fond de joint
+    const s = stones[r][cx];
+    const shoulder = d < rag ? (1 - Math.cos((Math.min(d / rag, 1)) * Math.PI)) / 2 : 1;
+    const tilt = s.gx * (lx - SW / 2) + s.gy * (ly - RH / 2);
+    const surf = micro(u / W, v / W) * 0.16;
+    return Math.max(0, (s.h + tilt + surf) * shoulder);
+  };
+}
+
 // ── Maillage : height-field box (dessus déplacé AXIALEMENT, parois planes) ───
 // softChamfer (pilote v2) : micro-chanfrein 0,3 sur la PAIRE MOLLE (les 2
 // chants VERTICAUX à l'impression = X-min/X-max, la dalle étant debout sur
@@ -244,6 +290,7 @@ const TILES = [
   ['v2_rainure', makeRainure(), 0.3],
   ['v3_briques', makeBriques(), 0.3],
   ['v3_paves', makePaves(), 0.3],
+  ['v4_dallage', makeDallage(), 0.3],
 ];
 for (const [name, hmap, chamfer] of TILES) {
   const oracleGap = edgeOracle(hmap);
