@@ -39,17 +39,31 @@ même STL imprimée N fois s'assemble **sans rupture visible du relief**.
    (le débrayer casserait la garantie) et VISIBLE (décision n°6).
 2. **Déplacement AXIAL** : selon l'axe de projection strictement (pas la normale
    lissée) → l'empreinte XY ne bouge jamais, parois planes, watertight préservé.
-3. **Clamp de bord — garantie PAR CONSTRUCTION** (décision n°10) : la hauteur
-   des sommets du bord u=1 est forcée à la valeur interpolée du profil u=0
-   (idem v=0/v=1, pour les axes activés). L'oracle devient un filet, plus un
-   espoir : il vérifie, le clamp garantit.
-4. **Oracle partagé** (décision n°3) : UN module (`tileability.js`, pur) appelé
-   (a) par la suite headless et (b) **in-app après chaque displacement** en mode
-   Tileable → badge. Critère : pour tout sommet d'un bord activé, écart de
-   hauteur au profil du bord opposé ≤ ε.
+3. **Bords coïncidents PAR CONSTRUCTION** (décisions n°10 + eng n°5) — en deux
+   temps, car clamper les sommets ne suffit pas (les SEGMENTS entre sommets
+   divergeraient — piège de la revue eng) :
+   (a) **raffinement de bord** : après la subdivision standard (`subdivision.js`,
+   qui tourne déjà avant tout displacement), chaque bord garanti reçoit les
+   breakpoints du bord opposé → distributions de sommets IDENTIQUES ;
+   (b) **clamp** : hauteur du bord u=1 forcée à celle de u=0 → polylignes
+   identiques segment par segment.
+4. **Oracle partagé anti-tautologie** (décisions n°3 + eng n°1/5) : UN module
+   (`tileability.js`, pur — il héberge aussi le *sampler clampé* appelé par
+   `displacement.js` en mode 11). Deux niveaux :
+   - **in-app (badge, instantané)** : vérifie la CHAÎNE AMONT sur la heightmap —
+     périodicité post-blur-torique + snap entier actif + clamp actif. Suffisant
+     car la garantie est par construction ; aucun displacement de fond (le vrai
+     pipeline ne tourne qu'à l'export/bake/aperçu 3D).
+   - **mesh (tests headless + e2e + export)** : pour tout sommet d'un bord
+     activé, écart à la **POLYLIGNE du bord opposé** ≤ ε (jamais « au profil
+     source du clamp » — ce serait mesurer ce que le clamp vient de faire).
+     L'écart mm affiché est mesuré à l'export.
 5. **Blur torique** (décision n°11a) : en Tileable, « Texture Smoothing »
    applique un blur *wrap-around* (sinon il désaccorde silencieusement les bords
    après vérification). Seam Blend / Transition masqués (non pertinents).
+6. **Miroir GLSL** (eng n°3) : le mode 11 existe AUSSI dans le shader de preview
+   (`previewMaterial.js`) — projection planaire + repeat, synchronisé au CPU
+   (piège Wood Auto vécu : CPU ≠ GLSL = heures de debug).
 
 ### Contrat de maillage d'entrée (décision n°10b)
 Dalle = emprise ≈ boîte ; face à texturer plane (ε plan 0,05 mm) ; parois
@@ -100,14 +114,20 @@ vraie (même buffer, instancié — coût quasi nul). En répétable X seul → 
 1×3. Désactivé pendant la peinture de faces (raycast). C'est l'étape qui tue le
 doute AVANT l'impression.
 
-## Export (décision n°8b — idée PO)
+## Export (décision n°8b — idée PO ; règle de chant UNIFIÉE eng n°2/8)
 
 - Coche **« Exporter debout (prêt à imprimer) »**, **ON par défaut** en mode
   Tileable : le STL sort pivoté 90°, posé sur un chant — le slicer le reçoit
   déjà dans la bonne orientation (le conseil devient un acte).
-- **Chant d'appui AUTO** : un bord NON garanti quand il en existe (répétable X
-  seul → chant avant/arrière ; le pied d'éléphant sacrifie un bord qui ne se
-  raccorde pas), sinon l'avant ; **override** par select.
+- **Règle de chant — UNE seule autorité** (convention partagée avec
+  SPEC_FW_DALLE) : dalle **avec poches** (corps FW_Dalle) → chant d'appui =
+  **Y-min OBLIGATOIRE** (c'est le chant pour lequel les toits 45° des poches
+  sont orientés ; override possible avec warning « ≠ chant des poches ») ;
+  modèle tiers **sans poches** → auto = un bord NON garanti (le pied d'éléphant
+  sacrifie un bord qui ne se raccorde pas), sinon l'avant ; override par select.
+- **Check « assise intacte »** (eng n°8) : à l'export en mode Tileable, vérifier
+  qu'aucun sommet sous le plan d'assise (dessous/poches) n'a été déplacé →
+  warning si l'interface clips a été touchée par une sélection maladroite.
 - Toast de confirmation : « Exporté debout — chant avant au plateau ».
 - Conseils résiduels (z-seam sur un coin, brim) : encart au 1ᵉʳ export Tileable,
   dismissible.
@@ -164,6 +184,21 @@ snap cylindrique · bandeau diagnostic (famille visuelle du badge) · suite
 headless + hook pre-commit (l'oracle s'y branche) · viewport three.js
 (instances pour l'aperçu 3×3) · pont FreeCAD (STEP, couleurs→slots, lien vif).
 
+## Rotation 90° — encadrement de la promesse (eng n°6)
+
+La poche universelle (SPEC_FW_DALLE) permet la rotation **mécanique** à 90° ;
+le raccord **visuel** d'une dalle tournée n'est PAS garanti en v1 (translation
+seule : un bord gauche tourné rencontre un bord bas — paires non garanties
+entre elles). À écrire dans la doc UI du mode. Textures rotation-safe = v2.
+
+## Pilote d'impression (eng n°6 — AVANT P1)
+
+Avant d'implémenter : **2 dalles texturées à la main** (heightmap préparée
+manuellement, joint continu sur l'une, rainure sur l'autre), imprimées debout et
+assemblées — valide à l'œil l'effet physique du joint (ombre ~0,1 mm, chanfrein
+du chant) et **calibre le défaut de joint sur du plastique**, pas sur une
+intuition. ~1 journée d'impression, dé-risque des semaines de dev.
+
 ## Extensions futures
 
 Variants (bande de bord verrouillée + intérieur seedé) → Tile Sets Floor_01..N →
@@ -197,6 +232,19 @@ version, P3 = suite.
   décision n°11b.
 - [ ] **T10 (P3)** — vérification seamless de texture (seuil 2 %/1 %) +
   checkbox. Surfacé par : contrainte texture.
+- [ ] **T11 (P1)** — e2e Tileable : fixture dalle → badge vert visible → export
+  → **oracle sur le STL EXPORTÉ** (le vrai fichier) + orientation debout
+  vérifiée. Surfacé par : eng review §tests (3 gaps e2e).
+- [ ] **T12 (P2)** — grille de jeu gravée : couche heightmap composite (lignes
+  en creux au pas de 25,4 mm alignées sur les bords via le snap — les cases se
+  raccordent entre dalles). Surfacé par : eng review n°8 (F3 — promise par
+  FW_Dalle, tombée entre les deux specs).
+- [ ] **T0 (AVANT tout)** — pilote d'impression : 2 dalles texturées à la main
+  (continu vs rainure), imprimées debout, assemblées → choix du joint par
+  défaut sur pièce réelle. Surfacé par : eng review n°6 (voix externe F9).
+
+La fixture dalle (T1) est committée dans `test/fixtures/tile/` et partagée par
+unit/golden/e2e.
 
 ## GSTACK REVIEW REPORT
 
@@ -204,11 +252,16 @@ version, P3 = suite.
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
 | Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | (codex non installé) |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | — | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | clean | 9 issues (2 archi + 3 qualité + gaps tests + 4 voix ext.), 8 décisions, 0 gap critique restant |
 | Design Review | `/plan-design-review` | UI/UX gaps | 1 | clean | score : 6/10 → 9/10, 13 décisions, voix externe [single-model] 17 findings intégrés |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
 
-**VERDICT :** DESIGN CLEARED — spec prête à implémenter ; eng review required
-avant de shipper l'implémentation.
+**CROSS-MODEL :** voix externe eng [single-model] 10 findings — 9 intégrés
+(breakpoints anti-tautologie, pilote, grille gravée orpheline, chant unifié,
+réserve de relief, coupon debout…) ; 1 corrigé factuellement (la subdivision
+existe : `subdivision.js` tourne avant tout displacement).
+
+**VERDICT :** DESIGN + ENG CLEARED — prêt à implémenter. Ordre : T0 (pilote
+d'impression) → P1 (T1-T5, T11) → P2. Phasage validé (complexity check).
 
 NO UNRESOLVED DECISIONS
