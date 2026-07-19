@@ -199,6 +199,26 @@ assemblées — valide à l'œil l'effet physique du joint (ombre ~0,1 mm, chanf
 du chant) et **calibre le défaut de joint sur du plastique**, pas sur une
 intuition. ~1 journée d'impression, dé-risque des semaines de dev.
 
+### Résultats T0 (verdict PO, 2026-07-19)
+
+1. **L'anisotropie d'arête domine tout** : les deux chants HORIZONTAUX à
+   l'impression (couches qui s'arrêtent net) donnent des arêtes VIVES →
+   assemblage régulier ; les deux chants VERTICAUX (la buse arrondit le coin à
+   chaque couche, rayon ~0,2) donnent des arêtes MOLLES → gap en V visible.
+   Le pied d'éléphant du chant plateau n'était PAS le problème dominant.
+2. **Conséquences intégrées** : (a) règle d'orientation — les bords RÉPÉTÉS
+   doivent être la paire nette : en répétable mono-axe, `chant_impression` ⊥
+   axe de répétition (cas résolu à 100 %) ; (b) en X+Y, **micro-chanfrein
+   0,3 mm sur la paire molle uniquement** (côté FW_Dalle, orienté par
+   `chant_impression`) — deux chanfreins définis remplacent deux arrondis
+   flous, le joint devient une ligne voulue.
+3. **Texture** : amplitude 0,6 en bruit doux = « beaucoup trop subtile » sur
+   pièce réelle → défaut du mode relevé à **0,8** et le CONTRASTE (fréquences
+   moyennes, crêtes) importe plus que l'amplitude.
+4. **Joint par défaut : penchant PO = `continu`** (réalisme), sous réserve que
+   le micro-chanfrein dissimule le gap de la paire molle — **pilote v2**
+   (texture contrastée + chanfrein paire molle) tranche définitivement.
+
 ## Extensions futures
 
 Variants (bande de bord verrouillée + intérieur seedé) → Tile Sets Floor_01..N →
