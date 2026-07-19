@@ -95,6 +95,50 @@ function makeRainure() {
   };
 }
 
+// ── v3 « briques » : appareil en panneresses (running bond), joints PROFONDS ─
+// Verdict v2 (slicer) : le bruit même ridgé reste illisible → unités
+// STRUCTURÉES. Briques 12,7 × 6,35 (4 × 8 par dalle, décalage demi-brique un
+// rang sur deux → périodique), joint 1,0 de large, relief ~1,0 mm.
+function makeBriques() {
+  const BW = 12.7, BH = 6.35, GROUT = 1.0, SHOULDER = 0.5;
+  const jit = mulberry32(606);
+  const jitter = Array.from({ length: 8 }, () => Array.from({ length: 4 }, () => jit() * 0.18));
+  const micro = periodicNoise(24, 707);
+  return (x, y) => {
+    const u = ((x % W) + W) % W, v = ((y % W) + W) % W;
+    const row = Math.floor(v / BH);                       // 0..7
+    const off = (row % 2) * (BW / 2);                     // décalage demi-brique
+    const uu = ((u + off) % W + W) % W;
+    const col = Math.floor(uu / BW);                      // 0..3
+    const lx = uu - col * BW, ly = v - row * BH;
+    const d = Math.min(lx, BW - lx, ly, BH - ly) - GROUT / 2;
+    if (d <= 0) return 0;                                 // fond de joint
+    const plateau = 0.85 + jitter[row % 8][col % 4];
+    const shoulder = d < SHOULDER ? (1 - Math.cos((d / SHOULDER) * Math.PI)) / 2 : 1;
+    return (plateau + micro(u / W, v / W) * 0.1) * shoulder;
+  };
+}
+
+// ── v3 « pavés » : galets bombés 12,7 (4 × 4), joints larges, dômes marqués ──
+function makePaves() {
+  const CS = 12.7, GROUT = 1.2;
+  const jit = mulberry32(808);
+  const jitter = Array.from({ length: 4 }, () => Array.from({ length: 4 }, () => jit() * 0.25));
+  return (x, y) => {
+    const u = ((x % W) + W) % W, v = ((y % W) + W) % W;
+    const cx = Math.floor(u / CS), cy = Math.floor(v / CS);
+    const lx = u - cx * CS, ly = v - cy * CS;
+    const dx = Math.min(lx, CS - lx) - GROUT / 2, dy = Math.min(ly, CS - ly) - GROUT / 2;
+    if (dx <= 0 || dy <= 0) return 0;                     // fond de joint
+    const half = (CS - GROUT) / 2;
+    // COUSSIN bombé : profil séparable (produit par axe) — min(dx,dy) donnerait
+    // des pyramides (isolignes carrées), vécu au rendu v3.
+    const fx = Math.sin((Math.min(dx / half, 1) * Math.PI) / 2) ** 0.55;
+    const fy = Math.sin((Math.min(dy / half, 1) * Math.PI) / 2) ** 0.55;
+    return (0.75 + jitter[cy % 4][cx % 4]) * fx * fy;
+  };
+}
+
 // ── Maillage : height-field box (dessus déplacé AXIALEMENT, parois planes) ───
 // softChamfer (pilote v2) : micro-chanfrein 0,3 sur la PAIRE MOLLE (les 2
 // chants VERTICAUX à l'impression = X-min/X-max, la dalle étant debout sur
@@ -198,6 +242,8 @@ const TILES = [
   ['rainure', makeRainure(), 0],
   ['v2_continu', makeContinuV2(), 0.3],
   ['v2_rainure', makeRainure(), 0.3],
+  ['v3_briques', makeBriques(), 0.3],
+  ['v3_paves', makePaves(), 0.3],
 ];
 for (const [name, hmap, chamfer] of TILES) {
   const oracleGap = edgeOracle(hmap);
