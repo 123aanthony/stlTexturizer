@@ -176,7 +176,14 @@ function makeDallage() {
     // ébréchure : la largeur d'épaule varie le long du joint
     const rag = 0.45 + chip(u / W, v / W) * 0.75;
     const d = Math.min(lx, SW - lx, ly, RH - ly) - GROUT / 2;
-    if (d <= 0) return 0;                                 // fond de joint
+    // v5 (verdict pilote peint) : chaque joint INTERNE porte un V central de
+    // -0,3 identique au chanfrein du joint de dalle → le joint entre dalles
+    // devient un joint parmi les autres (même profondeur, même profil).
+    if (d <= 0) {
+      const dj = Math.min(lx, SW - lx, ly, RH - ly);      // distance au centre du joint... approx
+      const t = Math.max(0, 1 - dj / (GROUT / 2));        // 1 au centre du joint, 0 à l'épaule
+      return -0.3 * t;
+    }
     const s = stones[r][cx];
     const shoulder = d < rag ? (1 - Math.cos((Math.min(d / rag, 1)) * Math.PI)) / 2 : 1;
     const tilt = s.gx * (lx - SW / 2) + s.gy * (ly - RH / 2);

@@ -219,6 +219,22 @@ intuition. ~1 journée d'impression, dé-risque des semaines de dev.
    le micro-chanfrein dissimule le gap de la paire molle — **pilote v2**
    (texture contrastée + chanfrein paire molle) tranche définitivement.
 
+### Résultats pilote imprimé + PEINT (v4, verdict PO)
+
+5. **Texture** : le bruit (même ridgé) est illisible à cette échelle — seules
+   les **unités structurées** marchent (pierres/briques individuelles, joints
+   ~1 mm, tailles variées, INCLINAISON par pierre, ébréchures). Peint : validé.
+6. **Joints** : paire vive = **quasi invisible** peinte ✓ ; paire molle =
+   **encore visible malgré chanfrein + ponçage** (le joint de dalle est plus
+   profond/différent des joints du motif). **Parade v5 intégrée : UNIFORMISER
+   les joints** — chaque joint interne du motif porte le même V central (-0,3,
+   même profil que le chanfrein de bord) → le joint de dalle devient un joint
+   parmi les autres. Conséquence pour le mode : l'option de joint `continu`
+   gagne un réglage « V de joint uniforme » (profondeur mm) appliqué par la
+   couche de bord ET recommandé aux textures à joints.
+7. **Rotation 90°** : « relativement marqué » — confirme la limite v1
+   documentée (translation seule).
+
 ## Extensions futures
 
 Variants (bande de bord verrouillée + intérieur seedé) → Tile Sets Floor_01..N →
