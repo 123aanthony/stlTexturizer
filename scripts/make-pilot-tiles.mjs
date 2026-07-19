@@ -280,7 +280,43 @@ function edgeOracle(hmap) {
   return worst;
 }
 
+// ── Plaque pilote « plateau à rebord » : bac 2×2 dalles ──────────────────────
+// Les dalles pilotes n'ont pas de poches → la plaque de positionnement est un
+// BAC : creux de 102,0 (2×50,8 + 0,4 de jeu), rebord de 4, les dalles se
+// posent BORD À BORD dedans (aucune paroi entre elles — le joint reste pur).
+// La vraie plaque plots+clips (SPEC_FW_DALLE) viendra avec le proto T3.
+// STL = 6 boîtes fermées en contact coplanaire (union par le slicer).
+function makePlate() {
+  const INNER = 2 * W + 0.4, LIP = 4, BASE_T = 2.4, LIP_H = 2.0;
+  const OUTERD = INNER + 2 * LIP;
+  const box = (x0, y0, z0, x1, y1, z1) => {
+    const v = [
+      [x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0],
+      [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1],
+    ];
+    const q = (a, b, c, d) => [[v[a], v[b], v[c]], [v[a], v[c], v[d]]];
+    return [
+      ...q(0, 3, 2, 1), ...q(4, 5, 6, 7),   // dessous, dessus
+      ...q(0, 1, 5, 4), ...q(2, 3, 7, 6),   // avant, arrière
+      ...q(1, 2, 6, 5), ...q(3, 0, 4, 7),   // droite, gauche
+    ];
+  };
+  const z0 = BASE_T, z1 = BASE_T + LIP_H;
+  return [
+    ...box(0, 0, 0, OUTERD, OUTERD, BASE_T),                       // socle
+    ...box(0, 0, z0, OUTERD, LIP, z1),                             // rebord Y-min
+    ...box(0, OUTERD - LIP, z0, OUTERD, OUTERD, z1),               // rebord Y-max
+    ...box(0, LIP, z0, LIP, OUTERD - LIP, z1),                     // rebord X-min
+    ...box(OUTERD - LIP, LIP, z0, OUTERD, OUTERD - LIP, z1),       // rebord X-max
+  ];
+}
+
 mkdirSync(OUT, { recursive: true });
+{
+  const plate = makePlate();
+  writeSTL(plate, join(OUT, 'pilote_plaque_2x2.stl'));
+  console.log(`pilote_plaque_2x2.stl : ${plate.length} tris (bac 110×110, creux 102, s'imprime À PLAT)`);
+}
 // v1 : continu doux / rainure — v2 (post-verdict T0) : texture contrastée +
 // micro-chanfrein 0,3 sur la paire molle, en continu ET en rainure.
 const TILES = [
