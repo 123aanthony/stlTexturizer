@@ -192,65 +192,43 @@ function makeDallage() {
   };
 }
 
-// ── v6 « bordure » : le joint de dalle devient un ÉLÉMENT D'ARCHITECTURE ─────
-// Verdict v5 (slicer) : uniformiser la profondeur ne suffit pas — l'artefact
-// d'impression (arrondi buse ~0,2) reste visible dans un joint de 1,1. Parade
-// Dwarven Forge : un COURS DE PIERRES DE BORDURE sur les 4 côtés, le joint de
-// dalle tombe entre deux bordures = un joint de mortier parmi d'autres, et
-// l'arrondi disparaît dans une rigole voulue. Bonus : 4 bords IDENTIQUES →
-// le raccord à 90° devient propre aussi (la limite v1 tombe pour ces dalles).
+// ── v7 « bordure AFFLEURANTE » : la pierre va JUSQU'À l'arête, coupe droite ──
+// Historique : v5 (V uniforme) et v6 (bordure avec demi-joint creux au bord,
+// caniveau) rejetés — tout CREUX au bord recrée deux arêtes molles arrondies
+// par la buse au fond de la gorge (verdict PO). v7 = l'inverse :
+//   1. le cours de bordure AFFLEURE l'arête à PLEINE HAUTEUR (coupe droite,
+//      tangente) → l'artefact d'impression (2 arrondis ~0,2) forme un petit V
+//      de ~0,4 entre deux dalles ;
+//   2. les joints INTERNES de la bordure sont TAILLÉS à ce même profil
+//      (V ~0,7 × 0,3) → l'artefact devient un joint parmi les autres. On ne
+//      cache plus l'artefact : on dessine le décor À SON IMAGE.
+// Contrainte dure : hauteur de bordure CONSTANTE (deux pierres qui se
+// rencontrent à plat doivent être à la même cote, sinon marche au joint) —
+// assise taillée réaliste ; le grain micro reste périodique donc raccorde.
+// 4 bords identiques → le raccord à 90° reste propre (bonus v6 conservé).
 function makeBordure() {
   const field = makeDallage();
-  const G = 1.1, CURB = 5.4, BAND = G / 2 + CURB + G;   // demi-joint + pierre + joint interne
-  const SEGS = [13.4, 11.8, 14.2, 11.4];                 // longueurs de bordure (somme = W)
+  const CURB = 5.4, G = 1.1;              // cours affleurant + joint mortier côté champ
+  const VH = 0.35, VD = 0.3;              // demi-largeur / profondeur du V taillé
+  const SEGS = [13.4, 11.8, 14.2, 11.4];  // joints transversaux (somme = W → périodique)
   const segB = [0]; for (const s of SEGS) segB.push(segB[segB.length - 1] + s);
-  const rnd = mulberry32(1212);
-  const curbH = Array.from({ length: 4 }, () => SEGS.map(() => 0.8 + rnd() * 0.3));
   const micro = periodicNoise(20, 1313);
-  const V = (t) => -0.3 * Math.max(0, t);                // V central uniforme (v5)
+  const H = 0.95;                          // hauteur CONSTANTE de l'assise
   return (x, y) => {
     const u = ((x % W) + W) % W, v = ((y % W) + W) % W;
     const ex = Math.min(u, W - u), ey = Math.min(v, W - v);
     const dmin = Math.min(ex, ey);
-    if (dmin >= BAND) return field(u, v);                // champ intérieur (dallage v5)
-    if (dmin < G / 2) return V(1 - dmin / (G / 2));      // demi-joint du bord de dalle
-    const inner = (G / 2 + CURB + G / 2) ;               // centre du joint interne
-    if (dmin > G / 2 + CURB) return V(1 - Math.abs(dmin - inner) / (G / 2));
-    // pierre de bordure : édge la plus proche → coordonnée le long du bord
-    const edge = ex <= ey ? (u <= W - u ? 0 : 1) : (v <= W - v ? 2 : 3);
-    const s = (edge < 2 ? v : u);
+    if (dmin >= CURB + G) return field(u, v);            // champ intérieur (dallage v5)
+    if (dmin >= CURB)                                    // joint mortier bordure↔champ
+      return -0.3 * (1 - Math.abs(dmin - (CURB + G / 2)) / (G / 2));
+    // cours affleurant : distance au joint taillé le plus proche
+    const s = ex <= ey ? v : u;                          // coordonnée le long du bord
     let seg = 0; while (s >= segB[seg + 1]) seg++;
-    const ds = Math.min(s - segB[seg], segB[seg + 1] - s);        // joint transversal
-    if (ds < G / 2) return V(1 - ds / (G / 2));
-    const dm = Math.abs(ex - ey);                                 // onglet de coin
-    if (ex < BAND && ey < BAND && dm < G / 2) return V(1 - dm / (G / 2));
-    // plateau de la pierre (taillée : épaule nette 0,5, pas d'ébréchure)
-    const dEdge = Math.min(dmin - G / 2, G / 2 + CURB - dmin, ds - G / 2,
-                           (ex < BAND && ey < BAND) ? dm - G / 2 : Infinity);
-    const sh = dEdge < 0.5 ? (1 - Math.cos((Math.max(dEdge, 0) / 0.5) * Math.PI)) / 2 : 1;
-    return (curbH[edge][seg] + micro(u / W, v / W) * 0.1) * sh;
-  };
-}
-
-// ── v6 « caniveau » : rigole d'égout sur la PAIRE MOLLE seulement ────────────
-// L'autre stratégie : ne traiter QUE les bords à problème. Les chants X
-// (verticaux à l'impression, arêtes molles) portent une DEMI-rigole creuse
-// (0,9 de profond) — assemblées : un caniveau de rue de 6,8 de large qui
-// avale l'arrondi de buse. Les chants Y (paire vive) restent des joints nus
-// (quasi invisibles, vécu v1/v4). Réaliste pour des dalles de RUE (l'eau
-// coule le long des façades) ; le raccord en X double le caniveau = voulu.
-function makeCaniveau() {
-  const field = makeDallage();
-  const CHAN = 3.4, DEPTH = 0.9;
-  const micro = periodicNoise(20, 1414);
-  return (x, y) => {
-    const u = ((x % W) + W) % W, v = ((y % W) + W) % W;
-    const ex = Math.min(u, W - u);
-    const h = field(u, v);
-    if (ex >= CHAN) return h;
-    const t = 1 - ex / CHAN;                              // 1 au bord de dalle
-    const sm = (1 - Math.cos(Math.PI * t)) / 2;           // C1 aux deux bouts
-    return h * (1 - sm) - DEPTH * sm + micro(u / W, v / W) * 0.06 * sm;
+    let dV = Math.min(s - segB[seg], segB[seg + 1] - s); // joint transversal
+    if (ex < CURB + G && ey < CURB + G)                  // onglet de coin (45°)
+      dV = Math.min(dV, Math.abs(ex - ey) / Math.SQRT2);
+    const vcut = dV < VH ? VD * (1 - dV / VH) : 0;
+    return H + micro(u / W, v / W) * 0.12 - vcut;
   };
 }
 
@@ -396,8 +374,7 @@ const TILES = [
   ['v3_briques', makeBriques(), 0.3],
   ['v3_paves', makePaves(), 0.3],
   ['v4_dallage', makeDallage(), 0.3],
-  ['v6_bordure', makeBordure(), 0],   // le bord EST le décor — pas de chanfrein
-  ['v6_caniveau', makeCaniveau(), 0], // idem : la rigole avale l'arrondi
+  ['v7_bordure', makeBordure(), 0],   // affleurante : l'artefact EST le joint
 ];
 for (const [name, hmap, chamfer] of TILES) {
   const oracleGap = edgeOracle(hmap);
