@@ -192,6 +192,68 @@ function makeDallage() {
   };
 }
 
+// ── v6 « bordure » : le joint de dalle devient un ÉLÉMENT D'ARCHITECTURE ─────
+// Verdict v5 (slicer) : uniformiser la profondeur ne suffit pas — l'artefact
+// d'impression (arrondi buse ~0,2) reste visible dans un joint de 1,1. Parade
+// Dwarven Forge : un COURS DE PIERRES DE BORDURE sur les 4 côtés, le joint de
+// dalle tombe entre deux bordures = un joint de mortier parmi d'autres, et
+// l'arrondi disparaît dans une rigole voulue. Bonus : 4 bords IDENTIQUES →
+// le raccord à 90° devient propre aussi (la limite v1 tombe pour ces dalles).
+function makeBordure() {
+  const field = makeDallage();
+  const G = 1.1, CURB = 5.4, BAND = G / 2 + CURB + G;   // demi-joint + pierre + joint interne
+  const SEGS = [13.4, 11.8, 14.2, 11.4];                 // longueurs de bordure (somme = W)
+  const segB = [0]; for (const s of SEGS) segB.push(segB[segB.length - 1] + s);
+  const rnd = mulberry32(1212);
+  const curbH = Array.from({ length: 4 }, () => SEGS.map(() => 0.8 + rnd() * 0.3));
+  const micro = periodicNoise(20, 1313);
+  const V = (t) => -0.3 * Math.max(0, t);                // V central uniforme (v5)
+  return (x, y) => {
+    const u = ((x % W) + W) % W, v = ((y % W) + W) % W;
+    const ex = Math.min(u, W - u), ey = Math.min(v, W - v);
+    const dmin = Math.min(ex, ey);
+    if (dmin >= BAND) return field(u, v);                // champ intérieur (dallage v5)
+    if (dmin < G / 2) return V(1 - dmin / (G / 2));      // demi-joint du bord de dalle
+    const inner = (G / 2 + CURB + G / 2) ;               // centre du joint interne
+    if (dmin > G / 2 + CURB) return V(1 - Math.abs(dmin - inner) / (G / 2));
+    // pierre de bordure : édge la plus proche → coordonnée le long du bord
+    const edge = ex <= ey ? (u <= W - u ? 0 : 1) : (v <= W - v ? 2 : 3);
+    const s = (edge < 2 ? v : u);
+    let seg = 0; while (s >= segB[seg + 1]) seg++;
+    const ds = Math.min(s - segB[seg], segB[seg + 1] - s);        // joint transversal
+    if (ds < G / 2) return V(1 - ds / (G / 2));
+    const dm = Math.abs(ex - ey);                                 // onglet de coin
+    if (ex < BAND && ey < BAND && dm < G / 2) return V(1 - dm / (G / 2));
+    // plateau de la pierre (taillée : épaule nette 0,5, pas d'ébréchure)
+    const dEdge = Math.min(dmin - G / 2, G / 2 + CURB - dmin, ds - G / 2,
+                           (ex < BAND && ey < BAND) ? dm - G / 2 : Infinity);
+    const sh = dEdge < 0.5 ? (1 - Math.cos((Math.max(dEdge, 0) / 0.5) * Math.PI)) / 2 : 1;
+    return (curbH[edge][seg] + micro(u / W, v / W) * 0.1) * sh;
+  };
+}
+
+// ── v6 « caniveau » : rigole d'égout sur la PAIRE MOLLE seulement ────────────
+// L'autre stratégie : ne traiter QUE les bords à problème. Les chants X
+// (verticaux à l'impression, arêtes molles) portent une DEMI-rigole creuse
+// (0,9 de profond) — assemblées : un caniveau de rue de 6,8 de large qui
+// avale l'arrondi de buse. Les chants Y (paire vive) restent des joints nus
+// (quasi invisibles, vécu v1/v4). Réaliste pour des dalles de RUE (l'eau
+// coule le long des façades) ; le raccord en X double le caniveau = voulu.
+function makeCaniveau() {
+  const field = makeDallage();
+  const CHAN = 3.4, DEPTH = 0.9;
+  const micro = periodicNoise(20, 1414);
+  return (x, y) => {
+    const u = ((x % W) + W) % W, v = ((y % W) + W) % W;
+    const ex = Math.min(u, W - u);
+    const h = field(u, v);
+    if (ex >= CHAN) return h;
+    const t = 1 - ex / CHAN;                              // 1 au bord de dalle
+    const sm = (1 - Math.cos(Math.PI * t)) / 2;           // C1 aux deux bouts
+    return h * (1 - sm) - DEPTH * sm + micro(u / W, v / W) * 0.06 * sm;
+  };
+}
+
 // ── Maillage : height-field box (dessus déplacé AXIALEMENT, parois planes) ───
 // softChamfer (pilote v2) : micro-chanfrein 0,3 sur la PAIRE MOLLE (les 2
 // chants VERTICAUX à l'impression = X-min/X-max, la dalle étant debout sur
@@ -334,6 +396,8 @@ const TILES = [
   ['v3_briques', makeBriques(), 0.3],
   ['v3_paves', makePaves(), 0.3],
   ['v4_dallage', makeDallage(), 0.3],
+  ['v6_bordure', makeBordure(), 0],   // le bord EST le décor — pas de chanfrein
+  ['v6_caniveau', makeCaniveau(), 0], // idem : la rigole avale l'arrondi
 ];
 for (const [name, hmap, chamfer] of TILES) {
   const oracleGap = edgeOracle(hmap);
