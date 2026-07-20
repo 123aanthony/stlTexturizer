@@ -238,6 +238,16 @@ function makeBordure() {
 // Y-min) — verdict T0 : la buse arrondit ces coins, 2 arrondis = gap en V ;
 // 2 chanfreins définis = ligne de joint voulue. Implémenté en atténuant le
 // relief vers 0 sur la largeur du chanfrein + biseau du bord supérieur.
+// Face ARRIÈRE (v7b, retour PO : la PLANÉITÉ posée domine) :
+//   1. chanfrein périmétrique 0,6×0,6 au dos — le pied d'éléphant du chant
+//      d'impression déborde côté dos et fait BASCULER la dalle posée (marche
+//      entre voisines, pire que le V) → le dos ne porte que sur sa zone
+//      centrale, les bords sont dégagés ;
+//   2. rainure de COUTURE verticale (1,2 × 0,6, pleine hauteur d'impression,
+//      centrée sur le dos) — la couture Z s'y ENFONCE sous le nu au lieu de
+//      faire un cordon qui surélève la dalle (aligner/peindre la couture
+//      dedans au slicer).
+const BACK_CH = 0.6, SEAM_W = 1.2, SEAM_D = 0.6;
 function buildTile(hmap, softChamfer = 0) {
   const N = Math.round(W / STEP);                 // cellules par côté
   const vTop = [], vBot = [];
@@ -254,8 +264,11 @@ function buildTile(hmap, softChamfer = 0) {
           h = h * t - softChamfer * (1 - t);      // relief → 0 puis biseau sous le nu
         }
       }
+      const dB = Math.min(x, W - x, y, W - y);                        // chanfrein dos
+      const seam = Math.max(0, SEAM_D * (1 - Math.abs(x - W / 2) / (SEAM_W / 2)));
+      const zBot = Math.max(0, BACK_CH - dB, seam);                   // rainure verticale
       vTop.push([x, y, TH + h]);
-      vBot.push([x, y, 0]);
+      vBot.push([x, y, zBot]);
     }
   }
   const idx = (i, j) => j * (N + 1) + i;
