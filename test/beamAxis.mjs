@@ -127,4 +127,34 @@ test('BufferAttribute accepté (le chemin réel passe l\'attribut)', () => {
   assert.ok(adot(f.U, [0, 1, 0]) > 0.99, `U=${f.U}`);
 });
 
+
+// ── Échelle PHYSIQUE en Bois auto (retour PO : « je retweake échelle+lissage
+// par poutre, même en copiant le slot ») : la même échelle doit donner le
+// MÊME grain en mm sur une poutre longue et une courte. computeUV normalise
+// par le md GLOBAL du modèle, plus par l'étendue de la sélection.
+import { computeUV, MODE_WOOD_AUTO } from '../js/mapping.js';
+
+test('mode 7 : Δu par mm identique sur poutre longue et courte (échelle physique)', () => {
+  const longBeam = new THREE.BoxGeometry(90, 10, 10, 1, 1, 1).toNonIndexed();
+  const shortBeam = new THREE.BoxGeometry(30, 10, 10, 1, 1, 1).toNonIndexed();
+  const fLong = computeBeamFrame(longBeam.attributes.position.array);
+  const fShort = computeBeamFrame(shortBeam.attributes.position.array);
+  const bounds = {
+    min: { x: -100, y: -100, z: -100 }, max: { x: 100, y: 100, z: 100 },
+    size: { x: 200, y: 200, z: 200 }, center: { x: 0, y: 0, z: 0 },
+  };
+  const st = (frame) => ({ scaleU: 1, scaleV: 1, offsetU: 0, offsetV: 0, beamFrame: frame });
+  const n = { x: 0, y: 0, z: 1 };                      // face du dessus
+  const du = (frame, x1, x2) => {
+    const a = computeUV({ x: x1, y: 0, z: 5 }, n, MODE_WOOD_AUTO, st(frame), bounds);
+    const b = computeUV({ x: x2, y: 0, z: 5 }, n, MODE_WOOD_AUTO, st(frame), bounds);
+    return Math.abs(b.u - a.u);
+  };
+  const duLong = du(fLong, 0, 10), duShort = du(fShort, 0, 10);
+  assert.ok(Math.abs(duLong - duShort) < 1e-6,
+    `10 mm doivent couvrir le même Δu partout : long=${duLong}, court=${duShort}`);
+  assert.ok(Math.abs(duLong - 10 / 200) < 1e-6,
+    `Δu attendu = 10/md_global = 0.05, obtenu ${duLong}`);
+});
+
 console.error(`\nbeamAxis: ${passed} checks passed${process.exitCode ? ' (with failures)' : ''}`);

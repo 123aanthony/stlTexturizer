@@ -138,8 +138,11 @@ const sharedGLSL = /* glsl */`
       // to the beam, no seam. Mirror of beamAxis.orientedRawUV.
       float nV = abs(dot(projN, beamV));
       float nW = abs(dot(projN, beamW));
-      float oU = (lu - beamMin.x) / beamMd;
-      float oV = (nV >= nW) ? (lwc / beamMd) : (lvc / beamMd);
+      // Echelle PHYSIQUE (miroir de mapping.js MODE_WOOD_AUTO) : normaliser
+      // par le md GLOBAL, pas par l'etendue de la selection (beamMd) — sinon
+      // la meme echelle donne un grain different par poutre.
+      float oU = (lu - beamMin.x) / md;
+      float oV = (nV >= nW) ? (lwc / md) : (lvc / md);
       return sampleMap(vec2(oU, oV));
     }
 

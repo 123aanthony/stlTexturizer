@@ -324,7 +324,14 @@ export function computeUV(pos, normal, mode, settings, bounds) {
       // back to the legacy longest-world-axis pick when no frame was supplied.
       if (settings.beamFrame) {
         const { rawU, rawV } = orientedRawUV(pos, normal, settings.beamFrame);
-        return applyTransform(rawU, rawV, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
+        // Échelle PHYSIQUE : orientedRawUV normalise par l'étendue de la
+        // SÉLECTION (frame.md) → la même valeur d'échelle donnait un grain
+        // plus petit sur une poutre plus courte, et copier un slot obligeait
+        // à re-régler échelle+lissage par poutre (vécu). Re-normaliser par le
+        // md GLOBAL (la convention de tous les autres modes) rend l'échelle
+        // identique en mm sur toutes les poutres. Miroir GLSL : woodBeamHeight.
+        const k = settings.beamFrame.md / md;
+        return applyTransform(rawU * k, rawV * k, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
       }
       return computeWoodAutoUV();
     }
