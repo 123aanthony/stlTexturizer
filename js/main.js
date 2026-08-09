@@ -31,10 +31,21 @@ import { parseFaceSidecar, facesToTriangleSet, selectionToFaceKeys, matchFaceKey
 
 // Beam PCA frame for the live preview shader (Wood Auto), from the ACTIVE slot's
 // selected faces (a beam is a selection inside the model — using the whole mesh
-// would orient to the building's axis). Recomputed per preview update (debounced;
-// PCA over the selection is cheap).
+// would orient to the building's axis).
+// Memoized on (geometry, selection revision): the PCA is 3 full-mesh passes —
+// on multi-million-tri dioramas that was a synchronous main-thread beat inside
+// EVERY debounced updatePreview, felt as "the preview lags" only in Wood Auto.
+// The revision is bumped by every selection mutation (they all funnel through
+// refreshExclusionOverlay), by slot switches (restoreSlotState) and by undo
+// (_applyUndoSnapshot); a new geometry changes the cache key by identity.
+let _beamFrameCache = null, _beamFrameGeo = null, _beamFrameRev = -1;
+let _faceSelectionRev = 0;
+function _bumpFaceSelectionRev() { _faceSelectionRev++; }
 function _previewBeamFrame() {
   if (settings.mappingMode !== 7 || !currentGeometry) return null;
+  if (_beamFrameGeo === currentGeometry && _beamFrameRev === _faceSelectionRev) {
+    return _beamFrameCache;
+  }
   const triCount = (currentGeometry.attributes.position.count / 3) | 0;
   const assigned = getAssignedFacesForCurrentSlot();
   let mask = null;
@@ -42,7 +53,10 @@ function _previewBeamFrame() {
     mask = new Uint8Array(triCount);
     for (const f of assigned) { const i = Number(f); if (i >= 0 && i < triCount) mask[i] = 1; }
   }
-  return computeBeamFrame(currentGeometry.attributes.position.array, mask);
+  _beamFrameCache = computeBeamFrame(currentGeometry.attributes.position.array, mask);
+  _beamFrameGeo = currentGeometry;
+  _beamFrameRev = _faceSelectionRev;
+  return _beamFrameCache;
 }
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions, getShellAssignments } from './meshValidation.js';
@@ -866,10 +880,42 @@ let isExporting       = false;
 let isBaking          = false;
 let isRestoringProject = false;
 let previewDebounce   = null;
+// Leading-edge throttle with trailing flush for slider drags: the old trailing
+// 80 ms debounce was re-armed by every input event (~16 ms apart), so the
+// preview stayed FROZEN during a continuous drag and only snapped after the
+// pause — felt as "modifications not taken into account". Leading edge =
+// first movement updates immediately; the cap keeps ~12 fps during the drag;
+// the trailing flush guarantees the final value always lands.
+let _lastPreviewRun = 0;
+function schedulePreviewUpdate() {
+  clearTimeout(previewDebounce);
+  const now = performance.now();
+  if (now - _lastPreviewRun >= 80) {
+    _lastPreviewRun = now;
+    updatePreview();
+  } else {
+    previewDebounce = setTimeout(() => {
+      _lastPreviewRun = performance.now();
+      updatePreview();
+    }, 80 - (now - _lastPreviewRun));
+  }
+}
 let allSlotsPreviewActive = false;
 let allSlotsPreviewBusy = false;
 let allSlotsPreviewGeometry = null;
 let allSlotsPreviewMaterial = null;
+// Reconstruction débouncée de l'aperçu « tous les slots » : chaque bake est
+// un vrai pipeline export par slot (lourd) → 800 ms après la dernière édition,
+// et re-armement si un bake est déjà en cours.
+let _allSlotsRebuildTimer = null;
+function _scheduleAllSlotsRebuild() {
+  clearTimeout(_allSlotsRebuildTimer);
+  _allSlotsRebuildTimer = setTimeout(() => {
+    if (!allSlotsPreviewActive) return;
+    if (allSlotsPreviewBusy) { _scheduleAllSlotsRebuild(); return; }
+    rebuildAllSlotsPreview();
+  }, 800);
+}
 
 // Boundary edge data texture for per-fragment falloff in bump-only preview
 let _boundaryEdgeTex   = null;
@@ -900,6 +946,7 @@ let _shiftLineMesh     = null;        // THREE.Line — preview line from last p
 let _lastEffectiveTexture = null;
 let _effectiveMapCache    = null;
 let _effectiveMapCacheKey = null;
+let _effectiveMapCacheSrc = null;
 
 const settings = {
   mappingMode:   5,     // Triplanar default
@@ -1392,7 +1439,7 @@ function _applyScaleU(v) {
   scaleUSlider.value = scaleToPos(v);
   scaleUVal.value = v;
   if (settings.lockScale) { settings.scaleV = v; scaleVSlider.value = scaleToPos(v); scaleVVal.value = v; }
-  clearTimeout(previewDebounce); previewDebounce = setTimeout(updatePreview, 80);
+  schedulePreviewUpdate();
 }
 
 // ── Cylindrical projection: inset panel + axis helpers ────────────────────────
@@ -3275,7 +3322,7 @@ function wireEvents() {
     scaleVSlider.value = scaleToPos(v);
     scaleVVal.value = v;
     if (settings.lockScale) { settings.scaleU = v; scaleUSlider.value = scaleToPos(v); scaleUVal.value = v; }
-    clearTimeout(previewDebounce); previewDebounce = setTimeout(updatePreview, 80);
+    schedulePreviewUpdate();
   };
   scaleVSlider.addEventListener('input', () => applyScaleV(posToScale(parseFloat(scaleVSlider.value))));
   scaleVSlider.addEventListener('dblclick', () => applyScaleV(posToScale(parseFloat(scaleVSlider.defaultValue))));
@@ -4576,6 +4623,15 @@ function refreshExclusionOverlay() {
     : (settings.useDisplacement && dispPreviewGeometry)
       ? dispPreviewGeometry : currentGeometry;
   updateFaceMask(activeGeo);
+
+  // Wood Auto (beam) : la PCA du frame dérive de CETTE sélection — tous les
+  // chemins de mutation (pinceau, pot de peinture, Clear, bascule
+  // exclure/inclure) passent ici, mais aucun n'appelait updatePreview() → le
+  // grain gardait l'orientation/échelle de la sélection PRÉCÉDENTE jusqu'à un
+  // réglage sans rapport (le « ça se met à jour en retard » vécu). Throttlé :
+  // la PCA par mousemove de pinceau serait un coût plein-maillage par trait.
+  _bumpFaceSelectionRev();
+  if (settings.mappingMode === 7) schedulePreviewUpdate();
 }
 
 function updateBrushCursor(e) {
@@ -4764,8 +4820,7 @@ function linkSlider(slider, valInput, onChangeFn, livePreview = true) {
     onChangeFn(clamped);
     valInput.value = formatInputValue(valInput, clamped);
     if (livePreview) {
-      clearTimeout(previewDebounce);
-      previewDebounce = setTimeout(updatePreview, 80);
+      schedulePreviewUpdate();
     }
   };
   slider.addEventListener('input', () => {
@@ -4773,8 +4828,7 @@ function linkSlider(slider, valInput, onChangeFn, livePreview = true) {
     const display = onChangeFn(v);
     if (isSpan) valInput.textContent = display; else valInput.value = display;
     if (livePreview) {
-      clearTimeout(previewDebounce);
-      previewDebounce = setTimeout(updatePreview, 80);
+      schedulePreviewUpdate();
     }
   });
   // Double-click resets to default value
@@ -4784,8 +4838,7 @@ function linkSlider(slider, valInput, onChangeFn, livePreview = true) {
     const display = onChangeFn(v);
     if (isSpan) valInput.textContent = display; else valInput.value = display;
     if (livePreview) {
-      clearTimeout(previewDebounce);
-      previewDebounce = setTimeout(updatePreview, 80);
+      schedulePreviewUpdate();
     }
   });
   if (!isSpan) {
@@ -5822,11 +5875,18 @@ function getEffectiveMapEntry() {
   if (!activeMapEntry || settings.textureSmoothing === 0) {
     _effectiveMapCache    = null;
     _effectiveMapCacheKey = null;
+    _effectiveMapCacheSrc = null;
     return activeMapEntry;
   }
   const { fullCanvas, width, height, name } = activeMapEntry;
+  // La clé seule ne porte PAS l'identité du CONTENU : deux textures homonymes
+  // de mêmes dimensions (bibliothèque scannée : deux groupes avec planks.png)
+  // partageaient la même entrée → l'autre texture floutée servie en silence
+  // (aperçu au changement de slot ET géométrie exportée multi-slot). Les
+  // entrées étant immuables (ré-import = nouvel objet), l'identité de
+  // référence EST l'identité de contenu.
   const cacheKey = `${name}_${width}_${height}_${settings.textureSmoothing}`;
-  if (_effectiveMapCacheKey === cacheKey && _effectiveMapCache) {
+  if (_effectiveMapCacheKey === cacheKey && _effectiveMapCacheSrc === activeMapEntry && _effectiveMapCache) {
     return _effectiveMapCache;
   }
   // Tile the source 3×3 before blurring so edge pixels have correct
@@ -5857,6 +5917,7 @@ function getEffectiveMapEntry() {
   _lastEffectiveTexture = texture;
   _effectiveMapCache    = { ...activeMapEntry, imageData, texture };
   _effectiveMapCacheKey = cacheKey;
+  _effectiveMapCacheSrc = activeMapEntry;
   return _effectiveMapCache;
 }
 
@@ -5873,21 +5934,38 @@ function _regularizeOpts() {
   };
 }
 
-function updatePreview() {
-  if (allSlotsPreviewActive) return;
-  if (!currentGeometry || !currentBounds) return;
-
-  // Texture aspect correction so non-square textures keep their proportions.
-  // A 512×279 texture needs aspectV = 512/279 ≈ 1.84 so V tiles faster (more
-  // repetitions), making each tile shorter in world-space to match the texture's
-  // wider-than-tall content.  The wider axis gets aspect = 1 (unchanged).
+// Texture aspect correction so non-square textures keep their proportions.
+// A 512×279 texture needs aspectV = 512/279 ≈ 1.84 so V tiles faster (more
+// repetitions), making each tile shorter in world-space to match the texture's
+// wider-than-tall content.  The wider axis gets aspect = 1 (unchanged).
+// Shared helper: toggleDisplacementPreview built its settings by hand WITHOUT
+// these fields → previewMaterial reset textureAspect to (1,1) on toggle
+// (stale proportions until the next updatePreview). One source, three sites.
+function _previewAspect() {
   const tw = activeMapEntry?.width ?? 1, th = activeMapEntry?.height ?? 1;
   const tmax = Math.max(tw, th, 1);
+  return {
+    textureAspectU: tmax / Math.max(tw, 1),
+    textureAspectV: tmax / Math.max(th, 1),
+  };
+}
+
+function updatePreview() {
+  if (allSlotsPreviewActive) {
+    // L'aperçu « tous les slots » est une PHOTO (géométrie CPU figée) : toute
+    // édition arrivait ici et était AVALÉE en silence — la vue restait
+    // périmée jusqu'à un Exit Preview manuel (vécu : réglages du 2e slot
+    // invisibles, « un côté clean, pas l'autre »). On planifie une
+    // reconstruction débouncée : le mode devient auto-rafraîchissant.
+    _scheduleAllSlotsRebuild();
+    return;
+  }
+  if (!currentGeometry || !currentBounds) return;
+
   const fullSettings = {
     ...settings,
     bounds: currentBounds,
-    textureAspectU: tmax / Math.max(tw, 1),
-    textureAspectV: tmax / Math.max(th, 1),
+    ..._previewAspect(),
     beamFrame: _previewBeamFrame(),
   };
 
@@ -6274,7 +6352,7 @@ async function toggleDisplacementPreview(enable) {
   if (!enable) {
     // Revert to original geometry with bump-only shading.
     if (currentGeometry && previewMaterial) {
-      updateMaterial(previewMaterial, getEffectiveMapEntry()?.texture, { ...settings, bounds: currentBounds, beamFrame: _previewBeamFrame() });
+      updateMaterial(previewMaterial, getEffectiveMapEntry()?.texture, { ...settings, bounds: currentBounds, ..._previewAspect(), beamFrame: _previewBeamFrame() });
       updateFaceMask(currentGeometry);
       setMeshGeometry(currentGeometry);
     }
@@ -6378,7 +6456,7 @@ async function toggleDisplacementPreview(enable) {
       previewMaterial.dispose();
       previewMaterial = null;
     }
-    const fullSettings = { ...settings, bounds: currentBounds, beamFrame: _previewBeamFrame() };
+    const fullSettings = { ...settings, bounds: currentBounds, ..._previewAspect(), beamFrame: _previewBeamFrame() };
     previewMaterial = createPreviewMaterial(getEffectiveMapEntry().texture, fullSettings);
     setMeshGeometry(dispPreviewGeometry);
     setMeshMaterial(previewMaterial);
