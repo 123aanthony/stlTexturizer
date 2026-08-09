@@ -78,4 +78,53 @@ test('PCA masked to a beam inside a larger model → beam axis, not model axis',
   assert.ok(adot(computeBeamFrame(all, mask).U, [1, 0, 0]) > 0.9, 'masked axis should be ~X (the beam)');
 });
 
+
+// ── Régression : le frame de l'export mono-slot vient de la SÉLECTION ────────
+// (bug vécu : echec.bforge — poutres sélectionnées dans un compound FreeCAD,
+// « Exporter STL » calculait la PCA sur le bâtiment entier → vagues géantes
+// dans l'axe du bâtiment. Le masque doit se dériver des exclude-weights.)
+import { triMaskFromExcludeWeight } from '../js/beamAxis.js';
+
+function compositeScene() {
+  // grande plaque (l'axe dominant du MODÈLE) + poutre le long de Y (la sélection)
+  const plate = new THREE.BoxGeometry(200, 40, 4, 1, 1, 1).toNonIndexed();
+  const beam = new THREE.BoxGeometry(12, 90, 12, 1, 1, 1).toNonIndexed();
+  beam.translate(60, 0, 30);
+  const p1 = plate.attributes.position.array, p2 = beam.attributes.position.array;
+  const pos = new Float32Array(p1.length + p2.length);
+  pos.set(p1); pos.set(p2, p1.length);
+  // exclude-weights : plaque exclue (1), poutre incluse (0)
+  const ew = new Float32Array(pos.length / 3).fill(0);
+  for (let v = 0; v < p1.length / 3; v++) ew[v] = 1;
+  return { pos, ew, plateVerts: p1.length / 3 };
+}
+
+test('exclude-weights → masque PCA : la poutre, pas la plaque', () => {
+  const { pos, ew } = compositeScene();
+  const mask = triMaskFromExcludeWeight(ew, pos.length / 3);
+  assert.ok(mask, 'masque attendu (la plaque est exclue)');
+  const f = computeBeamFrame(pos, mask);
+  assert.ok(adot(f.U, [0, 1, 0]) > 0.99, `U=${f.U} (attendu : axe Y de la poutre)`);
+  assert.ok(Math.abs(f.md - 90) < 1, `md=${f.md} (attendu : longueur de la poutre)`);
+});
+
+test('sans masque, la PCA suivrait la plaque (le bug d\'avant)', () => {
+  const { pos } = compositeScene();
+  const f = computeBeamFrame(pos, null);
+  assert.ok(adot(f.U, [1, 0, 0]) > 0.9, `U=${f.U} (le modèle entier domine en X)`);
+});
+
+test('rien d\'exclu → null (modèle entier = la pièce, chemin legacy intact)', () => {
+  const ew = new Float32Array(90).fill(0);
+  assert.equal(triMaskFromExcludeWeight(ew, 90), null);
+});
+
+test('BufferAttribute accepté (le chemin réel passe l\'attribut)', () => {
+  const { pos, ew } = compositeScene();
+  const attr = new THREE.BufferAttribute(ew, 1);
+  const mask = triMaskFromExcludeWeight(attr, pos.length / 3);
+  const f = computeBeamFrame(pos, mask);
+  assert.ok(adot(f.U, [0, 1, 0]) > 0.99, `U=${f.U}`);
+});
+
 console.error(`\nbeamAxis: ${passed} checks passed${process.exitCode ? ' (with failures)' : ''}`);

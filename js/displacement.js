@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { computeUV, getDominantCubicAxis, getCubicBlendWeights } from './mapping.js';
 import { QuantizedPointMap } from './meshIndex.js';
-import { computeBeamFrame } from './beamAxis.js';
+import { computeBeamFrame, triMaskFromExcludeWeight } from './beamAxis.js';
 
 /**
  * Apply displacement to every vertex of a non-indexed BufferGeometry.
@@ -63,7 +63,12 @@ const faceMask = settings.faceMask || null;
     ss.mappingMode === 7 && !ss.beamFrame ? computeBeamFrame(posAttr.array, mask || null) : (ss.beamFrame ?? null);
 
   if (!multiSlots) {
-    const f = woodAutoFrame(settings, faceMask);
+    // Single-slot exports carry the selection as exclude-weights, not as a
+    // faceMask — derive the PCA mask from them, else the frame comes from the
+    // whole mesh (building axis, not the beam's).
+    const ew = geometry.attributes.excludeWeight;
+    const pcaMask = faceMask || (ew ? triMaskFromExcludeWeight(ew, posAttr.count) : null);
+    const f = woodAutoFrame(settings, pcaMask);
     if (f) settingsWithAspect.beamFrame = f;
   }
 

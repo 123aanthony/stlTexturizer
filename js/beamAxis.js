@@ -114,3 +114,24 @@ export function orientedRawUV(pos, _normal, frame) {
   const rawV = (nV >= nW) ? (lwc / md) : (lvc / md);
   return { rawU, rawV };
 }
+
+// Single-slot exports don't pass settings.faceMask — the user's face selection
+// reaches displacement as subdivision exclude-weights (the excludeWeight vertex
+// attribute), not as a triangle mask. This derives the PCA mask from those
+// weights so the beam frame is computed on the SELECTED piece only; without it
+// the frame came from the WHOLE mesh — on a multi-piece model (FreeCAD
+// compound) the grain followed the BUILDING's axis and scale, not the beam's.
+// Face excluded when its 3 vertex weights average > 0.99 (same threshold as
+// displacement's userExcluded — see the shared-vertex MAX-propagation note
+// there). Returns null when nothing is excluded (all-ones mask ≡ whole mesh).
+export function triMaskFromExcludeWeight(ew, vertCount) {
+  const triCount = (vertCount / 3) | 0;
+  const get = ew.getX ? (i) => ew.getX(i) : (i) => ew[i];
+  const mask = new Uint8Array(triCount);
+  let excluded = 0;
+  for (let t = 0; t < triCount; t++) {
+    if ((get(t * 3) + get(t * 3 + 1) + get(t * 3 + 2)) / 3 > 0.99) excluded++;
+    else mask[t] = 1;
+  }
+  return excluded === 0 ? null : mask;
+}
