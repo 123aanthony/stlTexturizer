@@ -8042,6 +8042,10 @@ function resetSettingsToDefaults() {
       const sz = currentBounds.size;
       const diag = Math.sqrt(sz.x * sz.x + sz.y * sz.y + sz.z * sz.z);
       snapshot.refineLength = Math.max(0.05, Math.min(5.0, +(diag / 250).toFixed(2)));
+      // Même logique pour la taille de tuile (mm absolus) : le défaut figé
+      // 25 mm ne vaut que pour le modèle de repli — ancrer au modèle chargé
+      // (l'équivalent de l'ancien relatif 0,5).
+      snapshot.scaleU = snapshot.scaleV = _defaultTileMm();
     }
     applySettingsSnapshot(snapshot);
 
