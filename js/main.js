@@ -974,6 +974,11 @@ const settings = {
   blendNormalSmoothing: 32,
   capAngle:         20,
   boundaryFalloff:  0,
+  // 'linear' (pente constante), 'scurve' (smoothstep, adouci aux 2 bouts),
+  // 'ease' (t², le plus doux au bord du masque). Les anciens snapshots sans la
+  // clé retombent sur 'linear' — la seule rampe qu'ils aient connue.
+  // (Portage amont v1.2.0 a6ac179 — défaut amont = 'ease'.)
+  boundaryFalloffCurve: 'ease',
   symmetricDisplacement: false,
   noDownwardZ: false,
   smoothBottom: true,
@@ -1033,6 +1038,10 @@ function updateSettingsUIFromSettings() {
   invertDisplacementCheckbox.checked = settings.invertDisplacement;
   lockScaleBtn.classList.toggle('active', settings.lockScale);
   lockScaleBtn.setAttribute('aria-pressed', String(settings.lockScale));
+
+  // Synchronise les boutons de courbe de lissage (le repli des anciens slots
+  // est géré dans restoreSlotState, avant l'appel).
+  setFalloffCurve(settings.boundaryFalloffCurve ?? 'linear', { silent: true });
 }
 function cloneSettings() {
   return { ...settings };
@@ -1102,6 +1111,11 @@ function restoreSlotState(slot) {
     const globalExportQuality = getGlobalExportQualitySnapshot();
     Object.assign(settings, slot.settings);
     Object.assign(settings, globalExportQuality);
+    // Clé absente (slot d'ancien projet) : Object.assign laisse la courbe du
+    // slot PRÉCÉDENT — forcer le repli 'linear' (le seul rendu qu'il ait connu).
+    if (!('boundaryFalloffCurve' in slot.settings)) settings.boundaryFalloffCurve = 'linear';
+    // Distance/courbe de lissage potentiellement différentes → attribut à refaire.
+    _falloffDirty = true;
   }
 
   activeMapName.textContent = activeMapEntry ? activeMapEntry.name : 'No map selected';
@@ -1334,6 +1348,37 @@ const cylinderCanvas         = document.getElementById('cylinder-canvas');
 const cylinderPanelMinimize  = document.getElementById('cylinder-panel-minimize');
 const boundaryFalloffSlider    = document.getElementById('boundary-falloff');
 const boundaryFalloffVal       = document.getElementById('boundary-falloff-val');
+const falloffCurveButtons      = {
+  linear: document.getElementById('falloff-curve-linear'),
+  scurve: document.getElementById('falloff-curve-scurve'),
+  ease:   document.getElementById('falloff-curve-ease'),
+};
+
+/** Sélectionne la courbe de transition du lissage de masque (UI + setting). */
+function setFalloffCurve(mode, { silent = false } = {}) {
+  if (!(mode in falloffCurveButtons)) mode = 'linear';
+  settings.boundaryFalloffCurve = mode;
+  for (const [m, btn] of Object.entries(falloffCurveButtons)) {
+    btn?.classList.toggle('active', m === mode);
+    btn?.setAttribute('aria-pressed', String(m === mode));
+  }
+  if (!silent) {
+    _falloffDirty = true;
+    updatePreview();
+    markProjectDirty();
+  }
+}
+for (const [m, btn] of Object.entries(falloffCurveButtons)) {
+  btn?.addEventListener('click', () => setFalloffCurve(m));
+}
+
+/** Met en forme la rampe 0→1 selon settings.boundaryFalloffCurve. */
+function applyFalloffCurve(t) {
+  const mode = settings.boundaryFalloffCurve;
+  if (mode === 'scurve') return t * t * (3 - 2 * t);
+  if (mode === 'ease')   return t * t;
+  return t;
+}
 const symmetricDispToggle    = document.getElementById('symmetric-displacement');
 const dispPreviewToggle      = document.getElementById('displacement-preview');
 const noDownwardZChk         = document.getElementById('no-downward-z-chk');
@@ -5618,7 +5663,9 @@ function computeBoundaryFalloffAttr(geometry, userMaskArr) {
     const dist = Math.sqrt(minDist2);
     const factor = Math.min(1, dist / falloff);
     if (factor < 1) {
-      falloffCache.set(k, factor);
+      // Courbe de transition — doit rester le miroir de displacement.js
+      // (falloffArr) et du fragment shader (previewMaterial.js).
+      falloffCache.set(k, applyFalloffCurve(factor));
       maskTypeCache.set(k, nearestType);
     }
   }
@@ -7680,7 +7727,7 @@ const PERSISTED_KEYS = [
   'offsetU', 'offsetV', 'rotation',
   'amplitude', 'textureHeight', 'invertDisplacement',
   'symmetricDisplacement', 'noDownwardZ', 'smoothBottom', 'textureSmoothing',
-  'mappingBlend', 'seamBandWidth', 'capAngle', 'boundaryFalloff',
+  'mappingBlend', 'seamBandWidth', 'capAngle', 'boundaryFalloff', 'boundaryFalloffCurve',
   'bottomAngleLimit', 'topAngleLimit',
   'refineLength', 'maxTriangles',
   // Cylindrical-mode controls. cylinderCenterX/Y/radius are nullable —
@@ -7763,6 +7810,10 @@ function _applySettingsSnapshotInner(snap) {
   setLinkedVal(seamBandWidthVal,    snap.seamBandWidth);
   setLinkedVal(capAngleVal,         snap.capAngle);
   setLinkedVal(boundaryFalloffVal,  snap.boundaryFalloff);
+  // Anciens snapshots sans la clé → 'linear' (leur seul rendu). Silencieux :
+  // le updatePreview de fin de restauration s'en charge.
+  setFalloffCurve(snap.boundaryFalloffCurve ?? 'linear', { silent: true });
+  _falloffDirty = true;
   setLinkedVal(bottomAngleLimitVal, snap.bottomAngleLimit);
   setLinkedVal(topAngleLimitVal,    snap.topAngleLimit);
   setLinkedVal(refineLenVal,        snap.refineLength);

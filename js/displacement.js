@@ -413,6 +413,9 @@ const faceMask = settings.faceMask || null;
       const searchZ = Math.ceil(boundaryFalloff * invDz);
       const maxDist2 = boundaryFalloff * boundaryFalloff;
       const invFalloff = 1 / boundaryFalloff;
+      // Courbe de transition de la rampe 0→1 — miroir d'applyFalloffCurve
+      // (main.js) et du fragment shader (previewMaterial.js).
+      const falloffCurve = settings.boundaryFalloffCurve ?? 'linear';
 
       falloffArr = new Float64Array(uniqueCount);
       falloffArr.fill(1); // default: full displacement
@@ -450,7 +453,10 @@ const faceMask = settings.faceMask || null;
           }
         }
         if (minDist2 < maxDist2) {
-          falloffArr[id] = Math.sqrt(minDist2) * invFalloff;
+          const t = Math.sqrt(minDist2) * invFalloff;
+          falloffArr[id] = falloffCurve === 'scurve' ? t * t * (3 - 2 * t)
+                         : falloffCurve === 'ease'   ? t * t
+                         : t;
         }
       }
     }
