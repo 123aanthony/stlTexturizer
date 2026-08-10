@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { scaleMmToRelative } from './mapping.js';
 
 // Mapping mode constants (must match index.html <option value="…">)
 export const MODE_PLANAR_XY   = 0;
@@ -522,6 +523,15 @@ function setBeamUniforms(u, frame) {
   }
 }
 
+// settings.scaleU/scaleV sont des TAILLES DE TUILE ABSOLUES en mm (portage
+// amont 4437135) ; le GLSL travaille en UV normalisé → conversion CPU vers
+// les facteurs relatifs du mode. bounds voyage dans settings.bounds (les 3
+// sites d'appel de main.js le fournissent).
+function _relScale(settings) {
+  const b = settings.bounds || { size: { x: 1, y: 1, z: 1 } };
+  return scaleMmToRelative(settings.mappingMode, settings, b);
+}
+
 // Convertit settings.boundaryFalloffCurve vers l'uniform entier du shader.
 const FALLOFF_CURVE_INDEX = { linear: 0, scurve: 1, ease: 2 };
 
@@ -532,7 +542,7 @@ export function updateMaterial(material, displacementTexture, settings) {
     u.displacementMap.value = displacementTexture;
   }
   u.mappingMode.value   = settings.mappingMode;
-  u.scaleUV.value.set(settings.scaleU, settings.scaleV);
+  { const rel = _relScale(settings); u.scaleUV.value.set(rel.u, rel.v); }
   u.amplitude.value     = settings.amplitude;
   u.offsetUV.value.set(settings.offsetU, settings.offsetV);
   u.rotation.value      = (settings.rotation ?? 0) * Math.PI / 180;
@@ -580,7 +590,7 @@ function buildUniforms(tex, settings) {
     beamHalf:        { value: new THREE.Vector2(1, 1) },
     beamCmid:        { value: new THREE.Vector2(0, 0) },
     beamValid:       { value: 0 },
-    scaleUV:         { value: new THREE.Vector2(settings.scaleU ?? 1, settings.scaleV ?? 1) },
+    scaleUV:         { value: (() => { const rel = _relScale(settings); return new THREE.Vector2(rel.u, rel.v); })() },
     amplitude:       { value: settings.amplitude ?? 1.0 },
     offsetUV:        { value: new THREE.Vector2(settings.offsetU ?? 0, settings.offsetV ?? 0) },
     rotation:        { value: ((settings.rotation ?? 0) * Math.PI / 180) },

@@ -103,14 +103,56 @@ export function getCubicBlendWeights(normal, blend, seamBandWidth = 0.35) {
  * @param {{ min, max, center, size }} bounds           THREE.Vector3 fields
  * @returns {{ u:number, v:number }}                    tiled UV after scale+offset
  */
+/**
+ * Longueurs de référence (mm) qu'une unité UV pleine couvre en U et V, par
+ * mode de projection. settings.scaleU/scaleV sont des TAILLES DE TUILE
+ * ABSOLUES en mm (portage amont 4437135) ; la maths interne reste en
+ * coordonnées normalisées, les consommateurs divisent donc les mm par ces
+ * longueurs pour retrouver le facteur relatif :
+ *   planaire / triplanaire / cubique / bois : plus grande arête de la bbox
+ *     (s'annule contre la normalisation des coordonnées → texture ancrée
+ *     au monde, même motif physique sur tout modèle)
+ *   cylindrique : circonférence du cylindre de projection (U = longueur
+ *     d'arc, V normalisé par le même C dans computeUV)
+ *   sphérique : arc équatorial pour U, arc méridien pôle-à-pôle pour V
+ */
+export function getScaleReferenceLengths(mode, settings, bounds) {
+  const { size } = bounds;
+  const md = Math.max(size.x, size.y, size.z, 1e-6);
+  switch (mode) {
+    case MODE_CYLINDRICAL: {
+      const r = Math.max(settings.cylinderRadius ?? Math.max(size.x, size.y) * 0.5, 1e-6);
+      const C = TWO_PI * r;
+      return { refU: C, refV: C };
+    }
+    case MODE_SPHERICAL: {
+      const R = Math.max(0.5 * md, 1e-6);
+      return { refU: TWO_PI * R, refV: Math.PI * R };
+    }
+    default:
+      return { refU: md, refV: md };
+  }
+}
+
+/** Convertit les tailles de tuile absolues (mm) en facteurs d'échelle relatifs. */
+export function scaleMmToRelative(mode, settings, bounds) {
+  const { refU, refV } = getScaleReferenceLengths(mode, settings, bounds);
+  const u = Math.max(Number(settings.scaleU) || 1e-6, 1e-6) / refU;
+  const v = Math.max(Number(settings.scaleV) || 1e-6, 1e-6) / refV;
+  return { u, v };
+}
+
 export function computeUV(pos, normal, mode, settings, bounds) {
   const { min, size, center } = bounds;
   // Compensate for non-square textures: divide scale by aspect correction
   // so equal world-space distances produce equal physical texture distances.
   const aU = settings.textureAspectU ?? 1;
   const aV = settings.textureAspectV ?? 1;
-  const scaleU = (settings.scaleU) / aU;
-  const scaleV = (settings.scaleV) / aV;
+  // settings.scaleU/scaleV sont des mm absolus — conversion vers les facteurs
+  // relatifs qu'attend la maths normalisée ci-dessous.
+  const rel = scaleMmToRelative(mode, settings, bounds);
+  const scaleU = rel.u / aU;
+  const scaleV = rel.v / aV;
   const { offsetU, offsetV } = settings;
   const rotRad = (settings.rotation ?? 0) * Math.PI / 180;
   const cosR = Math.cos(rotRad);

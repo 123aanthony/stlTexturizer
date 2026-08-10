@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { computeUV, getDominantCubicAxis, getCubicBlendWeights } from './mapping.js';
+import { computeUV, getDominantCubicAxis, getCubicBlendWeights, scaleMmToRelative } from './mapping.js';
 import { QuantizedPointMap } from './meshIndex.js';
 import { computeBeamFrame, triMaskFromExcludeWeight } from './beamAxis.js';
 
@@ -550,6 +550,10 @@ const faceMask = settings.faceMask || null;
 
     if (sampleSettings.mappingMode === 6 /* MODE_CUBIC */) {
       const md = Math.max(bounds.size.x, bounds.size.y, bounds.size.z, 1e-6);
+      // scaleU/scaleV sont des mm absolus — le chemin rapide cubique fait sa
+      // propre division par l'échelle (_cubicUV), donc conversion ICI aussi
+      // (miroir de computeUV).
+      const relScale = scaleMmToRelative(6, sampleSettings, bounds);
       const rotRad = (sampleSettings.rotation ?? 0) * Math.PI / 180;
       const cubicBlend = sampleSettings.mappingBlend ?? 0;
       const cubicBandWidth = sampleSettings.seamBandWidth ?? 0.35;
@@ -570,19 +574,19 @@ const faceMask = settings.faceMask || null;
         if (wX > 0) {
           let rawU = (tmpPos.y-bounds.min.y)/md;
           if (smoothNrmX[vid] < 0) rawU = -rawU;
-          const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV);
+          const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV, relScale);
           grey += sampleBilinear(sampleImageData.data, sampleWidth, sampleHeight, uv.u, uv.v) * wX;
         }
         if (wY > 0) {
           let rawU = (tmpPos.x-bounds.min.x)/md;
           if (smoothNrmY[vid] > 0) rawU = -rawU;
-          const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV);
+          const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV, relScale);
           grey += sampleBilinear(sampleImageData.data, sampleWidth, sampleHeight, uv.u, uv.v) * wY;
         }
         if (wZ > 0) {
           let rawU = (tmpPos.x-bounds.min.x)/md;
           if (smoothNrmZ[vid] < 0) rawU = -rawU;
-          const uv = _cubicUV(rawU, (tmpPos.y-bounds.min.y)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV);
+          const uv = _cubicUV(rawU, (tmpPos.y-bounds.min.y)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV, relScale);
           grey += sampleBilinear(sampleImageData.data, sampleWidth, sampleHeight, uv.u, uv.v) * wZ;
         }
         dispCacheVal[vid] = grey;
@@ -760,9 +764,10 @@ function sampleBilinear(data, w, h, u, v) {
 
 /** Apply scale/offset/rotation to raw UV for cubic projection.
  *  Mirrors the private applyTransform helper in mapping.js. */
-function _cubicUV(rawU, rawV, settings, rotRad, aspectU, aspectV) {
-  let u = (rawU * aspectU) / settings.scaleU + settings.offsetU;
-  let v = (rawV * aspectV) / settings.scaleV + settings.offsetV;
+function _cubicUV(rawU, rawV, settings, rotRad, aspectU, aspectV, relScale) {
+  // relScale = scaleMmToRelative(...) — settings.scaleU/scaleV sont des mm.
+  let u = (rawU * aspectU) / relScale.u + settings.offsetU;
+  let v = (rawV * aspectV) / relScale.v + settings.offsetV;
   if (rotRad !== 0) {
     const c = Math.cos(rotRad), s = Math.sin(rotRad);
     u -= 0.5; v -= 0.5;

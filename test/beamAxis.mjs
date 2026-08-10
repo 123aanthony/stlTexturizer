@@ -143,18 +143,21 @@ test('mode 7 : Δu par mm identique sur poutre longue et courte (échelle physiq
     min: { x: -100, y: -100, z: -100 }, max: { x: 100, y: 100, z: 100 },
     size: { x: 200, y: 200, z: 200 }, center: { x: 0, y: 0, z: 0 },
   };
-  const st = (frame) => ({ scaleU: 1, scaleV: 1, offsetU: 0, offsetV: 0, beamFrame: frame });
+  // Échelle ABSOLUE : scaleU/scaleV sont des mm — une tuile de 50 mm.
+  const TILE = 50;
+  const st = (frame) => ({ scaleU: TILE, scaleV: TILE, offsetU: 0, offsetV: 0, beamFrame: frame });
   const n = { x: 0, y: 0, z: 1 };                      // face du dessus
   const du = (frame, x1, x2) => {
     const a = computeUV({ x: x1, y: 0, z: 5 }, n, MODE_WOOD_AUTO, st(frame), bounds);
     const b = computeUV({ x: x2, y: 0, z: 5 }, n, MODE_WOOD_AUTO, st(frame), bounds);
-    return Math.abs(b.u - a.u);
+    const d = Math.abs(b.u - a.u);
+    return Math.min(d, 1 - d);           // les UV sortent fract-és → dérouler le wrap
   };
   const duLong = du(fLong, 0, 10), duShort = du(fShort, 0, 10);
   assert.ok(Math.abs(duLong - duShort) < 1e-6,
     `10 mm doivent couvrir le même Δu partout : long=${duLong}, court=${duShort}`);
-  assert.ok(Math.abs(duLong - 10 / 200) < 1e-6,
-    `Δu attendu = 10/md_global = 0.05, obtenu ${duLong}`);
+  assert.ok(Math.abs(duLong - 10 / TILE) < 1e-6,
+    `Δu attendu = 10 mm / tuile ${TILE} mm = 0.2, obtenu ${duLong}`);
 });
 
 console.error(`\nbeamAxis: ${passed} checks passed${process.exitCode ? ' (with failures)' : ''}`);

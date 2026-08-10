@@ -342,9 +342,9 @@
         <h2 data-i18n="sections.transform">Transform</h2>
 
         <div class="form-row slider-row">
-          <label for="scale-u" data-i18n="labels.scaleU">Scale U</label>
+          <label for="scale-u" data-i18n="labels.textureSizeU" data-i18n-title="tooltips.textureSize" title="Physical size of one texture repeat in millimetres — the same value gives the same physical pattern size on any model.">Size U (mm)</label>
           <input type="range" id="scale-u" min="0" max="1000" step="1" value="435" />
-          <input type="number" class="val" id="scale-u-val" value="0.50" min="0.05" max="10" step="0.05" />
+          <input type="number" class="val" id="scale-u-val" value="25" min="0.01" max="10000" step="0.5" />
         </div>
         <div class="lock-row">
           <div class="lock-line"></div>
@@ -358,9 +358,9 @@
         </div>
 
         <div class="form-row slider-row">
-          <label for="scale-v" data-i18n="labels.scaleV">Scale V</label>
+          <label for="scale-v" data-i18n="labels.textureSizeV" data-i18n-title="tooltips.textureSize" title="Physical size of one texture repeat in millimetres — the same value gives the same physical pattern size on any model.">Size V (mm)</label>
           <input type="range" id="scale-v" min="0" max="1000" step="1" value="435" />
-          <input type="number" class="val" id="scale-v-val" value="0.50" min="0.05" max="10" step="0.05" />
+          <input type="number" class="val" id="scale-v-val" value="25" min="0.01" max="10000" step="0.5" />
         </div>
         <div class="form-row slider-row">
           <label for="offset-u" data-i18n="labels.offsetU">Offset U</label>

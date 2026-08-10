@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { subdivide } from '../../js/subdivision.js';
 import { applyDisplacement } from '../../js/displacement.js';
 import { runMultiSlotExport } from '../../js/exportPipeline.js';
+import { getScaleReferenceLengths } from '../../js/mapping.js';
 
 /** Bounds object in the shape displacement.js expects ({min,max,center,size}). */
 export function computeBounds(geo) {
@@ -31,11 +32,27 @@ export const baseSettings = {
   noDownwardZ: false,
 };
 
+// ÉCHELLE ABSOLUE (portage 4437135) : le moteur attend désormais scaleU/scaleV
+// en MILLIMÈTRES. Les fixtures historiques restent écrites en RELATIF (fraction
+// des longueurs de référence du mode) et sont converties ICI — les fingerprints
+// golden inchangés PROUVENT l'équivalence mm ↔ relatif du portage. Une fixture
+// déjà en mm se marque scaleUnit:'mm' pour passer verbatim.
+export function legacyRelToMm(settings, bounds) {
+  if (settings.scaleUnit === 'mm') return settings;
+  const { refU, refV } = getScaleReferenceLengths(settings.mappingMode, settings, bounds);
+  return {
+    ...settings,
+    scaleU: (settings.scaleU ?? 1) * refU,
+    scaleV: (settings.scaleV ?? 1) * refV,
+    scaleUnit: 'mm',
+  };
+}
+
 /** Single-texture run: subdivide then displace. */
 export async function runSingle(geo, { refineLength, settings, texture, faceWeights = null }) {
   const { geometry: sub } = await subdivide(geo, refineLength, null, faceWeights);
   const bounds = computeBounds(geo);
-  return applyDisplacement(sub, texture, texture.width, texture.height, settings, bounds, null);
+  return applyDisplacement(sub, texture, texture.width, texture.height, legacyRelToMm(settings, bounds), bounds, null);
 }
 
 /**
@@ -53,7 +70,7 @@ export async function runMultiSlot(geo, { refineLength, maxTriangles, slots, ass
   const readySlots = slots.map((s, si) => ({
     name: `slot${si}`,
     assignedFaces: new Set(),
-    settings: s.settings,
+    settings: legacyRelToMm(s.settings, bounds),
     _texture: s.texture,
   }));
 

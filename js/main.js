@@ -22,7 +22,8 @@ import { computeAssignedFaces,
          serializeSlotFaces, restoreSlotFaces,
          resolveSlotState, stateHasContent, stateFaceCount } from './slotState.js';
 import { runMultiSlotExport, snapBottomToFlat, decimateWithGuard } from './exportPipeline.js';
-import { resolveScaleU, snapScaleUForSeamlessWrap } from './scaleSnap.js';
+import { resolveScaleU, snapScaleUForSeamlessWrap, SCALE_MM_INPUT_MIN, SCALE_MM_INPUT_MAX } from './scaleSnap.js';
+import { getScaleReferenceLengths } from './mapping.js';
 import { computeBeamFrame } from './beamAxis.js';
 import { idbGet, idbSet, idbDel } from './idbStore.js';
 import { shouldOfferRecovery, recoveryAgeParts } from './recovery.js';
@@ -284,6 +285,9 @@ function clearTextureSlot(slotId = activeTextureSlotId) {
   slot.assignedFaces = new Set();
   slot.selectionMode = true;
   slot.settings = { ...slotDefaults };
+  // Taille de tuile par défaut ANCRÉE AU MODÈLE (l'équivalent mm de l'ancien
+  // relatif 0,5) — le défaut figé 25 mm ne convient qu'au modèle de repli.
+  slot.settings.scaleU = slot.settings.scaleV = _defaultTileMm();
 
   if (isActive) {
     if (allSlotsPreviewActive) exitAllSlotsPreview();
@@ -950,8 +954,13 @@ let _effectiveMapCacheSrc = null;
 
 const settings = {
   mappingMode:   5,     // Triplanar default
-  scaleU:        0.5,
-  scaleV:        0.5,
+  // Taille de tuile ABSOLUE en mm (portage 4437135) ; recalculée au premier
+  // chargement de modèle (_defaultTileMm). scaleUnit marque les snapshots —
+  // un snapshot SANS la clé est un ancien projet en échelle relative, converti
+  // à la restauration.
+  scaleU:        25,
+  scaleUnit:     'mm',
+  scaleV:        25,
   amplitude:     0.5,
   textureHeight: 0.5,
   invertDisplacement: false,
@@ -1107,6 +1116,9 @@ function restoreSlotState(slot) {
   }
 
   if (slot.settings) {
+    // Slot d'ancien projet (échelle relative) → mm, mutation en place du slot
+    // (idempotent : stampé scaleUnit='mm', le resave écrit du mm).
+    _migrateSnapshotScaleToMm(slot.settings);
     // Preserve global export quality while switching texture slots.
     const globalExportQuality = getGlobalExportQualitySnapshot();
     Object.assign(settings, slot.settings);
@@ -1450,13 +1462,38 @@ const welcomeDontShow = document.getElementById('welcome-dont-show');
 // ── Language selector DOM refs ────────────────────────────────────────────────────
 const languageSelector = document.querySelector('.lang-seg');
 
-// ── Scale slider log helpers ──────────────────────────────────────────────────
-// Slider stores 0–1000; actual scale spans 0.05–10 on a log axis.
-// Middle position 500 → scale ~0.71 (log midpoint between 0.05 and 10).
-const _LOG_MIN = Math.log(0.05);
-const _LOG_MAX = Math.log(10);
-const scaleToPos = v => Math.round(Math.max(0, Math.min(1000, (Math.log(Math.max(0.01, Math.min(10, v))) - _LOG_MIN) / (_LOG_MAX - _LOG_MIN) * 1000)));
-const posToScale = p => parseFloat(Math.exp(_LOG_MIN + (p / 1000) * (_LOG_MAX - _LOG_MIN)).toFixed(2));
+// ── Scale slider log helpers (échelle ABSOLUE en mm, portage 4437135+25c5931) ─
+// Le slider stocke 0–1000 et balaie 0,05×–10× de la plus grande arête du
+// modèle chargé sur un axe log — exactement la course et la position par
+// défaut de l'ancien slider relatif — mais la VALEUR lue/écrite est la taille
+// absolue d'une tuile en mm. La saisie numérique accepte au-delà de la course
+// (clampée dans _applyScaleU/V) ; le slider se cale simplement en butée.
+const SCALE_REL_SLIDER_MIN = 0.05;
+const SCALE_REL_SLIDER_MAX = 10;
+// Fraction de la plus grande arête pour pré-calculer une taille de tuile
+// agréable au chargement d'un modèle (l'ancien défaut relatif 0,5).
+const DEFAULT_TILE_FRACTION = 0.5;
+const _LOG_MIN = Math.log(SCALE_REL_SLIDER_MIN);
+const _LOG_MAX = Math.log(SCALE_REL_SLIDER_MAX);
+
+/** Plus grande arête bbox du modèle chargé — l'ancre par-modèle du slider. */
+function _scaleAnchorMm() {
+  return currentBounds
+    ? Math.max(currentBounds.size.x, currentBounds.size.y, currentBounds.size.z)
+    : 50;
+}
+
+const scaleToPos = mm => {
+  const rel = Math.max(SCALE_REL_SLIDER_MIN, Math.min(SCALE_REL_SLIDER_MAX, mm / _scaleAnchorMm()));
+  return Math.round((Math.log(rel) - _LOG_MIN) / (_LOG_MAX - _LOG_MIN) * 1000);
+};
+const posToScale = p => parseFloat(
+  (_scaleAnchorMm() * Math.exp(_LOG_MIN + (p / 1000) * (_LOG_MAX - _LOG_MIN))).toPrecision(3));
+
+/** Taille de tuile (mm) équivalente à l'ancien défaut relatif sur CE modèle. */
+function _defaultTileMm(relFraction = DEFAULT_TILE_FRACTION) {
+  return parseFloat((relFraction * _scaleAnchorMm()).toPrecision(3));
+}
 
 // Compute the active U texture-aspect factor (mirrors updatePreview's logic so
 // the snap math agrees with what computeUV actually does).
@@ -1466,11 +1503,15 @@ function _currentTextureAspectU() {
   return tmax / Math.max(tw, 1);
 }
 
-// Round a U scale to the nearest seamless-wrap value:
-//   tiles around circumference = aspectU / scaleU  →  must be a positive integer.
-// Returns the snapped scale, clamped to [aspectU/MAX_TILES, aspectU].
-function _snapScaleUForSeamlessWrap(scaleU) {
-  return snapScaleUForSeamlessWrap(scaleU, _currentTextureAspectU());
+/** Circonférence du cylindre de projection (la réf U du mode 3, en mm). */
+function _cylCircumferenceMm() {
+  if (!currentBounds) return 1;
+  return getScaleReferenceLengths(3, settings, currentBounds).refU;
+}
+
+// Round a U tile size (mm) to the nearest seamless-wrap value.
+function _snapScaleUForSeamlessWrap(scaleUMm) {
+  return snapScaleUForSeamlessWrap(scaleUMm, _currentTextureAspectU(), _cylCircumferenceMm());
 }
 
 function _applyScaleU(v) {
@@ -1479,6 +1520,7 @@ function _applyScaleU(v) {
     snapSeamlessWrap: settings.snapSeamlessWrap,
     suppressSnap: _suppressScaleSnap,
     aspectU: _currentTextureAspectU(),
+    circumferenceMm: _cylCircumferenceMm(),
   });
   settings.scaleU = v;
   scaleUSlider.value = scaleToPos(v);
@@ -1799,6 +1841,11 @@ function _scheduleCylinderPreviewUpdate() {
   if (_cylPreviewThrottle) return;
   _cylPreviewThrottle = setTimeout(() => {
     _cylPreviewThrottle = null;
+    // La taille de texture est en mm absolus : changer le rayon change le
+    // nombre de tuiles sur la circonférence — re-snapper pour rester seamless.
+    if (settings.snapSeamlessWrap && settings.mappingMode === 3 /* MODE_CYLINDRICAL */) {
+      _applyScaleU(settings.scaleU);
+    }
     updatePreview();
     // updatePreview() mutates uniforms in place; the 3D viewport's render
     // loop only re-draws when _needsRender flips, so push it explicitly.
@@ -2337,6 +2384,10 @@ textureSlots = savedSlots.map((saved, index) => ({
 
     slot.name = saved.name || slot.name;
     slot.settings = { ...(saved.settings || {}) };
+    // Projet d'avant l'échelle absolue : scaleU/V du slot sont des fractions →
+    // mm (le modèle est déjà chargé ici, les longueurs de référence sont
+    // connues). Couvre AUSSI l'export multi-slots d'un slot jamais activé.
+    _migrateSnapshotScaleToMm(slot.settings);
     slot.selectionMode = typeof saved.selectionMode === 'boolean' ? saved.selectionMode : true;
 
     // Face restore (pure, in slotState): UI faces + material faces, the latter
@@ -2512,7 +2563,9 @@ async function selectPreset(idx, swatchEl, applyDefaults = true) {
   activeMapName.textContent = entry.name;
   if (applyDefaults) {
     resetTextureSmoothing();
-    if (entry.defaultScale != null) _applyScaleU(entry.defaultScale);
+    // defaultScale est une fraction HÉRITÉE de la plus grande arête —
+    // convertie en taille mm qui rend pareil sur ce modèle.
+    if (entry.defaultScale != null) _applyScaleU(_defaultTileMm(entry.defaultScale));
   }
 
   // If full texture is already loaded, use it directly
@@ -3356,13 +3409,13 @@ function wireEvents() {
   // Scale U — when lock is on, mirror to V
   const applyScaleU = (v) => _applyScaleU(v);
   scaleUSlider.addEventListener('input', () => applyScaleU(posToScale(parseFloat(scaleUSlider.value))));
-  scaleUSlider.addEventListener('dblclick', () => applyScaleU(posToScale(parseFloat(scaleUSlider.defaultValue))));
+  scaleUSlider.addEventListener('dblclick', () => applyScaleU(_defaultTileMm()));
   scaleUVal.addEventListener('change', () => applyScaleU(parseFloat(scaleUVal.value)));
   addFineWheelSupport(scaleUVal, applyScaleU);
 
   // Scale V — when lock is on, mirror to U
   const applyScaleV = (v) => {
-    v = Math.max(0.01, Math.min(10, v));
+    v = Math.max(SCALE_MM_INPUT_MIN, Math.min(SCALE_MM_INPUT_MAX, v));
     settings.scaleV = v;
     scaleVSlider.value = scaleToPos(v);
     scaleVVal.value = v;
@@ -3370,7 +3423,7 @@ function wireEvents() {
     schedulePreviewUpdate();
   };
   scaleVSlider.addEventListener('input', () => applyScaleV(posToScale(parseFloat(scaleVSlider.value))));
-  scaleVSlider.addEventListener('dblclick', () => applyScaleV(posToScale(parseFloat(scaleVSlider.defaultValue))));
+  scaleVSlider.addEventListener('dblclick', () => applyScaleV(_defaultTileMm()));
   scaleVVal.addEventListener('change', () => applyScaleV(parseFloat(scaleVVal.value)));
   addFineWheelSupport(scaleVVal, applyScaleV);
 
@@ -7723,7 +7776,7 @@ async function confirmDiscardUnsavedChanges() {
 
 // Persisted setting keys — excludes `useDisplacement` (transient UI state).
 const PERSISTED_KEYS = [
-  'mappingMode', 'scaleU', 'scaleV', 'lockScale',
+  'mappingMode', 'scaleU', 'scaleV', 'scaleUnit', 'lockScale',
   'offsetU', 'offsetV', 'rotation',
   'amplitude', 'textureHeight', 'invertDisplacement',
   'symmetricDisplacement', 'noDownwardZ', 'smoothBottom', 'textureSmoothing',
@@ -7772,8 +7825,26 @@ function applySettingsSnapshot(snap) {
   }
 }
 
+// Un snapshot SANS scaleUnit vient d'un projet/session d'avant l'échelle
+// absolue : ses scaleU/scaleV sont des FRACTIONS des longueurs de référence
+// du mode. Convertis en mm avec le modèle chargé → apparence identique.
+// Muté en place + stampé 'mm' (idempotent, et le resave écrit du mm).
+function _migrateSnapshotScaleToMm(snap) {
+  if (!snap || snap.scaleUnit === 'mm') return snap;
+  if (snap.scaleU == null && snap.scaleV == null) { snap.scaleUnit = 'mm'; return snap; }
+  const bounds = currentBounds;
+  if (!bounds) return snap; // pas de modèle : on convertira à la prochaine application
+  const mode = snap.mappingMode ?? settings.mappingMode;
+  const { refU, refV } = getScaleReferenceLengths(mode, { ...settings, ...snap }, bounds);
+  if (snap.scaleU != null) snap.scaleU = parseFloat((snap.scaleU * refU).toPrecision(6));
+  if (snap.scaleV != null) snap.scaleV = parseFloat((snap.scaleV * refV).toPrecision(6));
+  snap.scaleUnit = 'mm';
+  return snap;
+}
+
 function _applySettingsSnapshotInner(snap) {
   if (!snap) return;
+  _migrateSnapshotScaleToMm(snap);
 
   // Mapping mode first — changes cap-angle row visibility and triggers preview.
   if (snap.mappingMode != null) {
@@ -7922,7 +7993,7 @@ lockScaleBtn.addEventListener('click', _autoSaveSettings);
 // name, so the reset button restores exactly what a fresh session starts with.
 
 const DEFAULT_SETTINGS_SNAPSHOT = Object.freeze({
-  mappingMode: 5, scaleU: 0.5, scaleV: 0.5, lockScale: true,
+  mappingMode: 5, scaleU: 25, scaleV: 25, scaleUnit: 'mm', lockScale: true,
   offsetU: 0, offsetV: 0, rotation: 0,
   amplitude: 0.5, textureHeight: 0.5, invertDisplacement: false,
   symmetricDisplacement: false, noDownwardZ: false, smoothBottom: true, textureSmoothing: 0,
