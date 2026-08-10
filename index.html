@@ -450,9 +450,9 @@
         <h2 data-i18n="sections.transform">Transform</h2>
 
         <div class="form-row slider-row">
-          <label for="scale-u" data-i18n="labels.scaleU">Scale U</label>
+          <label for="scale-u" data-i18n="labels.textureSizeU" data-i18n-title="tooltips.textureSize" title="Physical size of one texture repeat in millimetres — the same value gives the same physical pattern size on any model.">Size U (mm)</label>
           <input type="range" id="scale-u" min="0" max="1000" step="1" value="435" />
-          <input type="number" class="val" id="scale-u-val" value="0.50" min="0.05" max="10" step="0.05" />
+          <input type="number" class="val" id="scale-u-val" value="25" min="0.01" max="10000" step="0.5" />
         </div>
         <div class="lock-row">
           <div class="lock-line"></div>
@@ -466,9 +466,9 @@
         </div>
 
         <div class="form-row slider-row">
-          <label for="scale-v" data-i18n="labels.scaleV">Scale V</label>
+          <label for="scale-v" data-i18n="labels.textureSizeV" data-i18n-title="tooltips.textureSize" title="Physical size of one texture repeat in millimetres — the same value gives the same physical pattern size on any model.">Size V (mm)</label>
           <input type="range" id="scale-v" min="0" max="1000" step="1" value="435" />
-          <input type="number" class="val" id="scale-v-val" value="0.50" min="0.05" max="10" step="0.05" />
+          <input type="number" class="val" id="scale-v-val" value="25" min="0.01" max="10000" step="0.5" />
         </div>
         <div class="form-row slider-row">
           <label for="offset-u" data-i18n="labels.offsetU">Offset U</label>
@@ -496,6 +496,16 @@
           <label for="boundary-falloff" data-i18n="labels.boundaryFalloff" data-i18n-title="tooltips.boundaryFalloff" title="Gradually reduces displacement to zero near masked boundaries, preventing triangle overlap where textured and non-textured regions meet.">Smooth Mask ⓘ</label>
           <input type="range" id="boundary-falloff" min="0" max="10" step="0.1" value="0" />
           <input type="number" class="val" id="boundary-falloff-val" value="0" min="0" max="10" step="0.1" data-wheel-decimals="2" />
+        </div>
+
+        <!-- Falloff transition curve (portage amont v1.2.0 a6ac179) -->
+        <div class="form-row">
+          <span id="falloff-curve-label" class="form-row-label" data-i18n="labels.falloffCurve" data-i18n-title="tooltips.falloffCurve" title="Shape of the fade from zero to full texture height across the Smooth Mask distance.">Transition</span>
+          <div class="excl-seg" role="group" aria-labelledby="falloff-curve-label">
+            <button id="falloff-curve-linear" class="excl-seg-btn" aria-pressed="false" data-i18n="falloffCurve.linear" data-i18n-title="falloffCurve.linearTitle" title="Constant slope from the mask edge to full texture height.">Linear</button>
+            <button id="falloff-curve-scurve" class="excl-seg-btn" aria-pressed="false" data-i18n="falloffCurve.scurve" data-i18n-title="falloffCurve.scurveTitle" title="Eases in and out - no visible crease at either end of the transition.">S-Curve</button>
+            <button id="falloff-curve-ease" class="excl-seg-btn active" aria-pressed="true" data-i18n="falloffCurve.ease" data-i18n-title="falloffCurve.easeTitle" title="Starts very gently at the mask edge, then rises more steeply to full height.">Ease-In</button>
+          </div>
         </div>
 
         <!-- By Angle -->

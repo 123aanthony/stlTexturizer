@@ -71,7 +71,7 @@ travers le slot actif, supprimer les globals miroirs).
 
 Cumul : `main.js` ≈ −485 lignes nettes (1a→1d) ; 31 vérifs headless (21 unités + 10 golden) + smoke E2E.
 
-Reste backlog : regularize multi-slot (toujours OFF, à décider) ; retrait des `console.log` debug ; supprimer le doublon `js/index.html` ; README amont à actualiser.
+Reste backlog : regularize multi-slot (toujours OFF, à décider) ; retrait des `console.log` debug ; ~~supprimer le doublon `js/index.html`~~ (FAIT 10/08 — il a coûté un portage UI invisible : Electron sert la RACINE) ; README amont à actualiser.
 
 ### Bug à vérifier — échelle de texture qui dérive au save/reload de projet
 Signalé : après sauvegarde puis réouverture d'un projet, l'échelle de texture (`scaleU`)
