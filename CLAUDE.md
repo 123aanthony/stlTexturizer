@@ -70,11 +70,18 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
 - `exclusion.js` — peinture/poids d'exclusion de faces. `exporter.js` — STL/3MF
   binaire. `subdivision`/`decimation`/`regularize` — pipeline maille.
 - `viewer.js`, `previewMaterial.js`, `stlLoader.js`, `i18n.js`, `meshValidation.js`.
+  ⚠️ **i18n : `t()` retombe sur l'anglais en silence**, donc un pack incomplet ne
+  casse RIEN — il parle juste anglais (les packs avaient dérivé de 23 à 27 clés
+  en de/it/es/pt/ja/ko). Comblé, et surtout **mesuré** : `test/i18n.mjs` (dans
+  `npm test`) exige la parité avec `en.js`, l'égalité des `{placeholder}` et
+  l'existence de toute clé demandée par un `t('…')` du code. Toute nouvelle clé
+  se pose donc dans les **8 fichiers**, jamais dans `en.js` seul.
 
 ## Tests — workflow OBLIGATOIRE après tout changement géométrique
 
 ```bash
-npm test                    # unités (slots/scale/beam/recovery/migrate/interop/STEP) + golden
+npm test                    # unités (i18n/slots/scale/beam/recovery/migrate/interop/STEP) + golden
+npm run test:i18n           # parité des 8 packs vs en.js + clés réellement demandées par t()
 npm run test:golden         # golden seul (cube/sphère/cylindre/plaque + multi-slot + 2 STL réels)
 npm run fixtures            # régénère les modèles de référence
 npm run test:interop:update # régénère les fixtures FreeCAD (pilote FreeCADCmd)

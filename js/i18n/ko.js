@@ -233,5 +233,36 @@ export default {
   "ui.cylinderPanelLabel": "원통 투영 정의",
   "ui.cylinderNoModel1": "모델을 불러와",
   "ui.cylinderNoModel2": "원통 축을 배치하세요",
-  "ui.cylinderPanelMinimize": "최소화 / 복원"
+  "ui.cylinderPanelMinimize": "최소화 / 복원",
+
+  // i18n catch-up pass: keys that had been shipping in English only. Grouped at
+  // the end rather than merged into en.js's order — the point is to close the
+  // gap, not to reshuffle seven files.
+  "ui.smoothBottomHeading": "바닥 평탄화",
+  "ui.smoothBottomDesc": "텍스처를 적용한 뒤, 바닥 평면에서 0.1 mm 이내에 있는 정점을 바닥 평면에 붙입니다. 베드에 닿는 면이 완전히 평평하게 유지되어, 슬라이서가 바닥의 얇은 조각에서 생기는 미세한 높이 차이를 음영으로 표현하지 않습니다.",
+  "ui.smoothBottom": "바닥 근처 정점을 바닥 평면에 붙이기",
+  "progress.regularizing": "가늘고 긴 삼각형 정리 중…",
+  "labels.decimateEnabled": "출력 삼각형 수로 줄이기",
+  "alerts.saveFailed": "저장 실패: {msg}",
+  "toasts.projectSaved": "프로젝트 저장됨",
+  "toasts.projectDownloaded": "프로젝트 다운로드됨",
+  "recovery.banner": "저장되지 않은 프로젝트를 복구했습니다",
+  "recovery.restore": "복원",
+  "recovery.ignore": "무시",
+  "recovery.restored": "프로젝트 복구됨",
+  "recovery.age.sec": "{n}초 전",
+  "recovery.age.min": "{n}분 전",
+  "recovery.age.hour": "{n}시간 전",
+  "recovery.age.day": "{n}일 전",
+  "confirm.unsavedTitle": "저장되지 않은 변경 사항",
+  "confirm.unsavedBody": "계속하기 전에 변경 사항을 저장할까요?",
+  "confirm.save": "저장",
+  "confirm.dontSave": "저장 안 함",
+  "confirm.cancel": "취소",
+  "interop.tagged": "FreeCAD 모델: 면 {n}개 인식됨",
+  "interop.sidecarRejected": "FreeCAD 사이드카 무시됨: {msg}",
+  "interop.reapplied": "선택 재매칭: 면 {n}개, 고아 {m}개",
+  "interop.liveLinkOn": "라이브 링크: FreeCAD에서 내보낼 때마다 자동 새로 고침",
+  "interop.liveLinkFailed": "라이브 링크: 새로 고침 실패: {msg}",
+  "interop.autoSlots": "FreeCAD 색상에서 슬롯 {n}개를 생성했습니다"
 };

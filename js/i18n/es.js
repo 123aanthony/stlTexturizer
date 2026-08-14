@@ -233,5 +233,36 @@ export default {
   "ui.cylinderPanelLabel": "Definir proyección cilíndrica",
   "ui.cylinderNoModel1": "Carga un modelo para",
   "ui.cylinderNoModel2": "colocar el eje del cilindro",
-  "ui.cylinderPanelMinimize": "Minimizar / restaurar"
+  "ui.cylinderPanelMinimize": "Minimizar / restaurar",
+
+  // i18n catch-up pass: keys that had been shipping in English only. Grouped at
+  // the end rather than merged into en.js's order — the point is to close the
+  // gap, not to reshuffle seven files.
+  "ui.smoothBottomHeading": "Base lisa",
+  "ui.smoothBottomDesc": "Después de texturizar, ajusta al plano inferior todo vértice que esté a menos de 0,1 mm de él. La superficie de contacto con la cama queda perfectamente plana, para que los laminadores no sombreen mínimas variaciones de altura en las astillas inferiores.",
+  "ui.smoothBottom": "Ajustar los vértices cercanos a la base al plano inferior",
+  "progress.regularizing": "Regularizando triángulos degenerados…",
+  "labels.decimateEnabled": "Reducir a triángulos de salida",
+  "alerts.saveFailed": "Error al guardar: {msg}",
+  "toasts.projectSaved": "Proyecto guardado",
+  "toasts.projectDownloaded": "Proyecto descargado",
+  "recovery.banner": "Proyecto sin guardar recuperado",
+  "recovery.restore": "Restaurar",
+  "recovery.ignore": "Ignorar",
+  "recovery.restored": "Proyecto recuperado",
+  "recovery.age.sec": "hace {n} s",
+  "recovery.age.min": "hace {n} min",
+  "recovery.age.hour": "hace {n} h",
+  "recovery.age.day": "hace {n} d",
+  "confirm.unsavedTitle": "Cambios sin guardar",
+  "confirm.unsavedBody": "¿Guardar los cambios antes de continuar?",
+  "confirm.save": "Guardar",
+  "confirm.dontSave": "No guardar",
+  "confirm.cancel": "Cancelar",
+  "interop.tagged": "Modelo FreeCAD: {n} caras reconocidas",
+  "interop.sidecarRejected": "Sidecar de FreeCAD ignorado: {msg}",
+  "interop.reapplied": "Selecciones reasignadas: {n} cara(s), {m} huérfana(s)",
+  "interop.liveLinkOn": "Enlace en vivo: recarga automática en cada exportación de FreeCAD",
+  "interop.liveLinkFailed": "Enlace en vivo: error al recargar: {msg}",
+  "interop.autoSlots": "{n} slots creados a partir de los colores de FreeCAD"
 };

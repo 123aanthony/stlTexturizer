@@ -233,5 +233,36 @@ export default {
   "ui.cylinderPanelLabel": "シリンダー投影を設定",
   "ui.cylinderNoModel1": "モデルを読み込んで",
   "ui.cylinderNoModel2": "シリンダー軸を配置してください",
-  "ui.cylinderPanelMinimize": "最小化 / 復元"
+  "ui.cylinderPanelMinimize": "最小化 / 復元",
+
+  // i18n catch-up pass: keys that had been shipping in English only. Grouped at
+  // the end rather than merged into en.js's order — the point is to close the
+  // gap, not to reshuffle seven files.
+  "ui.smoothBottomHeading": "底面を平滑化",
+  "ui.smoothBottomDesc": "テクスチャ適用後、底面から 0.1 mm 以内にある頂点を底面にスナップします。ベッドとの接触面が完全に平らなまま保たれるため、スライサーが底面の細片のわずかな高さの差を陰影として拾いません。",
+  "ui.smoothBottom": "底面近くの頂点を底面にスナップする",
+  "progress.regularizing": "細長い三角形を整えています…",
+  "labels.decimateEnabled": "出力三角形数まで削減",
+  "alerts.saveFailed": "保存に失敗しました: {msg}",
+  "toasts.projectSaved": "プロジェクトを保存しました",
+  "toasts.projectDownloaded": "プロジェクトをダウンロードしました",
+  "recovery.banner": "未保存のプロジェクトを復元しました",
+  "recovery.restore": "復元",
+  "recovery.ignore": "無視",
+  "recovery.restored": "プロジェクトを復元しました",
+  "recovery.age.sec": "{n} 秒前",
+  "recovery.age.min": "{n} 分前",
+  "recovery.age.hour": "{n} 時間前",
+  "recovery.age.day": "{n} 日前",
+  "confirm.unsavedTitle": "未保存の変更",
+  "confirm.unsavedBody": "続行する前に変更を保存しますか？",
+  "confirm.save": "保存",
+  "confirm.dontSave": "保存しない",
+  "confirm.cancel": "キャンセル",
+  "interop.tagged": "FreeCAD モデル: {n} 個の面を認識しました",
+  "interop.sidecarRejected": "FreeCAD のサイドカーを無視しました: {msg}",
+  "interop.reapplied": "選択を再マッチしました: {n} 面、孤立 {m} 件",
+  "interop.liveLinkOn": "ライブリンク: FreeCAD のエクスポートごとに自動再読み込み",
+  "interop.liveLinkFailed": "ライブリンク: 再読み込みに失敗しました: {msg}",
+  "interop.autoSlots": "FreeCAD の色から {n} 個のスロットを作成しました"
 };

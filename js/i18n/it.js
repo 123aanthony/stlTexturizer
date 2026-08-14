@@ -233,5 +233,36 @@ export default {
   "ui.cylinderPanelLabel": "Definisci proiezione cilindrica",
   "ui.cylinderNoModel1": "Carica un modello per",
   "ui.cylinderNoModel2": "posizionare l'asse del cilindro",
-  "ui.cylinderPanelMinimize": "Riduci / ripristina"
+  "ui.cylinderPanelMinimize": "Riduci / ripristina",
+
+  // i18n catch-up pass: keys that had been shipping in English only. Grouped at
+  // the end rather than merged into en.js's order — the point is to close the
+  // gap, not to reshuffle seven files.
+  "ui.smoothBottomHeading": "Fondo liscio",
+  "ui.smoothBottomDesc": "Dopo la texturizzazione, porta sul piano inferiore ogni vertice che si trova entro 0,1 mm da esso. La superficie a contatto con il piatto resta perfettamente piana, così gli slicer non ombreggiano minime variazioni di altezza sulle schegge inferiori.",
+  "ui.smoothBottom": "Porta i vertici vicini al fondo sul piano inferiore",
+  "progress.regularizing": "Regolarizzazione dei triangoli degeneri…",
+  "labels.decimateEnabled": "Riduci ai triangoli in uscita",
+  "alerts.saveFailed": "Salvataggio non riuscito: {msg}",
+  "toasts.projectSaved": "Progetto salvato",
+  "toasts.projectDownloaded": "Progetto scaricato",
+  "recovery.banner": "Progetto non salvato recuperato",
+  "recovery.restore": "Ripristina",
+  "recovery.ignore": "Ignora",
+  "recovery.restored": "Progetto recuperato",
+  "recovery.age.sec": "{n} s fa",
+  "recovery.age.min": "{n} min fa",
+  "recovery.age.hour": "{n} h fa",
+  "recovery.age.day": "{n} g fa",
+  "confirm.unsavedTitle": "Modifiche non salvate",
+  "confirm.unsavedBody": "Salvare le modifiche prima di continuare?",
+  "confirm.save": "Salva",
+  "confirm.dontSave": "Non salvare",
+  "confirm.cancel": "Annulla",
+  "interop.tagged": "Modello FreeCAD: {n} facce riconosciute",
+  "interop.sidecarRejected": "Sidecar FreeCAD ignorato: {msg}",
+  "interop.reapplied": "Selezioni riassociate: {n} faccia/e, {m} orfane",
+  "interop.liveLinkOn": "Collegamento live: ricaricamento automatico a ogni esportazione FreeCAD",
+  "interop.liveLinkFailed": "Collegamento live: ricaricamento non riuscito: {msg}",
+  "interop.autoSlots": "{n} slot creati dai colori FreeCAD"
 };

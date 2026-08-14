@@ -237,5 +237,32 @@ export default {
   "ui.cylinderPanelLabel": "Zylinderprojektion festlegen",
   "ui.cylinderNoModel1": "Modell laden, um die",
   "ui.cylinderNoModel2": "Zylinderachse zu setzen",
-  "ui.cylinderPanelMinimize": "Minimieren / Wiederherstellen"
+  "ui.cylinderPanelMinimize": "Minimieren / Wiederherstellen",
+
+  // i18n catch-up pass: keys that had been shipping in English only. Grouped at
+  // the end rather than merged into en.js's order — the point is to close the
+  // gap, not to reshuffle seven files.
+  "labels.decimateEnabled": "Auf Ausgabe-Dreiecke reduzieren",
+  "alerts.saveFailed": "Speichern fehlgeschlagen: {msg}",
+  "toasts.projectSaved": "Projekt gespeichert",
+  "toasts.projectDownloaded": "Projekt heruntergeladen",
+  "recovery.banner": "Nicht gespeichertes Projekt wiederhergestellt",
+  "recovery.restore": "Wiederherstellen",
+  "recovery.ignore": "Ignorieren",
+  "recovery.restored": "Projekt wiederhergestellt",
+  "recovery.age.sec": "vor {n} s",
+  "recovery.age.min": "vor {n} min",
+  "recovery.age.hour": "vor {n} h",
+  "recovery.age.day": "vor {n} T",
+  "confirm.unsavedTitle": "Nicht gespeicherte Änderungen",
+  "confirm.unsavedBody": "Änderungen vor dem Fortfahren speichern?",
+  "confirm.save": "Speichern",
+  "confirm.dontSave": "Nicht speichern",
+  "confirm.cancel": "Abbrechen",
+  "interop.tagged": "FreeCAD-Modell: {n} Flächen erkannt",
+  "interop.sidecarRejected": "FreeCAD-Sidecar ignoriert: {msg}",
+  "interop.reapplied": "Auswahl neu zugeordnet: {n} Fläche(n), {m} verwaist",
+  "interop.liveLinkOn": "Live-Link: automatisches Neuladen bei jedem FreeCAD-Export",
+  "interop.liveLinkFailed": "Live-Link: Neuladen fehlgeschlagen: {msg}",
+  "interop.autoSlots": "{n} Slots aus FreeCAD-Farben erstellt"
 };

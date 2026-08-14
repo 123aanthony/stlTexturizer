@@ -256,5 +256,13 @@ export default {
   "interop.reapplied": "Sélections ré-appariées : {n} face(s), {m} orpheline(s)",
   "interop.liveLinkOn": "Lien vif : rechargement auto à chaque export FreeCAD",
   "interop.liveLinkFailed": "Lien vif : rechargement échoué : {msg}",
-  "interop.autoSlots": "{n} slots créés depuis les couleurs FreeCAD"
+  "interop.autoSlots": "{n} slots créés depuis les couleurs FreeCAD",
+
+  // i18n catch-up pass: keys that had been shipping in English only. Grouped at
+  // the end rather than merged into en.js's order — the point is to close the
+  // gap, not to reshuffle seven files.
+  "ui.smoothBottomHeading": "Fond lisse",
+  "ui.smoothBottomDesc": "Après texturation, ramène sur le plan du dessous tout sommet situé à moins de 0,1 mm de celui-ci. La surface de contact avec le plateau reste parfaitement plane, pour que les trancheurs n'ombrent pas de minuscules variations de hauteur sur les éclats du dessous.",
+  "ui.smoothBottom": "Ramener les sommets proches du dessous sur le plan du dessous",
+  "progress.regularizing": "Régularisation des triangles dégénérés…"
 };
