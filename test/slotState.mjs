@@ -22,6 +22,9 @@ import {
   stateFaceCount,
   computeOverlapFaces,
   countSlotOverlap,
+  pickSlotMaterial,
+  hasSlotMaterial,
+  applySlotMaterial,
 } from '../js/slotState.js';
 
 let passed = 0;
@@ -264,6 +267,82 @@ test('overlap: fed by resolveSlotState, the ACTIVE slot uses its live faces', ()
   const live = { selectionMode: true, assignedFaces: new Set([0, 5]) };
   const states = [resolveSlotState(active, true, live), resolveSlotState(other, false)];
   assert.deepEqual(set(computeOverlapFaces(states)), [5]);
+});
+
+// ── Material brush: same material, target keeps its own faces ────────────────
+const slotWith = (over = {}) => ({
+  id: 'sX', name: 'X',
+  activeMapEntry: null, customMapEntry: null,
+  excludedFaces: new Set(), assignedFaces: new Set(),
+  selectionMode: true, settings: {},
+  ...over,
+});
+const MAP_A = { name: 'stone' };
+const MAP_B = { name: 'wood' };
+
+test('brush: the target keeps its faces and its selection mode', () => {
+  const src = slotWith({ activeMapEntry: MAP_A, selectionMode: true,
+                         excludedFaces: new Set([0]), assignedFaces: new Set([0]),
+                         settings: { amplitude: 2, scaleU: 5 } });
+  const tgt = slotWith({ id: 'sY', activeMapEntry: MAP_B, selectionMode: false,
+                         excludedFaces: new Set([7, 8]), assignedFaces: new Set([9]),
+                         settings: { amplitude: 0.1 } });
+
+  applySlotMaterial(tgt, pickSlotMaterial(src));
+
+  assert.equal(tgt.activeMapEntry, MAP_A, 'map copied');
+  assert.deepEqual(tgt.settings, { amplitude: 2, scaleU: 5 }, 'settings copied');
+  assert.deepEqual(set(tgt.excludedFaces), [7, 8], 'painted faces untouched');
+  assert.deepEqual(set(tgt.assignedFaces), [9], 'material faces untouched');
+  assert.equal(tgt.selectionMode, false, 'Include/Exclude mode untouched');
+  assert.equal(tgt.id, 'sY', 'identity untouched');
+  assert.equal(tgt.name, 'X', 'name is not identity here');   // slotWith default
+});
+
+test('brush: settings are COPIED, never aliased to the source', () => {
+  const src = slotWith({ settings: { amplitude: 2 } });
+  const tgt = slotWith({ id: 'sY' });
+  applySlotMaterial(tgt, pickSlotMaterial(src));
+
+  src.settings.amplitude = 99;          // keep editing the source afterwards
+  assert.equal(tgt.settings.amplitude, 2, 'target keeps the pasted value');
+  tgt.settings.scaleU = 3;
+  assert.equal(src.settings.scaleU, undefined, 'and does not write back');
+});
+
+test('brush: global export-quality keys are not part of a material', () => {
+  const src = slotWith({ settings: { amplitude: 2, refineLength: 0.1, maxTriangles: 9 } });
+  const mat = pickSlotMaterial(src);
+  assert.deepEqual(Object.keys(mat.settings), ['amplitude'], 'quality keys stripped');
+  assert.equal(src.settings.refineLength, 0.1, 'the source itself is not mutated');
+});
+
+test('brush: pasting twice is idempotent', () => {
+  const src = slotWith({ activeMapEntry: MAP_A, settings: { amplitude: 2 } });
+  const tgt = slotWith({ id: 'sY', assignedFaces: new Set([4]) });
+  applySlotMaterial(tgt, pickSlotMaterial(src));
+  const once = { map: tgt.activeMapEntry, settings: { ...tgt.settings }, faces: set(tgt.assignedFaces) };
+  applySlotMaterial(tgt, pickSlotMaterial(src));
+  assert.equal(tgt.activeMapEntry, once.map);
+  assert.deepEqual(tgt.settings, once.settings);
+  assert.deepEqual(set(tgt.assignedFaces), once.faces);
+});
+
+test('brush: a slot with neither map nor settings has no material to copy', () => {
+  assert.equal(hasSlotMaterial(slotWith()), false);
+  assert.equal(hasSlotMaterial(slotWith({ assignedFaces: new Set([1, 2]) })), false,
+    'faces alone are not a material');
+  assert.equal(hasSlotMaterial(slotWith({ activeMapEntry: MAP_A })), true);
+  assert.equal(hasSlotMaterial(slotWith({ settings: { amplitude: 1 } })), true);
+  assert.equal(hasSlotMaterial(slotWith({ settings: { refineLength: 1 } })), false,
+    'global quality alone is not a material');
+  assert.equal(hasSlotMaterial(null), false);
+});
+
+test('brush: null-safe (missing target or material is a no-op, not a throw)', () => {
+  assert.equal(applySlotMaterial(null, pickSlotMaterial(slotWith())), null);
+  const tgt = slotWith({ activeMapEntry: MAP_B });
+  assert.equal(applySlotMaterial(tgt, null).activeMapEntry, MAP_B);
 });
 
 console.error(`\nslotState: ${passed} checks passed${process.exitCode ? ' (with failures)' : ''}`);

@@ -21,7 +21,8 @@ import { computeAssignedFaces,
          pickGlobalQuality, stripGlobalQuality, withGlobalQuality,
          serializeSlotFaces, restoreSlotFaces,
          resolveSlotState, stateHasContent, stateFaceCount,
-         computeOverlapFaces, countSlotOverlap } from './slotState.js';
+         computeOverlapFaces, countSlotOverlap,
+         pickSlotMaterial, hasSlotMaterial, applySlotMaterial } from './slotState.js';
 import { runMultiSlotExport, snapBottomToFlat, decimateWithGuard } from './exportPipeline.js';
 import { resolveScaleU, snapScaleUForSeamlessWrap, SCALE_MM_INPUT_MIN, SCALE_MM_INPUT_MAX } from './scaleSnap.js';
 import { getScaleReferenceLengths } from './mapping.js';
@@ -182,6 +183,88 @@ function duplicateTextureSlot(slotId) {
   renderTextureTabs();
   restoreSlotState(copy);
   markProjectDirty();
+}
+
+// ── Material brush (format painter) ──────────────────────────────────────────
+// Office's format painter, for slots: arm it on the active slot, click another
+// slot, and that slot gets the SAME map and settings while keeping ITS OWN
+// faces. Distinct from "Duplicate slot" (which copies the selection too, into a
+// NEW slot) — this is the gesture for a dozen slots sharing one wood setting,
+// each owning its own beams.
+// Double-click the button to stay armed for several targets; Escape, a second
+// click on the button, or clicking the source slot disarms.
+let materialBrushSourceId = null;
+let materialBrushSticky   = false;
+
+function materialBrushArm(sticky = false) {
+  // The active slot's material lives in the live globals, not in its stored
+  // fields (resolveSlotState) — flush before reading it.
+  saveActiveSlotState();
+
+  const source = getActiveTextureSlot();
+  if (!hasSlotMaterial(source)) {
+    showToast(t('toasts.brushNoMaterial'), { type: 'warn' });
+    return;
+  }
+
+  materialBrushSourceId = source.id;
+  materialBrushSticky = sticky;
+  updateMaterialBrushUI();
+  showToast(t('toasts.brushArmed', { name: source.name || source.id }),
+            { sub: t(sticky ? 'toasts.brushHintSticky' : 'toasts.brushHint'), duration: 3500 });
+}
+
+function materialBrushDisarm() {
+  if (!materialBrushSourceId) return;
+  materialBrushSourceId = null;
+  materialBrushSticky = false;
+  updateMaterialBrushUI();
+}
+
+function updateMaterialBrushUI() {
+  const armed = !!materialBrushSourceId;
+  if (copyMaterialBtn) {
+    copyMaterialBtn.classList.toggle('active', armed);
+    copyMaterialBtn.style.background = armed ? 'rgba(124,106,255,.24)' : '';
+    copyMaterialBtn.style.border = armed ? '1px solid var(--accent)' : '';
+    copyMaterialBtn.style.color = armed ? '#fff' : '';
+  }
+  // The strip itself says what a click will do now.
+  const strip = document.getElementById('texture-tabs');
+  if (strip) strip.style.cursor = armed ? 'copy' : '';
+}
+
+function materialBrushApply(targetId) {
+  const source = textureSlots.find(s => s.id === materialBrushSourceId);
+  const target = textureSlots.find(s => s.id === targetId);
+  if (!source || !target) { materialBrushDisarm(); return; }
+  if (source.id === target.id) { materialBrushDisarm(); return; }  // clicking the source = cancel
+
+  // Whichever of the two is ACTIVE holds its state in the live globals: flush
+  // first, so we copy the source's real material and don't lose the target's
+  // freshly painted faces.
+  saveActiveSlotState();
+
+  applySlotMaterial(target, pickSlotMaterial(source));
+
+  // Target is the active slot → the globals must follow it, otherwise the next
+  // saveActiveSlotState would write the OLD material straight back over the
+  // paste. restoreSlotState re-reads the target's own faces, which we never
+  // touched, so the selection survives the round-trip.
+  if (target.id === activeTextureSlotId) restoreSlotState(target);
+
+  // The all-slots preview is a frozen photo that only rebuilds through
+  // updatePreview (debounced): a paste onto a NON-active slot would otherwise
+  // stay invisible until some unrelated edit. restoreSlotState covers the
+  // active case above.
+  if (allSlotsPreviewActive && target.id !== activeTextureSlotId) updatePreview();
+
+  refreshTextureTabsUI();
+  markProjectDirty();
+
+  const kept = getSlotFaceCount(target);
+  showToast(`${source.name || source.id} → ${target.name || target.id}`,
+            { type: 'success', sub: t('toasts.brushKept', { n: kept.toLocaleString() }) });
 }
 
 let textureSlots = TEXTURE_SLOT_DEFS.map(slot => ({
@@ -1313,6 +1396,7 @@ const advancedToggle   = document.getElementById('advanced-toggle');
 const wireframeToggle  = document.getElementById('wireframe-toggle');
 const projectionToggle = document.getElementById('projection-toggle');
 const overlapToggle    = document.getElementById('overlap-toggle');
+const copyMaterialBtn  = document.getElementById('copy-material-btn');
 const placeOnFaceBtn   = document.getElementById('place-on-face-btn');
 const rotateBtn        = document.getElementById('rotate-btn');
 const rotateControls   = document.getElementById('rotate-controls');
@@ -2184,6 +2268,16 @@ document.getElementById('texture-tabs')?.addEventListener('click', (e) => {
 
   const nextSlotId = btn.dataset.slot;
   if (!nextSlotId) return;
+
+  // Material brush armed: this click PAINTS that slot instead of switching to
+  // it — Office semantics, the source stays where it is.
+  if (materialBrushSourceId) {
+    e.preventDefault();
+    e.stopPropagation();
+    materialBrushApply(nextSlotId);
+    if (!materialBrushSticky) materialBrushDisarm();
+    return;
+  }
 
   if (allSlotsPreviewActive) exitAllSlotsPreview();
 
@@ -3926,6 +4020,7 @@ exportAllSlotsBtn?.addEventListener('click', async () => {
       if (rotateActive) toggleRotateMode(false);
       if (placeOnFaceActive) togglePlaceOnFace(false);
       if (exclusionTool) setExclusionTool(null);
+      materialBrushDisarm();          // armed mode, cancelled like the others
       licenseOverlay.classList.add('hidden');
       imprintOverlay.classList.add('hidden');
       _clearShiftLinePreview();
@@ -6812,6 +6907,15 @@ async function toggleAllSlotsPreview() {
 
 previewAllSlotsBtn?.addEventListener('click', toggleAllSlotsPreview);
 clearSlotBtn?.addEventListener('click', () => clearTextureSlot(activeTextureSlotId));
+
+// Material brush: click = arm on the active slot (or disarm), double-click =
+// stay armed for several targets. Escape is handled with the other armed modes
+// (rotate / place-on-face / exclusion tool), in the shared keydown handler.
+copyMaterialBtn?.addEventListener('click', () => {
+  if (materialBrushSourceId) materialBrushDisarm();
+  else materialBrushArm(false);
+});
+copyMaterialBtn?.addEventListener('dblclick', () => materialBrushArm(true));
 function refreshExportAllSlotsButton() {
   if (!exportAllSlotsBtn) return;
 

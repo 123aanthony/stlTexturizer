@@ -294,6 +294,51 @@ export function stateFaceCount(state) {
          (state.excludedFaces && state.excludedFaces.size) || 0;
 }
 
+// ── Material brush: copy WHAT a slot paints, not WHERE ───────────────────────
+// A slot holds two independent things: its MATERIAL (displacement map + the
+// per-slot artistic settings) and its SELECTION (painted faces + Include /
+// Exclude mode). Duplicating a slot copies both; the format painter copies only
+// the material onto a slot that keeps its own selection — the move that matters
+// when a dozen slots must share one wood setting but each owns its own beams.
+//
+// Global export-quality keys are NOT material (they are global by contract, see
+// GLOBAL_EXPORT_QUALITY_KEYS) and are stripped on the way out.
+
+/**
+ * The material of a slot, detached from it (settings are copied, not aliased).
+ *
+ * Reads the slot's STORED fields, so for the active slot the caller must first
+ * flush the live globals into it (saveActiveSlotState) — the globals are the
+ * authority there, see resolveSlotState.
+ */
+export function pickSlotMaterial(source) {
+  return {
+    activeMapEntry: source?.activeMapEntry || null,
+    customMapEntry: source?.customMapEntry || null,
+    settings: stripGlobalQuality({ ...(source?.settings || {}) }),
+  };
+}
+
+/** True when a slot has something worth copying (a map or any setting). */
+export function hasSlotMaterial(source) {
+  const m = pickSlotMaterial(source);
+  return !!(m.activeMapEntry || m.customMapEntry || Object.keys(m.settings).length > 0);
+}
+
+/**
+ * Paste a material onto a slot IN PLACE. excludedFaces / assignedFaces /
+ * selectionMode are deliberately never read nor written here: that is the whole
+ * contract of the brush, and it is what the tests pin.
+ * @returns the mutated target
+ */
+export function applySlotMaterial(target, material) {
+  if (!target || !material) return target;
+  target.activeMapEntry = material.activeMapEntry || null;
+  target.customMapEntry = material.customMapEntry || null;
+  target.settings = { ...(material.settings || {}) };
+  return target;
+}
+
 // ── Slot overlap: faces claimed by more than one slot ────────────────────────
 // Two slots claiming the same face is a real conflict — the export resolves it
 // SILENTLY by slot order (buildExclusiveSlotFaceMasks: the first slot wins), so

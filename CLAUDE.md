@@ -45,6 +45,15 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
   masqué, gris = masqué par angle) ; onglet et vue partagent la couleur.
   Les slots en mode **Exclude sont IGNORÉS** (décision PO) : leur matière est le
   complément des trous peints, ils réclameraient donc tout le modèle.
+  **Pinceau de matériau** (`pickSlotMaterial`/`applySlotMaterial`, bouton
+  « Copier le matériau ») : un slot porte DEUX choses indépendantes — son
+  MATÉRIAU (carte + réglages artistiques) et sa SÉLECTION (faces + mode
+  Inclure/Exclure). Le pinceau ne copie que le premier, la cible garde le
+  second (là où « Dupliquer » copie les deux dans un slot NEUF) ; les clés
+  d'export GLOBALES ne sont jamais du matériau. ⚠️ le slot ACTIF porte son état
+  dans les globales, pas dans ses champs stockés → `saveActiveSlotState()`
+  AVANT de lire la source, et `restoreSlotState(cible)` après si la cible est
+  active, sinon le prochain save réécrirait l'ancien matériau par-dessus.
 - `exportPipeline.js` — orchestration export multi-slot sans DOM (+`decimateWithGuard`
   watertight). `scaleSnap.js` — snap d'échelle cylindrique (fix dérive au reload).
 - `beamAxis.js` — **Wood Auto orienté poutre** : PCA des faces du slot ; V classifié
