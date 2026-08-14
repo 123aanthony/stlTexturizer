@@ -69,6 +69,16 @@ export async function importStepText(text) {
   const partOfFace = [];
   const colorGroupOfFace = [];
   const faceColor = r.colors?.faceColor || null;
+  // FW Diorama — couleur SENTINELLE (magenta pur) = "do not texture".
+  // FreeCAD cannot export a face with NO colour: its STEP exporter decides per
+  // OBJECT (measured on a real GUI export: 27 solids styled at solid level, 7
+  // styled face-by-face, ZERO partially styled), and meshStep then makes every
+  // face inherit its solid's colour (`faceRaw.get(id) ?? sc` in step/styles.js).
+  // So a reserved colour is the only way to say "this face gets no slot": we map
+  // it to -1, which groupFacesByColor already skips.
+  const _isSentinel = (c) => !!c && Math.abs(c[0] - 1) < 0.02
+    && Math.abs(c[1]) < 0.02 && Math.abs(c[2] - 1) < 0.02;
+  const sentinelIdx = (r.colors?.palette || []).findIndex(_isSentinel);
   let w = 0, cursor = 0;
 
   for (const [fid, tris] of order) {
@@ -102,7 +112,8 @@ export async function importStepText(text) {
       },
     });
     partOfFace.push(part);
-    colorGroupOfFace.push(faceColor ? (faceColor.get(fid) ?? -1) : -1);
+    const _g = faceColor ? (faceColor.get(fid) ?? -1) : -1;
+    colorGroupOfFace.push(_g === sentinelIdx ? -1 : _g);
     cursor += tris.length;
   }
 

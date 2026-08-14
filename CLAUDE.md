@@ -31,6 +31,20 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
 - `slotMasks.js` — **cœur des masques multi-slot** (pur, extrait de main.js, testé).
 - `slotState.js` — état slot pur : signatures de faces, split réglages per-slot/
   globaux, **`resolveSlotState` = source unique de vérité** des lecteurs de slot.
+  **Doublons** (`computeOverlapFaces`/`countSlotOverlap`) : faces réclamées par
+  ≥ 2 slots — l'export les tranche EN SILENCE par ordre de slot
+  (`buildExclusiveSlotFaceMasks`), d'où 2 signaux nourris par la MÊME règle :
+  onglet + highlight dans la vue (case « Surfaces en double » du pied de
+  viewport → `viewer.setOverlapOverlay`, mesh dédié : `setExclusionOverlay`
+  est remis à null par 8 sites, l'overlay sauterait au 1er coup de pinceau).
+  ⚠️ **MAGENTA `#ff2fd0`, quasi opaque** (retour PO : le rouge d'origine était
+  « très peu visible ») : une face en doublon est par construction MASQUÉE du
+  point de vue du slot actif, donc posée sur l'ORANGE du shader
+  (`userMaskColor` 0.85/0.40/0.15) — rouge sur orange ne se lit pas. Le magenta
+  est la seule teinte que le shader ne produit JAMAIS (teal = texturé, orange =
+  masqué, gris = masqué par angle) ; onglet et vue partagent la couleur.
+  Les slots en mode **Exclude sont IGNORÉS** (décision PO) : leur matière est le
+  complément des trous peints, ils réclameraient donc tout le modèle.
 - `exportPipeline.js` — orchestration export multi-slot sans DOM (+`decimateWithGuard`
   watertight). `scaleSnap.js` — snap d'échelle cylindrique (fix dérive au reload).
 - `beamAxis.js` — **Wood Auto orienté poutre** : PCA des faces du slot ; V classifié

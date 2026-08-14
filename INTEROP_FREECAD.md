@@ -14,8 +14,9 @@ ré-appariement, lien vif, slots) est partagé.
 
 ## Flux recommandé (v2, STEP direct + lien de sauvegarde)
 
-1. **FreeCAD** : colorier les matériaux (les chaînes FW ont déjà leurs couleurs de
-   groupe) → sélectionner les objets à exporter → commande **« Lier à
+1. **FreeCAD** : commande **« FW Coloriser (BumpForge) »** (toolbar *FW — Outils*,
+   voir « Périmètre et fil du bois » plus bas) → sélectionner les objets à
+   exporter → commande **« Lier à
    BumpForge »** (toolbar *FW — Outils*) → choisir le fichier `.step` cible.
    La sélection + le chemin sont mémorisés dans le document (objet
    `BumpForge_Link`) et **chaque Ctrl+S ré-exporte automatiquement** ce STEP.
@@ -70,10 +71,44 @@ et sur modèle non taggé. Un rechargement vif **ne détache pas** le `.bforge`
 ## Auto-slots par couleur
 
 STEP coloré + **aucune face peinte** nulle part → un slot par groupe de couleur
-(les plus gros d'abord, cap 6), nommé d'après la pièce dominante, faces
+(les plus gros d'abord, **cap 16**), nommé d'après la pièce dominante, faces
 pré-assignées en include-only. Jamais sur un re-export (les sélections
 ré-appariées priment). Une texture déjà choisie ne bloque pas (elle reste sur le
 slot renommé).
+
+## Périmètre et fil du bois (FW « Coloriser », 13/08)
+
+Côté FreeCAD, `fw_colorize.py` peint **une couleur par matière sur les seules
+surfaces vues du dehors**, et une **sentinelle magenta pur `(1,0,1)`** sur tout
+le reste. `stepImport.js` mappe la sentinelle sur le groupe **-1**, que
+`groupFacesByColor` ignore : ces faces n'ont ni slot ni texture, et ne consomment
+pas le cap.
+
+Pourquoi une couleur réservée plutôt que « pas de couleur » — deux mesures :
+
+- l'exportateur STEP de FreeCAD décide **par OBJET**. Sur un export GUI réel
+  (`test/fixtures/freecad/interop_colored.step`, 308 faces / 34 solides) : 27
+  solides stylés au solide, 7 stylés face par face — **et ces 7 sont
+  monochromes**, éclatés seulement parce que leur objet ne l'était pas.
+  **0 solide partiellement stylé.** Peindre une face peint donc tout l'objet ;
+- `step/styles.js` fait **hériter** la couleur du solide à ses faces
+  (`faceRaw.get(face.faceId) ?? sc`), donc même un style au solide crée un
+  groupe.
+
+**Le fil du bois.** `computeBeamFrame` fait une PCA **sur les faces du slot** :
+un slot qui mélange poteaux et écharpes rend une direction moyenne, donc un fil
+faux — et la PCA travaille sur la direction **3D**, donc deux traverses de murs
+perpendiculaires (X et Y) ne peuvent pas partager un slot. Le bois est donc
+découpé en sous-couleurs par direction, quantification adaptative aux directions
+réellement présentes (budget réglable, erreur annoncée). Mesuré sur un colombage
+réel de 134 barres : 9 directions à 10° de tolérance (erreur max 7.6°), 13 à 5°.
+D'où le cap relevé de 6 à 16 — à 6, les groupes les plus petits étaient
+abandonnés en silence.
+
+Alternative non retenue (documentée, ~20 lignes) : calculer le `beamFrame` **par
+coque connexe** (`getShellAssignments` existe déjà dans `meshValidation.js`) au
+lieu de par slot. Chaque poutre aurait son fil exact avec **une seule** couleur
+bois et 0° d'erreur — FW sort déjà chaque barre en solide séparé.
 
 ## Pièges connus
 
@@ -91,8 +126,10 @@ slot renommé).
 
 ## Tests
 
-- `npm test` : contrat, matcher, import STEP, cross-pipeline, couleurs (fixtures
-  réelles committées dans `test/fixtures/freecad/`).
+- `npm test` : contrat, matcher, import STEP, cross-pipeline, couleurs et
+  **sentinelle** (fixtures réelles committées dans `test/fixtures/freecad/` ; le
+  test de sentinelle repeint une couleur de la fixture en magenta plutôt que
+  d'ajouter un binaire, et il a été prouvé vivant par neutralisation).
 - `npm run test:interop:update` : régénère les fixtures via FreeCADCmd
   (`FW_Diorama_tools/fc_bumpforge_interop.py`).
 - `npm run test:e2e` : chaîne complète ×2 pipelines dans la vraie app (GPU),

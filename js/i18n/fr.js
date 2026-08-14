@@ -6,6 +6,8 @@ export default {
   "dropHint.text": "Déposez un fichier <strong>.stl</strong>, <strong>.obj</strong> ou <strong>.3mf</strong> ici<br/>ou <label for=\"stl-file-input\" class=\"link-label\">cliquez pour parcourir</label>",
   "ui.wireframe": "Fil de fer",
   "ui.perspective": "Vue en perspective",
+  "ui.showOverlaps": "Surfaces en double",
+  "tooltips.showOverlaps": "Met en évidence les faces réclamées par plusieurs slots (slots en mode Inclure uniquement). À l'export, une telle face revient au premier slot qui la réclame.",
   "ui.controlsHint": "Bouton gauche : orbiter  ·  Bouton droit : panoramique  ·  Molette : zoom",
   "ui.meshInfo": "{n} triangles · {mb} Mo · {sx} × {sy} × {sz} mm",
   "ui.loadStl": "Charger un modèle…",

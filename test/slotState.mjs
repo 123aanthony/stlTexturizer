@@ -20,6 +20,8 @@ import {
   resolveSlotState,
   stateHasContent,
   stateFaceCount,
+  computeOverlapFaces,
+  countSlotOverlap,
 } from '../js/slotState.js';
 
 let passed = 0;
@@ -188,6 +190,80 @@ test('resolve: null slot is empty, not a throw', () => {
   const st = resolveSlotState(null, false, {});
   assert.equal(stateHasContent(st), false);
   assert.equal(stateFaceCount(st), 0);
+});
+
+// ── Slot overlap: what the red tab and the "Show overlaps" highlight share ───
+// Both signals read computeOverlapFaces, so a face highlighted red in the
+// viewport is by construction a face the badge is complaining about.
+const inc = (...faces) => ({ selectionMode: true,  assignedFaces: new Set(faces) });
+const exc = (...faces) => ({ selectionMode: false, assignedFaces: new Set(faces) });
+
+test('overlap: only the faces claimed by two Include slots', () => {
+  const overlap = computeOverlapFaces([inc(0, 1, 2), inc(2, 3)]);
+  assert.deepEqual(set(overlap), [2]);
+});
+
+test('overlap: a face claimed by three slots is reported once', () => {
+  assert.deepEqual(set(computeOverlapFaces([inc(1), inc(1), inc(1)])), [1]);
+});
+
+test('overlap: one slot alone never overlaps itself', () => {
+  assert.equal(computeOverlapFaces([inc(0, 1, 2, 3)]).size, 0);
+});
+
+test('overlap: Exclude-mode slots are ignored (product decision)', () => {
+  // The Exclude slot's material is the whole model minus face 3 — it would
+  // contest every face of the Include slot if it took part in the rule.
+  const overlap = computeOverlapFaces([inc(0, 1), exc(0, 1, 2)], 4);
+  assert.equal(overlap.size, 0, 'no overlap: the Exclude slot does not claim');
+});
+
+test('overlap: two Exclude slots claiming the same model are still ignored', () => {
+  assert.equal(computeOverlapFaces([exc(0), exc(1)], 4).size, 0);
+});
+
+test('overlap: out-of-range faces are filtered by triCount', () => {
+  // Stale selection from a bigger model: face 99 must not reach the overlay
+  // builder, which would read past the position array.
+  assert.deepEqual(set(computeOverlapFaces([inc(1, 99), inc(1, 99)], 4)), [1]);
+});
+
+test('overlap: empty / missing input is empty, not a throw', () => {
+  assert.equal(computeOverlapFaces(null).size, 0);
+  assert.equal(computeOverlapFaces([null, {}, inc()]).size, 0);
+});
+
+test('overlap count: per-slot share of the contested faces', () => {
+  const a = inc(0, 1, 2);
+  const b = inc(2, 3);
+  const overlap = computeOverlapFaces([a, b]);
+  assert.equal(countSlotOverlap(a, overlap), 1);
+  assert.equal(countSlotOverlap(b, overlap), 1);
+});
+
+test('overlap count: the bigger-set branch agrees with the smaller-set branch', () => {
+  // countSlotOverlap walks whichever set is smaller — both paths must agree.
+  const big = inc(...Array.from({ length: 50 }, (_, i) => i));   // 50 faces
+  const small = inc(7, 8);
+  const overlap = computeOverlapFaces([big, small]);             // {7, 8}
+  assert.equal(countSlotOverlap(big, overlap), 2);   // walks overlap (2 < 50)
+  assert.equal(countSlotOverlap(small, overlap), 2); // walks assigned (2 <= 2)
+});
+
+test('overlap count: an Exclude-mode slot is never flagged', () => {
+  const overlap = computeOverlapFaces([inc(0, 1), inc(1)]);
+  assert.deepEqual(set(overlap), [1]);
+  assert.equal(countSlotOverlap(exc(0, 1), overlap), 0);
+});
+
+test('overlap: fed by resolveSlotState, the ACTIVE slot uses its live faces', () => {
+  // The user just painted face 5 in the active slot, over slot B's selection:
+  // the stored field is stale, only the live globals show the conflict.
+  const active = { id: 's1', selectionMode: true, assignedFaces: new Set([0]) };
+  const other  = { id: 's2', selectionMode: true, assignedFaces: new Set([5]) };
+  const live = { selectionMode: true, assignedFaces: new Set([0, 5]) };
+  const states = [resolveSlotState(active, true, live), resolveSlotState(other, false)];
+  assert.deepEqual(set(computeOverlapFaces(states)), [5]);
 });
 
 console.error(`\nslotState: ${passed} checks passed${process.exitCode ? ' (with failures)' : ''}`);

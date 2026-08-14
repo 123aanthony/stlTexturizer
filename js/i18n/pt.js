@@ -6,6 +6,8 @@ export default {
   "dropHint.text": "Arraste um arquivo <strong>.stl</strong>, <strong>.obj</strong> ou <strong>.3mf</strong> aqui<br/>ou <label for=\"stl-file-input\" class=\"link-label\">clique para procurar</label>",
   "ui.wireframe": "Wireframe",
   "ui.perspective": "Vista em perspectiva",
+  "ui.showOverlaps": "Mostrar sobreposições",
+  "tooltips.showOverlaps": "Destaca as faces reivindicadas por mais de um slot (apenas slots no modo Incluir). Na exportação, essa face fica com o primeiro slot que a reivindica.",
   "ui.controlsHint": "Arrastar esq.: orbitar  ·  Arrastar dir.: deslocar  ·  Roda: zoom",
   "ui.meshInfo": "{n} triângulos · {mb} MB · {sx} × {sy} × {sz} mm",
   "ui.loadStl": "Carregar modelo…",

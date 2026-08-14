@@ -92,4 +92,35 @@ test('GUI colors: palette extracted, faces grouped per color', () => {
   assert.ok(total > 200, `${total} faces grouped`);
 });
 
+// FW Diorama sentinel: faces painted pure magenta must yield NO colour group,
+// so they never get a slot and never get textured. Built by repainting one of
+// the fixture's real colours — no new binary fixture needed.
+// ⚠ `test()` is SYNCHRONOUS: an async callback would have its failures swallowed
+// and print a ✓ regardless, so the import happens here (top-level await, as
+// everywhere else in this file) and the assertions stay synchronous.
+const COL_RAW = readFileSync(join(FIX, 'interop_colored.step'), 'utf8');
+const SENT_SRC = '0.379999991191,0.28999998818,0.209999992975';  // dark-brown frame
+const SENT = COL_RAW.includes(SENT_SRC)
+  ? await importStepText(COL_RAW.replaceAll(SENT_SRC, '1.,0.,1.'))
+  : null;
+
+test('sentinel colour (pure magenta) yields no group and no slot', () => {
+  assert.ok(SENT, 'fixture colour present (repaint applied)');
+  const idx = COL.palette.findIndex(
+    (c) => Math.abs(c[0] - 0.38) < 0.01 && Math.abs(c[2] - 0.21) < 0.01);
+  assert.ok(idx >= 0, 'colour is in the palette');
+  const nPainted = COL.colorGroupOfFace.filter((g) => g === idx).length;
+  assert.ok(nPainted > 0, `${nPainted} faces carry it`);
+
+  const nSentinel = SENT.colorGroupOfFace.filter((g) => g === -1).length;
+  assert.strictEqual(nSentinel, nPainted,
+    `${nSentinel} sentinel faces vs ${nPainted} repainted`);
+  const before = groupFacesByColor(COL.colorGroupOfFace, COL.sidecar,
+                                   COL.partOfFace, 16);
+  const after = groupFacesByColor(SENT.colorGroupOfFace, SENT.sidecar,
+                                  SENT.partOfFace, 16);
+  assert.strictEqual(after.length, before.length - 1,
+    `${after.length} groups after vs ${before.length} before`);
+});
+
 console.error(`\nstepImport: ${passed} checks passed${process.exitCode ? ' (with failures)' : ''}`);

@@ -6,6 +6,8 @@ export default {
   "dropHint.text": "Drop an <strong>.stl</strong>, <strong>.obj</strong> or <strong>.3mf</strong> file here<br/>or <label for=\"stl-file-input\" class=\"link-label\">click to browse</label>",
   "ui.wireframe": "Wireframe",
   "ui.perspective": "Perspective View",
+  "ui.showOverlaps": "Show Overlaps",
+  "tooltips.showOverlaps": "Highlight the faces claimed by more than one slot (Include-mode slots only). On export such a face goes to the first slot that claims it.",
   "ui.controlsHint": "Left drag: orbit  ·  Right drag: pan  ·  Scroll: zoom",
   "ui.meshInfo": "{n} triangles · {mb} MB · {sx} × {sy} × {sz} mm",
   "ui.loadStl": "Load Model…",

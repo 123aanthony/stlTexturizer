@@ -6,6 +6,8 @@ export default {
   "dropHint.text": "Trascina qui un file <strong>.stl</strong>, <strong>.obj</strong> o <strong>.3mf</strong><br/>o <label for=\"stl-file-input\" class=\"link-label\">clicca per sfogliare</label>",
   "ui.wireframe": "Wireframe",
   "ui.perspective": "Vista prospettica",
+  "ui.showOverlaps": "Mostra sovrapposizioni",
+  "tooltips.showOverlaps": "Evidenzia le facce rivendicate da più di uno slot (solo slot in modalità Includi). All'esportazione la faccia va al primo slot che la rivendica.",
   "ui.controlsHint": "Trascina a sx: orbita  ·  Trascina a dx: sposta  ·  Scorri: zoom",
   "ui.meshInfo": "{n} triangoli · {mb} MB · {sx} × {sy} × {sz} mm",
   "ui.loadStl": "Carica Modello…",

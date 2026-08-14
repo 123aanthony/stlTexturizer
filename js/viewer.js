@@ -21,8 +21,10 @@ let wireframeLines = null;   // LineSegments overlay, or null when hidden
 let wireframeVisible = false;
 let exclusionMesh = null;    // flat orange overlay for user-excluded faces
 let hoverMesh = null;        // semi-transparent yellow bucket-fill preview
+let overlapMesh = null;      // red overlay for faces claimed by 2+ slots
 let _exclMaterial = null;
 let _hoverMaterial = null;
+let _overlapMaterial = null;
 let _needsRender = true;
 let _diagEdges = null;       // LineSegments2 for open/non-manifold edges
 let _diagFaces = [];         // Array of THREE.Mesh overlays for face highlights
@@ -767,6 +769,51 @@ export function setHoverPreview(overlayGeo, color = 0xffee00) {
   hoverMesh = new THREE.Mesh(overlayGeo, _hoverMaterial);
   hoverMesh.renderOrder = 2;
   scene.add(hoverMesh);
+  requestRender();
+}
+
+/**
+ * Replace (or clear) the overlay marking faces claimed by more than one texture
+ * slot ("Show overlaps" in the viewport footer).
+ *
+ * MAGENTA, and near-opaque, on purpose: a contested face is by definition masked
+ * from the active slot's point of view, so it sits on the preview shader's
+ * ORANGE (0.85, 0.40, 0.15) — red on orange was measured unreadable. Magenta is
+ * the one hue the shader never produces (teal = textured, orange = user-masked,
+ * grey = angle-masked), so it can't be mistaken for a surface state.
+ *
+ * Deliberately its OWN mesh rather than a reuse of setExclusionOverlay (eight
+ * call sites clear that one, so the highlight would vanish on the first brush
+ * stroke) or of the diagnostics faces (wiped by the mesh-diagnostics panel).
+ * Sits under the hover preview (renderOrder 1 vs 2) so the brush preview stays
+ * readable on top of a contested area.
+ *
+ * @param {THREE.BufferGeometry|null} overlayGeo
+ */
+export function setOverlapOverlay(overlayGeo, color = 0xff2fd0, opacity = 0.92) {
+  if (overlapMesh) {
+    scene.remove(overlapMesh);
+    overlapMesh.geometry.dispose();
+    overlapMesh = null;
+  }
+  if (!overlayGeo || overlayGeo.attributes.position.count === 0) { requestRender(); return; }
+  if (!_overlapMaterial) {
+    _overlapMaterial = new THREE.MeshBasicMaterial({
+      color,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity,
+      polygonOffset: true,
+      polygonOffsetFactor: -1.5,
+      polygonOffsetUnits: -1.5,
+    });
+  } else {
+    _overlapMaterial.color.set(color);
+    _overlapMaterial.opacity = opacity;
+  }
+  overlapMesh = new THREE.Mesh(overlayGeo, _overlapMaterial);
+  overlapMesh.renderOrder = 1;
+  scene.add(overlapMesh);
   requestRender();
 }
 

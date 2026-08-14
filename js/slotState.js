@@ -293,3 +293,62 @@ export function stateFaceCount(state) {
   return (state.assignedFaces && state.assignedFaces.size) ||
          (state.excludedFaces && state.excludedFaces.size) || 0;
 }
+
+// ── Slot overlap: faces claimed by more than one slot ────────────────────────
+// Two slots claiming the same face is a real conflict — the export resolves it
+// SILENTLY by slot order (buildExclusiveSlotFaceMasks: the first slot wins), so
+// the user has to be able to see WHERE it happens, not just that it happens.
+//
+// Exclude-mode slots are IGNORED (product decision): their material is the
+// complement of the painted holes, so such a slot claims nearly the whole model
+// and would flag every other slot's selection as "double" — technically true,
+// useless as a signal (and it would light up half the viewport).
+
+/**
+ * Faces claimed by at least two INCLUDE-mode slots, in ONE pass over the
+ * assigned sets (the per-slot count re-scanned every slot for every slot).
+ *
+ * @param {Array} states     resolved slot states (see resolveSlotState)
+ * @param {number} triCount  triangle count of the live geometry (range filter,
+ *                           so a stale selection from a bigger model can't feed
+ *                           out-of-range indices to the overlay builder)
+ * @returns {Set<number>}
+ */
+export function computeOverlapFaces(states, triCount = Infinity) {
+  const max = Number.isFinite(triCount) && triCount > 0 ? triCount : Infinity;
+  const claimed = new Set();
+  const overlap = new Set();
+
+  for (const state of states || []) {
+    if (!state || !state.selectionMode) continue;   // Exclude-mode slot: ignored
+    for (const face of state.assignedFaces || []) {
+      const idx = Number(face);
+      if (!Number.isInteger(idx) || idx < 0 || idx >= max) continue;
+      if (claimed.has(idx)) overlap.add(idx);
+      else claimed.add(idx);
+    }
+  }
+
+  return overlap;
+}
+
+/**
+ * How many of a slot's own faces are contested (0 for an Exclude-mode slot,
+ * which never takes part in the overlap rule above).
+ * Face indices are numbers by contract (normalizeFaceIndexArray /
+ * computeAssignedFaces), so the smaller set can be the one walked.
+ */
+export function countSlotOverlap(state, overlapFaces) {
+  if (!state || !state.selectionMode) return 0;
+  const assigned = state.assignedFaces;
+  if (!assigned || assigned.size === 0) return 0;
+  if (!overlapFaces || overlapFaces.size === 0) return 0;
+
+  let n = 0;
+  if (assigned.size <= overlapFaces.size) {
+    for (const face of assigned) if (overlapFaces.has(Number(face))) n++;
+  } else {
+    for (const face of overlapFaces) if (assigned.has(face)) n++;
+  }
+  return n;
+}

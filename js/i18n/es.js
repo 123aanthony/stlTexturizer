@@ -6,6 +6,8 @@ export default {
   "dropHint.text": "Arrastra aquí un archivo <strong>.stl</strong>, <strong>.obj</strong> o <strong>.3mf</strong><br/>o <label for=\"stl-file-input\" class=\"link-label\">haz clic para explorar</label>",
   "ui.wireframe": "Malla de alambre",
   "ui.perspective": "Vista en perspectiva",
+  "ui.showOverlaps": "Mostrar solapamientos",
+  "tooltips.showOverlaps": "Resalta las caras reclamadas por más de un slot (solo slots en modo Incluir). Al exportar, esa cara va al primer slot que la reclama.",
   "ui.controlsHint": "Arrastrar izq.: orbitar  ·  Arrastrar der.: desplazar  ·  Rueda: zoom",
   "ui.meshInfo": "{n} triángulos · {mb} MB · {sx} × {sy} × {sz} mm",
   "ui.loadStl": "Cargar modelo…",

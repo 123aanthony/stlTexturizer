@@ -6,6 +6,8 @@ export default {
   "dropHint.text": "여기에 <strong>.stl</strong>, <strong>.obj</strong> 또는 <strong>.3mf</strong> 파일을 놓거나<br/><label for=\"stl-file-input\" class=\"link-label\">클릭해서 선택</label>",
   "ui.wireframe": "와이어프레임",
   "ui.perspective": "원근 보기",
+  "ui.showOverlaps": "중복 표시",
+  "tooltips.showOverlaps": "두 개 이상의 슬롯이 사용하는 면을 강조 표시합니다(포함 모드 슬롯만). 내보낼 때 해당 면은 먼저 요청한 슬롯에 할당됩니다.",
   "ui.controlsHint": "왼쪽 드래그: 회전  ·  오른쪽 드래그: 이동  ·  스크롤: 확대/축소",
   "ui.meshInfo": "삼각형 {n}개 · {mb} MB · {sx} × {sy} × {sz} mm",
   "ui.loadStl": "모델 불러오기…",

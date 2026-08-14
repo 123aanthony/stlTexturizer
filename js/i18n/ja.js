@@ -6,6 +6,8 @@ export default {
   "dropHint.text": "<strong>.stl</strong>、<strong>.obj</strong>、<strong>.3mf</strong> ファイルをここにドロップ<br/>または <label for=\"stl-file-input\" class=\"link-label\">クリックして参照</label>",
   "ui.wireframe": "ワイヤーフレーム",
   "ui.perspective": "透視投影ビュー",
+  "ui.showOverlaps": "重複を表示",
+  "tooltips.showOverlaps": "複数のスロットが要求している面を強調表示します（「含める」モードのスロットのみ）。エクスポート時、その面は最初に要求したスロットに割り当てられます。",
   "ui.controlsHint": "左ドラッグ: 回転  ·  右ドラッグ: パン  ·  スクロール: ズーム",
   "ui.meshInfo": "{n} 三角形 · {mb} MB · {sx} × {sy} × {sz} mm",
   "ui.loadStl": "モデルを読み込む…",

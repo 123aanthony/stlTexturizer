@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { initViewer, loadGeometry, setMeshMaterial, setMeshGeometry, setWireframe,
          getControls, getCamera, getCurrentMesh,
-         setExclusionOverlay, setHoverPreview, setViewerTheme,
+         setExclusionOverlay, setHoverPreview, setOverlapOverlay, setViewerTheme,
          setProjection, requestRender,
          clearDiagOverlays, setDiagEdges, addDiagFaces,
          setRotationGizmo, isGizmoDragging } from './viewer.js';
@@ -20,7 +20,8 @@ import { buildCombinedFaceWeights, buildUnionExcludedFacesForSlots,
 import { computeAssignedFaces,
          pickGlobalQuality, stripGlobalQuality, withGlobalQuality,
          serializeSlotFaces, restoreSlotFaces,
-         resolveSlotState, stateHasContent, stateFaceCount } from './slotState.js';
+         resolveSlotState, stateHasContent, stateFaceCount,
+         computeOverlapFaces, countSlotOverlap } from './slotState.js';
 import { runMultiSlotExport, snapBottomToFlat, decimateWithGuard } from './exportPipeline.js';
 import { resolveScaleU, snapScaleUForSeamlessWrap, SCALE_MM_INPUT_MIN, SCALE_MM_INPUT_MAX } from './scaleSnap.js';
 import { getScaleReferenceLengths } from './mapping.js';
@@ -230,36 +231,31 @@ function getSlotFaceCount(slot) {
   return stateFaceCount(getSlotState(slot));
 }
 
-function getSlotOverlapCount(slot) {
-  const assigned = getSlotState(slot).assignedFaces;
-  if (!assigned || assigned.size === 0) return 0;
-
-  // Resolve every slot's assigned faces once (active slot via live globals) so the
-  // overlap count can't be computed against the active slot's stale stored set.
-  const resolved = textureSlots.map(s => getSlotState(s).assignedFaces);
-
-  let overlap = 0;
-  for (const face of assigned) {
-    let owners = 0;
-    for (const other of resolved) {
-      if (other && other.has(face)) owners++;
-      if (owners > 1) {
-        overlap++;
-        break;
-      }
-    }
-  }
-  return overlap;
+// Faces claimed by 2+ Include-mode slots — SINGLE source for both signals: the
+// red slot tab and the red viewport highlight. Resolves every slot through
+// getSlotState (active slot via live globals) so the count can't be computed
+// against the active slot's stale stored set.
+// Callers that need it more than once per pass (refreshTextureTabsUI) compute it
+// ONCE and pass it down: this used to be re-derived per tab, i.e. slots² × faces.
+function getOverlapFaces() {
+  const triCount = currentGeometry
+    ? (currentGeometry.attributes.position.count / 3) | 0
+    : Infinity;
+  return computeOverlapFaces(textureSlots.map(s => getSlotState(s)), triCount);
 }
 
-function getSlotTooltip(slot) {
+function getSlotOverlapCount(slot, overlapFaces = getOverlapFaces()) {
+  return countSlotOverlap(getSlotState(slot), overlapFaces);
+}
+
+function getSlotTooltip(slot, overlapFaces = getOverlapFaces()) {
   if (!slot) return '';
 
   const st = getSlotState(slot);
   const faceCount = stateFaceCount(st);
   const mapName = st.activeMapEntry ? st.activeMapEntry.name : 'No map';
   const mode = st.selectionMode ? 'Include' : 'Exclude';
-  const overlap = getSlotOverlapCount(slot);
+  const overlap = countSlotOverlap(st, overlapFaces);
 
   return [
     slot.name || slot.id,
@@ -331,10 +327,13 @@ function applyTextureTabInlineStyle(btn, isActive, isUsed, hasOverlap = false) {
     btn.style.opacity = '1';
 
   } else if (hasOverlap) {
-    btn.style.background = 'rgba(239,68,68,.12)';
-    btn.style.border = '1px solid #ef4444';
-    btn.style.color = '#fca5a5';
-    btn.style.boxShadow = '0 0 8px rgba(239,68,68,.18)';
+    // Magenta, not red: the same colour the viewport highlight uses, and the one
+    // hue the preview shader never produces (teal = textured, orange = masked,
+    // grey = angle-masked) — see setOverlapOverlay.
+    btn.style.background = 'rgba(255,47,208,.12)';
+    btn.style.border = '1px solid #ff2fd0';
+    btn.style.color = '#ff8ee4';
+    btn.style.boxShadow = '0 0 8px rgba(255,47,208,.22)';
     btn.style.opacity = '1';
 
   } else if (isUsed) {
@@ -504,19 +503,22 @@ function refreshTextureTabsUI() {
     container.style.margin = '0';
   }
 
+  // One overlap pass for the whole tab strip, shared with the tooltips.
+  const overlapFaces = getOverlapFaces();
+
   document.querySelectorAll('#texture-tabs .texture-tab').forEach(btn => {
     const slot = textureSlots.find(s => s.id === btn.dataset.slot);
     const isActive = btn.dataset.slot === activeTextureSlotId;
     const isUsed = slotHasContent(slot);
 
-    const hasOverlap = getSlotOverlapCount(slot) > 0;
+    const hasOverlap = getSlotOverlapCount(slot, overlapFaces) > 0;
 
     btn.classList.toggle('active', isActive);
     btn.classList.toggle('used', isUsed);
     btn.classList.toggle('idle', !isUsed);
     btn.classList.toggle('overlap', hasOverlap);
 
-    btn.title = getSlotTooltip(slot);
+    btn.title = getSlotTooltip(slot, overlapFaces);
 
     applyTextureTabInlineStyle(btn, isActive, isUsed, hasOverlap);
 
@@ -568,8 +570,8 @@ if (removeAction) removeAction.style.display = slot && !isUsed && textureSlots.l
         indicator.style.background = 'var(--accent)';
         indicator.style.boxShadow = '0 0 10px rgba(124,106,255,.85)';
       } else if (hasOverlap) {
-        indicator.style.background = '#ef4444';
-        indicator.style.boxShadow = '0 0 8px rgba(239,68,68,.65)';
+        indicator.style.background = '#ff2fd0';
+        indicator.style.boxShadow = '0 0 8px rgba(255,47,208,.65)';
       } else if (isUsed) {
         indicator.style.background = '#eab308';
         indicator.style.boxShadow = '0 0 8px rgba(234,179,8,.65)';
@@ -579,6 +581,10 @@ if (removeAction) removeAction.style.display = slot && !isUsed && textureSlots.l
       }
     }
   });
+
+  // Slot mutations that never touch the painting funnel (clear, duplicate,
+  // project load, add/remove slot) land here — keep the highlight in step.
+  scheduleOverlapOverlay();
 }
 
 
@@ -1243,6 +1249,10 @@ let precisionFaceNormals    = null;   // Float32Array — local-space unit face 
 let precisionAdjacency      = null;   // Array from buildAdjacency on refined mesh
 let precisionExcludedFaces  = new Set(); // precision face indices excluded while precision is active
 
+// ── Slot-overlap highlight state ──────────────────────────────────────────────
+let showOverlapHighlight = false;  // "Show overlaps" checkbox in the viewport footer
+let _overlapPending      = false;  // rAF coalescing (painting fires per mousemove)
+
 // ── Displacement preview state ────────────────────────────────────────────────
 let dispPreviewGeometry  = null;   // subdivided geometry with smoothNormal attribute
 let dispPreviewBusy      = false;  // true while async subdivision is running
@@ -1302,6 +1312,7 @@ const advancedSection  = document.getElementById('advanced-section');
 const advancedToggle   = document.getElementById('advanced-toggle');
 const wireframeToggle  = document.getElementById('wireframe-toggle');
 const projectionToggle = document.getElementById('projection-toggle');
+const overlapToggle    = document.getElementById('overlap-toggle');
 const placeOnFaceBtn   = document.getElementById('place-on-face-btn');
 const rotateBtn        = document.getElementById('rotate-btn');
 const rotateControls   = document.getElementById('rotate-controls');
@@ -3188,11 +3199,16 @@ function wireEvents() {
     else _disableLiveLink();
   }
 
-  // One slot per FreeCAD color group (largest first, capped at 6): faces are
-  // pre-assigned in include-only mode; the user only picks textures.
+  // One slot per FreeCAD color group (largest first): faces are pre-assigned in
+  // include-only mode; the user only picks textures.
+  // Cap raised 6 → 16 for the FW Diorama palette: wood is split by GRAIN
+  // DIRECTION (computeBeamFrame runs one PCA per slot, so a slot mixing posts
+  // and braces would average them into a wrong grain), which measured 9 wood
+  // groups on a real half-timbered building — plus the material groups. At a cap
+  // of 6 the smaller groups were dropped silently, with no texture at all.
   function _autoSlotsFromColorGroups(stepData) {
     const groups = groupFacesByColor(stepData.colorGroupOfFace, currentFaceSidecar,
-                                     stepData.partOfFace, 6);
+                                     stepData.partOfFace, 16);
     if (groups.length < 2) return; // single color = nothing worth splitting
 
     while (textureSlots.length < groups.length) {
@@ -3550,7 +3566,7 @@ function wireEvents() {
     rotateZInput.value = '0';
 
     // Light update only — still in rotate mode
-    setMeshGeometry(currentGeometry);
+    showMeshGeometry(currentGeometry);
     requestRender();
   });
   // Allow Enter key in inputs to apply
@@ -3677,6 +3693,12 @@ exportAllSlotsBtn?.addEventListener('click', async () => {
 
   // ── Wireframe ──
   wireframeToggle.addEventListener('change', () => setWireframe(wireframeToggle.checked));
+
+  // ── Show overlaps (faces claimed by 2+ Include-mode slots) ──
+  overlapToggle?.addEventListener('change', () => {
+    showOverlapHighlight = overlapToggle.checked;
+    refreshOverlapOverlay();   // immediate, not coalesced: it's a direct action
+  });
 
   // ── Projection toggle ──
   projectionToggle.addEventListener('change', () => setProjection(projectionToggle.checked));
@@ -4534,6 +4556,7 @@ function handlePlaceOnFaceClick(e) {
   } else {
     setExclusionOverlay(null);
   }
+  refreshOverlapOverlay();   // vertices moved: the red overlay must follow
 
   // Exit place-on-face mode
   togglePlaceOnFace(false);
@@ -4646,7 +4669,7 @@ function _rotateGeometry(quat) {
   }
 
   // Light update only: swap geometry on mesh, no camera/grid/dimension rebuild
-  setMeshGeometry(currentGeometry);
+  showMeshGeometry(currentGeometry);
   requestRender();
 }
 
@@ -4684,6 +4707,7 @@ function _rotateFinalize() {
   } else {
     setExclusionOverlay(null);
   }
+  refreshOverlapOverlay();   // new geometry: rebuild (or drop) the red overlay
 
   // Dispose old preview material so it gets recreated
   if (previewMaterial) {
@@ -4730,6 +4754,60 @@ function refreshExclusionOverlay() {
   // la PCA par mousemove de pinceau serait un coût plein-maillage par trait.
   _bumpFaceSelectionRev();
   if (settings.mappingMode === 7) schedulePreviewUpdate();
+  scheduleOverlapOverlay();
+}
+
+// ── Slot-overlap highlight ("Show overlaps") ─────────────────────────────────
+// The red slot tab says THAT two slots claim the same faces; this says WHERE.
+// Fed by the same getOverlapFaces() rule (Include-mode slots only), so badge and
+// highlight can never disagree.
+
+function refreshOverlapOverlay() {
+  if (!showOverlapHighlight || !currentGeometry) { setOverlapOverlay(null); return; }
+
+  const overlap = getOverlapFaces();
+  if (overlap.size === 0) { setOverlapOverlay(null); return; }
+
+  // Build on the geometry ACTUALLY on screen: the precision and displacement-
+  // preview meshes are subdivided, so an overlay built on currentGeometry would
+  // sink under the displaced surface. Both carry a parent map back to the
+  // original faces (same trick as the hover preview).
+  const shown = getCurrentMesh()?.geometry || currentGeometry;
+  let parentMap = null;
+  if (shown === precisionGeometry)       parentMap = precisionParentMap;
+  else if (shown === dispPreviewGeometry) parentMap = dispPreviewParentMap;
+
+  if (parentMap) {
+    const subMask = new Uint8Array(parentMap.length);
+    for (let i = 0; i < parentMap.length; i++) {
+      if (overlap.has(parentMap[i])) subMask[i] = 1;
+    }
+    setOverlapOverlay(buildExclusionOverlayGeo(shown, subMask));
+  } else {
+    // Unmapped display mesh (all-slots preview): fall back to the original
+    // geometry, same convention as the diagnostics highlights.
+    setOverlapOverlay(buildExclusionOverlayGeo(currentGeometry, overlap));
+  }
+}
+
+// Single door for display-mesh swaps (precision masking, displacement preview,
+// all-slots preview). They each show a DIFFERENT geometry, and the highlight is
+// built on the one actually on screen — routing them through here keeps that
+// invariant structural instead of eight reminders to rebuild the overlay.
+function showMeshGeometry(geo) {
+  setMeshGeometry(geo);
+  scheduleOverlapOverlay();
+}
+
+// Painting mutates the selection per mousemove; coalesce to one rebuild a frame
+// (the overlay allocates a full BufferGeometry). No-op while the mode is off.
+function scheduleOverlapOverlay() {
+  if (!showOverlapHighlight || _overlapPending) return;
+  _overlapPending = true;
+  requestAnimationFrame(() => {
+    _overlapPending = false;
+    refreshOverlapOverlay();
+  });
 }
 
 function updateBrushCursor(e) {
@@ -6289,7 +6367,7 @@ function deactivatePrecisionMasking() {
   precisionRefreshBtn.classList.add('hidden');
   precisionWarning.classList.add('hidden');
   if (currentGeometry) {
-    setMeshGeometry(currentGeometry);
+    showMeshGeometry(currentGeometry);
     updateFaceMask(currentGeometry);
     if (excludedFaces.size > 0) refreshExclusionOverlay();
     else setExclusionOverlay(null);
@@ -6349,7 +6427,7 @@ async function refreshPrecisionMesh() {
     }
 
     // Swap display mesh to refined geometry
-    setMeshGeometry(precisionGeometry);
+    showMeshGeometry(precisionGeometry);
     updateFaceMask(precisionGeometry);
     // Force per-vertex falloff computation on the fresh geometry even though
     // the masking tool is still active – updateFaceMask only computes boundary
@@ -6454,7 +6532,7 @@ async function toggleDisplacementPreview(enable) {
     if (currentGeometry && previewMaterial) {
       updateMaterial(previewMaterial, getEffectiveMapEntry()?.texture, { ...settings, bounds: currentBounds, ..._previewAspect(), beamFrame: _previewBeamFrame() });
       updateFaceMask(currentGeometry);
-      setMeshGeometry(currentGeometry);
+      showMeshGeometry(currentGeometry);
     }
     // Dispose the subdivided preview geometry (no longer on the mesh)
     if (dispPreviewGeometry) {
@@ -6558,7 +6636,7 @@ async function toggleDisplacementPreview(enable) {
     }
     const fullSettings = { ...settings, bounds: currentBounds, ..._previewAspect(), beamFrame: _previewBeamFrame() };
     previewMaterial = createPreviewMaterial(getEffectiveMapEntry().texture, fullSettings);
-    setMeshGeometry(dispPreviewGeometry);
+    showMeshGeometry(dispPreviewGeometry);
     setMeshMaterial(previewMaterial);
 
 
@@ -6672,7 +6750,7 @@ async function rebuildAllSlotsPreview() {
       flatShading: false
     });
 
-    setMeshGeometry(allSlotsPreviewGeometry);
+    showMeshGeometry(allSlotsPreviewGeometry);
     setMeshMaterial(allSlotsPreviewMaterial);
     setProgress(1, 'All-slots preview ready');
     requestRender();
@@ -6706,7 +6784,7 @@ function exitAllSlotsPreview() {
   disposeAllSlotsPreview();
 
   if (currentGeometry) {
-    setMeshGeometry(currentGeometry);
+    showMeshGeometry(currentGeometry);
   }
 
   if (previewMaterial) {
