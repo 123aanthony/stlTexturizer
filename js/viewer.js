@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { LineSegments2 }  from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial }   from 'three/addons/lines/LineMaterial.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 // Pre-allocated temp objects for hot-path event handlers (avoid GC pressure)
 const _tmpQ1 = new THREE.Quaternion();
@@ -12,7 +13,17 @@ const _tmpV2 = new THREE.Vector3();
 const _tmpV3 = new THREE.Vector3();
 const _tmpV4 = new THREE.Vector3();
 
-let renderer, orthoCamera, perspCamera, camera, scene, controls, meshGroup, ambientLight, dirLight1, dirLight2, grid;
+let renderer, orthoCamera, perspCamera, camera, scene, controls, meshGroup, hemiLight, keyLight, fillLight, camLight, grid;
+let _envRT = null;                      // PMREM target holding scene.environment
+const _lightTmp = new THREE.Vector3();  // scratch for the camera-relative light
+
+// Indirect-light level, calibrated on a 36-view orbit sweep (12 azimuths x 3
+// elevations) of a mock building group shaded with the All-Slots preview
+// material.  Higher values kill the dark facades but flatten the form: at 0.85
+// the worst-angle tonal range collapsed to 28 levels, at 0.60 it holds 34 while
+// no view ever goes dark (0 % near-black pixels, worst-case p05 = 115).
+const ENV_DARK  = 0.60;
+const ENV_LIGHT = 0.52;   // pale backdrop needs less indirect or mids wash out
 let _isPerspective = false;
 let currentMesh = null;
 let axesGroup = null;
@@ -184,17 +195,44 @@ export function initViewer(canvas) {
   camera = orthoCamera;
 
   // Lights
-  ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
-  scene.add(ambientLight);
+  // Image-based lighting FIRST: without scene.environment a MeshStandardMaterial
+  // gets zero indirect light, so any face turned away from the key light falls to
+  // flat ambient x albedo and reads as a black hole (the dark building facades in
+  // the All-Slots preview).  RoomEnvironment gives soft directional indirect
+  // everywhere, so no face is ever unlit.
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const roomScene = new RoomEnvironment();
+  _envRT = pmrem.fromScene(roomScene, 0.04);
+  scene.environment = _envRT.texture;
+  scene.environmentIntensity = ENV_DARK;
+  roomScene.traverse((o) => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) o.material.dispose();
+  });
+  pmrem.dispose();
 
-  dirLight1 = new THREE.DirectionalLight(0xffffff, 1.2);
-  dirLight1.position.set(80, 120, 60);
-  dirLight1.castShadow = false;
-  scene.add(dirLight1);
+  // Sky/ground ambient, NOT a flat AmbientLight: faces pointing down must not
+  // read exactly like faces pointing up.
+  hemiLight = new THREE.HemisphereLight(0xdfe6f2, 0x2a2a30, 0.25);
+  scene.add(hemiLight);
 
-  dirLight2 = new THREE.DirectionalLight(0x8899ff, 0.4);
-  dirLight2.position.set(-60, -20, -80);
-  scene.add(dirLight2);
+  // Key light.  The scene is Z-UP (camera.up = 0,0,1); the historical
+  // (80, 120, 60) was a Y-up position, i.e. an almost horizontal grazing light
+  // here — roofs stayed dull and every -X/-Y facade sat at ambient only.
+  keyLight = new THREE.DirectionalLight(0xffffff, 1.15);
+  keyLight.position.set(60, -90, 150);
+  keyLight.castShadow = false;
+  scene.add(keyLight);
+
+  // Cool fill from the opposite quadrant, low.
+  fillLight = new THREE.DirectionalLight(0x8899ff, 0.25);
+  fillLight.position.set(-80, 60, -40);
+  scene.add(fillLight);
+
+  // Camera-relative light: with world-fixed lights alone, a facade in shadow
+  // stays in shadow whatever you orbit to.  Refreshed before every render.
+  camLight = new THREE.DirectionalLight(0xffffff, 0.35);
+  scene.add(camLight);
 
   // Group to hold the mesh
   meshGroup = new THREE.Group();
@@ -440,9 +478,24 @@ export function initViewer(canvas) {
     controls.update();
     if (_needsRender) {
       _needsRender = false;
+      _updateCameraLight();
       renderer.render(scene, camera);
     }
   })();
+}
+
+/**
+ * Keep camLight anchored to the viewpoint so the side you are looking at is
+ * always lit.  Camera-space (-0.35, 0.45, 1) puts it over the viewer's left
+ * shoulder and slightly above: a pure headlight (0, 0, 1) would flatten the
+ * shape instead of revealing it.  Only the DIRECTION matters for a
+ * DirectionalLight (target stays at the origin), so this is independent of
+ * where the model actually sits.
+ */
+function _updateCameraLight() {
+  if (!camLight || !camera) return;
+  _lightTmp.set(-0.35, 0.45, 1).applyQuaternion(camera.quaternion).multiplyScalar(500);
+  camLight.position.copy(_lightTmp);
 }
 
 function onResize() {
@@ -686,6 +739,10 @@ export function setSceneBackground(hexColor) {
 export function setViewerTheme(isLight) {
   if (!scene) return;
   scene.background = new THREE.Color(isLight ? 0xf0f0f5 : 0x111114);
+  // Ground bounce follows the backdrop, and the light theme needs a touch less
+  // indirect or the mid-tones wash out against a pale background.
+  if (hemiLight) hemiLight.groundColor.set(isLight ? 0xc8c8d4 : 0x2a2a30);
+  scene.environmentIntensity = isLight ? ENV_LIGHT : ENV_DARK;
   const savedZ = grid ? grid.position.z : 0;
   if (grid) {
     scene.remove(grid);

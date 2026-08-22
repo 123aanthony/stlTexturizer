@@ -76,6 +76,34 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
   `npm test`) exige la parité avec `en.js`, l'égalité des `{placeholder}` et
   l'existence de toute clé demandée par un `t('…')` du code. Toute nouvelle clé
   se pose donc dans les **8 fichiers**, jamais dans `en.js` seul.
+  ⚠️ **SANS `scene.environment`, UN `MeshStandardMaterial` N'A AUCUNE LUMIERE
+  INDIRECTE** (22/08) — une face qui ne voit pas la cle vaut exactement
+  `albedo x ambiante`, a plat. C'est ce qui noircissait les facades du **Preview
+  All Slots** (retour PO « certaines zones des batiments sont dans l'ombre »).
+  S'y ajoutaient 2 causes : la cle etait posee en **(80, 120, 60)**, une position
+  **Y-up dans une scene Z-UP** (`camera.up = 0,0,1`) donc une lumiere quasi
+  horizontale — toits ternes, toute facade -X/-Y a l'ambiante ; et les 3 lumieres
+  etaient **fixes en monde**, donc une facade dans l'ombre y restait quel que soit
+  l'angle d'orbite. Corrige par `RoomEnvironment` + `PMREMGenerator` (IBL),
+  `HemisphereLight` au lieu de l'`AmbientLight` plate, cle en (60, -90, 150), et
+  une lumiere **liee a la camera** rafraichie avant chaque rendu
+  (`_updateCameraLight`) — decalee a l'epaule gauche, PAS un phare frontal qui
+  aplatirait la forme.
+  ⚠️ **UN ECLAIRAGE SE CALIBRE SUR UNE ORBITE COMPLETE, PAS SUR 3 ANGLES
+  CHOISIS** : le premier jeu de valeurs (env 0.85) supprimait bien les zones
+  noires mais **la forme ne se lisait plus** — echange d'un defaut contre un
+  autre, et invisible aux angles ou l'on regarde spontanement. Banc de mesure :
+  36 vues (12 azimuts x 3 elevations) d'un groupe de batiments shade avec le
+  materiau EXACT du Preview All Slots (`0x9ca3af`, roughness 0.72). Metrique
+  decisive = **l'ETENDUE tonale au pire angle**, jamais la luminance moyenne
+  (meme dilution que le volume ou le SSIM moyen) : MESURE 11 niveaux de gris
+  avant (2.30 % de pixels quasi noirs), 28 a env 0.85, **34 a env 0.60 avec
+  0 % de noirs** — d'ou `ENV_DARK = 0.60`, le seul reglage qui domine sur les
+  3 axes (jamais sombre, le plus stable a l'orbite, le plus de modele conserve).
+  ⚠️ **RESTE** : l'apercu teal live (`previewMaterial.js`) a son PROPRE
+  eclairage code en dur dans le fragment shader (2 lumieres en espace vue, donc
+  il suit la camera) avec une ambiante plate a 0.55 — meme cote ombre illisible,
+  non aligne exprès (le lot visait le Preview All Slots).
 
 ## Tests — workflow OBLIGATOIRE après tout changement géométrique
 
