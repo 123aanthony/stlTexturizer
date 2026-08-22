@@ -117,3 +117,65 @@ test('les controles d\'antialiasing sont cables au moteur', async () => {
   }
 });
 
+// Les reglages de preparation se calibrent sur le CONTENU d'une carte : un
+// point noir a 0.2 creuse les joints d'un mur mais mange la moitie d'une
+// texture de bois. Les trainer d'une carte a la suivante fait porter a la
+// nouvelle des reglages tailles pour l'ancienne — ce que l'utilisateur lit
+// comme un bug du chargement. On verifie donc qu'un choix de carte les remet
+// a neutre.
+//
+// ⚠️ Ce test ne peut PAS vivre en headless : `resetMapAdjustments` est dans
+// main.js, non importable, et c'est le CABLAGE (choix de carte -> reset) qu'on
+// veut prouver, pas la fonction. Le partage global/par-slot, lui, est teste
+// finement dans test/slotState.mjs.
+test('choisir une carte remet la preparation a neutre', async () => {
+  const { app, page } = await launchApp(appRoot);
+  try {
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+
+    const IDS = ['map-macro', 'map-micro', 'map-split', 'map-black', 'map-white', 'map-gamma'];
+    const read = () => page.evaluate((ids) =>
+      Object.fromEntries(ids.map(id => [id, Number(document.getElementById(id + '-val').value)])), IDS);
+
+    const neutral = await read();
+    expect(neutral, 'valeurs neutres au demarrage').toEqual({
+      'map-macro': 1, 'map-micro': 1, 'map-split': 1,
+      'map-black': 0, 'map-white': 1, 'map-gamma': 1,
+    });
+
+    // Deregler franchement, par l'evenement que le reste de l'app ecoute.
+    await page.evaluate(() => {
+      const set = (id, v) => {
+        const el = document.getElementById(id + '-val');
+        el.value = String(v);
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      set('map-macro', 1.5); set('map-micro', 0.15); set('map-split', 2.5);
+      set('map-black', 0.2); set('map-white', 0.8); set('map-gamma', 1.6);
+    });
+    const tweaked = await read();
+    expect(tweaked['map-micro'], 'le dereglage n\'a pas pris').toBe(0.15);
+    expect(tweaked['map-black']).toBe(0.2);
+
+    // Choisir une carte : c'est le geste qui doit remettre a neutre.
+    await page.evaluate(() => document.querySelector('.preset-swatch')?.click());
+
+    // selectPreset est asynchrone (chargement de la texture) : on attend l'etat,
+    // on ne dort pas un delai devine.
+    await expect.poll(async () => (await read())['map-micro'], {
+      message: 'la preparation n\'a pas ete remise a neutre',
+      timeout: 15000,
+    }).toBe(1);
+
+    const after = await read();
+    expect(after, 'tous les reglages doivent etre revenus a neutre').toEqual(neutral);
+
+    expect(errors, `erreurs pendant le test:\n${errors.join('\n')}`).toEqual([]);
+  } finally {
+    // Choisir une carte salit le projet : sans ca, la garde de fermeture ouvre
+    // sa boite de dialogue et `app.close()` ne rend jamais la main.
+    await page.evaluate(() => window.bumpforgeElectron?.setDirty(false)).catch(() => {});
+    await app.close();
+  }
+});

@@ -2733,6 +2733,12 @@ function resetMapAdjustments() {
   textureSmoothingVal.value    = 0;
 
   for (const [sl, vl, key] of _mapPrepControls()) {
+    const v = MAP_PREP_NEUTRAL[key];
+    settings[key] = v;
+    if (sl) { sl.value = v; vl.value = v; }
+  }
+  // La carte preparee est memoisee sur ses reglages : invalider suffit.
+  _effectiveMapCacheKey = null;
 }
 
 let _selectGeneration = 0;   // debounce rapid preset clicks
@@ -2746,7 +2752,7 @@ async function selectPreset(idx, swatchEl, applyDefaults = true) {
   if (!entry) return;
   activeMapName.textContent = entry.name;
   if (applyDefaults) {
-    resetTextureSmoothing();
+    resetMapAdjustments();
     // defaultScale est une fraction HÉRITÉE de la plus grande arête —
     // convertie en taille mm qui rend pareil sur ce modèle.
     if (entry.defaultScale != null) _applyScaleU(_defaultTileMm(entry.defaultScale));
@@ -2974,7 +2980,7 @@ function activateCustomLibraryEntry(entry) {
 
   if (allSlotsPreviewActive) exitAllSlotsPreview();
 
-  resetTextureSmoothing();
+  resetMapAdjustments();
   updatePreview();
   refreshTextureTabsUI();
   requestRender();
@@ -3538,7 +3544,7 @@ function wireEvents() {
       document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
       _showCustomMapThumb(activeMapEntry);
       customMapSwatch.classList.add('active');
-      resetTextureSmoothing();
+      resetMapAdjustments();
       updatePreview();
       markProjectDirty();
     } catch (err) {
@@ -8373,7 +8379,7 @@ function _applySettingsSnapshotInner(snap) {
 
 /**
  * Find a preset by name and activate it. By default, suppresses preset defaults
- * (resetTextureSmoothing + defaultScale override) so a just-restored snapshot
+ * (resetMapAdjustments + defaultScale override) so a just-restored snapshot
  * isn't clobbered. Pass applyDefaults=true for fresh user-initiated picks.
  */
 function _selectPresetByName(name, applyDefaults = false) {

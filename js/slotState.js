@@ -187,6 +187,11 @@ export const GLOBAL_EXPORT_QUALITY_KEYS = [
   // aussi arriver dans `qualitySettings`, donc jusqu'au chemin multi-slot —
   // `applyDisplacement` le lit sur les settings de TÊTE, pas sur ceux du slot.
   'textureAntialias',
+  // Angle de pli de l'ombrage : propriété de la VUE, pas de la carte. Par slot,
+  // il changerait en basculant de slot alors que rien à l'écran ne le justifie.
+  // (À l'inverse, les réglages `map*` de préparation restent PAR SLOT : ils se
+  // calibrent sur le contenu d'UNE carte.)
+  'displayCreaseAngle',
   'maxTriangles',
   'decimateEnabled',
   'smoothBottom',

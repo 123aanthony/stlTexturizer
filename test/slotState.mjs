@@ -345,4 +345,88 @@ test('brush: null-safe (missing target or material is a no-op, not a throw)', ()
   assert.equal(applySlotMaterial(tgt, null).activeMapEntry, MAP_B);
 });
 
+
+// ── Partage global / par slot des reglages de carte ──────────────────────────
+//
+// GLOBAL_EXPORT_QUALITY_KEYS est la SOURCE UNIQUE de ce partage, et se tromper
+// de liste ne leve rien — ca se manifeste bien plus tard comme « mes reglages
+// sautent quand je change de slot » ou « ce reglage ne suit pas la carte que
+// je copie ». D'ou ces oracles sur le contrat lui-meme.
+//
+// La regle : un reglage qui se calibre sur le CONTENU d'une carte est PAR SLOT
+// (chaque slot a la sienne) ; un reglage qui decrit l'echantillonnage ou la vue
+// est GLOBAL.
+
+const PER_SLOT_MAP_KEYS = ['mapBlack', 'mapWhite', 'mapGamma',
+                           'mapMacro', 'mapMicro', 'mapSplitMm', 'textureSmoothing'];
+const GLOBAL_VIEW_KEYS  = ['textureAntialias', 'displayCreaseAngle'];
+
+const FULL = {
+  amplitude: 2, refineLength: 0.5, maxTriangles: 1000,
+  textureSmoothing: 3, mapBlack: 0.2, mapWhite: 0.8, mapGamma: 1.4,
+  mapMacro: 1.3, mapMicro: 0.15, mapSplitMm: 0.75,
+  textureAntialias: false, displayCreaseAngle: 55,
+};
+
+test('preparation de carte : PAR SLOT (elle se calibre sur le contenu)', () => {
+  const perSlot = stripGlobalQuality({ ...FULL });
+  for (const k of PER_SLOT_MAP_KEYS) {
+    assert.ok(k in perSlot, `${k} a ete retire des reglages de slot`);
+    assert.equal(perSlot[k], FULL[k], `${k} n'a pas garde sa valeur`);
+  }
+});
+
+test('echantillonnage et vue : GLOBAUX (ils ne suivent pas la carte)', () => {
+  const perSlot = stripGlobalQuality({ ...FULL });
+  for (const k of GLOBAL_VIEW_KEYS) {
+    assert.ok(!(k in perSlot), `${k} a fui dans les reglages de slot`);
+  }
+  const snap = pickGlobalQuality(FULL);
+  for (const k of GLOBAL_VIEW_KEYS) {
+    assert.equal(snap[k], FULL[k], `${k} absent du snapshot global`);
+  }
+});
+
+test('changer de slot : la preparation suit la carte, le global reste', () => {
+  // Slot A calibre pour un mur de pierre, slot B laisse neutre.
+  const slotA = stripGlobalQuality({ ...FULL });
+  const slotB = stripGlobalQuality({ mapBlack: 0, mapMacro: 1, mapMicro: 1, amplitude: 1 });
+  // Les globaux courants : antialiasing coupe, angle de pli a 20.
+  const globals = { ...FULL, textureAntialias: true, displayCreaseAngle: 20 };
+
+  const liveA = withGlobalQuality(slotA, globals);
+  const liveB = withGlobalQuality(slotB, globals);
+
+  assert.equal(liveA.mapBlack, 0.2, 'le slot A doit retrouver SA preparation');
+  assert.equal(liveB.mapBlack, 0,   'le slot B ne doit pas heriter de celle du slot A');
+  assert.equal(liveA.mapMicro, 0.15);
+  assert.equal(liveB.mapMicro, 1);
+
+  for (const k of GLOBAL_VIEW_KEYS) {
+    assert.equal(liveA[k], globals[k], `${k} : le global doit primer sur le slot A`);
+    assert.equal(liveB[k], globals[k], `${k} : le global doit primer sur le slot B`);
+  }
+});
+
+test('copier une carte vers un autre slot emporte sa preparation', () => {
+  // C'est le geste « appliquer sur un autre slot » : le materiau doit partir
+  // COMPLET, sinon la carte arrive sans les reglages qui la rendent lisible.
+  const src = slotWith({ activeMapEntry: MAP_A, settings: { ...FULL } });
+  const tgt = slotWith({ activeMapEntry: MAP_B });
+  applySlotMaterial(tgt, pickSlotMaterial(src));
+  for (const k of PER_SLOT_MAP_KEYS) {
+    assert.equal(tgt.settings[k], FULL[k], `${k} n'a pas suivi la copie`);
+  }
+  for (const k of GLOBAL_VIEW_KEYS) {
+    assert.ok(!(k in tgt.settings), `${k} ne doit pas voyager avec la carte`);
+  }
+});
+
+test('une preparation seule EST un materiau a copier', () => {
+  // Une carte reglee mais non remplacee reste quelque chose a transmettre.
+  assert.equal(hasSlotMaterial(slotWith({ settings: { mapMicro: 0.2 } })), true);
+  assert.equal(hasSlotMaterial(slotWith({ settings: { textureAntialias: false } })), false,
+    'un reglage global seul n\'est pas un materiau');
+});
+
 console.error(`\nslotState: ${passed} checks passed${process.exitCode ? ' (with failures)' : ''}`);
