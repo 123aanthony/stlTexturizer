@@ -26,6 +26,7 @@ import { computeAssignedFaces,
 import { runMultiSlotExport, snapBottomToFlat, decimateWithGuard } from './exportPipeline.js';
 import { resolveScaleU, snapScaleUForSeamlessWrap, SCALE_MM_INPUT_MIN, SCALE_MM_INPUT_MAX } from './scaleSnap.js';
 import { getScaleReferenceLengths } from './mapping.js';
+import { recommendedSmoothing } from './mipPyramid.js';
 import { texPerMm } from './mipPyramid.js';
 import { computeBeamFrame } from './beamAxis.js';
 import { idbGet, idbSet, idbDel } from './idbStore.js';
@@ -1451,6 +1452,8 @@ const seamBandWidthVal       = document.getElementById('seam-band-width-val');
 const textureSmoothingSlider = document.getElementById('texture-smoothing');
 const textureSmoothingVal    = document.getElementById('texture-smoothing-val');
 const textureAntialiasCheckbox = document.getElementById('texture-antialias');
+const smoothingAutoBtn       = document.getElementById('smoothing-auto-btn');
+const smoothingAutoInfo      = document.getElementById('smoothing-auto-info');
 const capAngleSlider         = document.getElementById('cap-angle');
 const capAngleVal            = document.getElementById('cap-angle-val');
 const capAngleRow            = document.getElementById('cap-angle-row');
@@ -3597,6 +3600,13 @@ function wireEvents() {
   linkSlider(textureSmoothingSlider, textureSmoothingVal, v => { settings.textureSmoothing = v; return v.toFixed(1); });
   textureAntialiasCheckbox?.addEventListener('change', () => {
     settings.textureAntialias = textureAntialiasCheckbox.checked;
+    // L'apercu n'echantillonne pas par sommet (il ombre par PIXEL, a la
+    // resolution de l'ecran) : la case ne change donc rien a l'ecran, seulement
+    // a l'export. On rafraichit tout de meme le diagnostic, dont la
+    // recommandation depend de l'etat de la case.
+    if (smoothingAutoInfo && !smoothingAutoInfo.classList.contains('hidden')) applySmoothingAuto();
+  });
+  if (smoothingAutoBtn) smoothingAutoBtn.addEventListener('click', applySmoothingAuto);
   linkSlider(capAngleSlider,          capAngleVal,          v => { settings.capAngle         = v; return Math.round(v); });
   symmetricDispToggle.addEventListener('change', () => {
     settings.symmetricDisplacement = symmetricDispToggle.checked;
@@ -5609,10 +5619,51 @@ function applySmartResolution() {
   smartResInfo.classList.remove('hidden');
 }
 
+/**
+ * Auto du lissage : mesure le taux d'echantillonnage REEL et en deduit le flou.
+ *
+ * Flou et prefiltre mip repondent a la MEME contrainte de Nyquist — les empiler
+ * filtrerait deux fois. `recommendedSmoothing` arbitre entre les deux, et cette
+ * fonction se contente d'appliquer son verdict et de le PUBLIER : le chiffre qui
+ * compte (pixels de texture par arete de maille) n'etait visible nulle part,
+ * alors que c'est lui qui decide si une texture peut passer ou non.
+ */
+function applySmoothingAuto() {
+  if (!smoothingAutoInfo) return;
+  const entry = activeMapEntry;
+  if (!entry) { smoothingAutoInfo.classList.add('hidden'); return; }
+
+  const texW = entry.imageData?.width  || entry.width  || 0;
+  const texH = entry.imageData?.height || entry.height || 0;
+  // MEME correction d'aspect que le moteur (displacement.js) — sans elle une
+  // carte non carree donnerait une periode fausse, donc une empreinte fausse.
+  const tmax = Math.max(texW, texH, 1);
+  const rec = recommendedSmoothing({
     settings: { ...settings, textureAspectU: tmax / Math.max(texW, 1), textureAspectV: tmax / Math.max(texH, 1) },
     texW, texH,
     refineLength: settings.refineLength,
     antialias: settings.textureAntialias !== false,
+    sigmaMax: Number(textureSmoothingSlider?.max) || 20,
+  });
+
+  if (rec.reason === 'unknown') { smoothingAutoInfo.classList.add('hidden'); return; }
+
+  // Passer par l'evenement du slider : settings, label et apercu restent
+  // coherents avec tous les autres chemins de reglage.
+  textureSmoothingVal.value = rec.sigma.toFixed(1);
+  textureSmoothingVal.dispatchEvent(new Event('change', { bubbles: true }));
+
+  const texels = rec.texelsPerEdge.toFixed(1);
+  const key = rec.clamped ? 'ui.smoothingAutoClamped'
+            : rec.reason === 'resolved'    ? 'ui.smoothingAutoResolved'
+            : rec.reason === 'prefiltered' ? 'ui.smoothingAutoPrefiltered'
+            : 'ui.smoothingAutoApplied';
+  smoothingAutoInfo.innerHTML = t(key, {
+    texels,
+    sigma: rec.sigma.toFixed(1),
+    want:  (rec.texelsPerEdge / 2).toFixed(1),
+  });
+  smoothingAutoInfo.classList.remove('hidden');
 function updateSmartResBtnState() {
   if (!smartResBtn) return;
   smartResBtn.disabled = !(currentGeometry && activeMapEntry);

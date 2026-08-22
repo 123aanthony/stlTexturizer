@@ -364,6 +364,11 @@
           <input type="range" id="texture-smoothing" min="0" max="20" step="any" value="0" />
           <input type="number" class="val" id="texture-smoothing-val" value="0" min="0" max="20" step="any" data-wheel-decimals="1" />
         </div>
+        <button id="smoothing-auto-btn" class="smart-res-btn"
+                data-i18n="labels.smoothingAuto"
+                data-i18n-title="tooltips.smoothingAuto"
+                title="Measure how many texture pixels each mesh edge spans, and size the blur from it.">Auto (measure sampling rate)</button>
+        <div id="smoothing-auto-info" class="smart-res-info hidden"></div>
       </section>
 
       <!-- Projection -->
