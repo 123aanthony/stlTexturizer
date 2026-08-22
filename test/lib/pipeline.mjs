@@ -30,6 +30,11 @@ export const baseSettings = {
   blendNormalSmoothing: 0,
   boundaryFalloff: 0,
   noDownwardZ: false,
+  // Les goldens HISTORIQUES figent le sampler d'origine (bilinéaire pleine
+  // résolution, un tap par sommet). Le préfiltre mip est donc explicitement
+  // COUPÉ ici : ces empreintes prouvent que le chemin legacy n'a pas bougé
+  // d'un bit. Les cas qui exercent l'antialiasing le rallument nommément.
+  textureAntialias: false,
 };
 
 // ÉCHELLE ABSOLUE (portage 4437135) : le moteur attend désormais scaleU/scaleV
@@ -93,7 +98,14 @@ export async function runMultiSlot(geo, { refineLength, maxTriangles, slots, ass
     geometry: geo,
     bounds,
     readySlots,
-    qualitySettings: { refineLength, smoothBottom: false, maxTriangles, decimateEnabled: maxTriangles != null },
+    qualitySettings: {
+      refineLength, smoothBottom: false, maxTriangles,
+      decimateEnabled: maxTriangles != null,
+      // Réglage GLOBAL : `applyDisplacement` le lit sur les settings de tête,
+      // que le chemin multi-slot construit depuis `qualitySettings`. Le prendre
+      // sur le 1er slot suffit — les cas de test le posent via `baseSettings`.
+      textureAntialias: slots[0]?.settings?.textureAntialias,
+    },
     getSlotImageData: (slot) => ({
       imageData: slot._texture,
       width: slot._texture.width,

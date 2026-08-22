@@ -54,6 +54,8 @@ export default {
   "tooltips.transitionSmoothing": "이음새 가장자리 근처 블렌딩 구간의 너비입니다. 값이 낮을수록 전환이 이음새에 가깝게 유지되고, 값이 높을수록 더 넓은 영역이 부드럽게 블렌딩됩니다.",
   "labels.textureSmoothing": "텍스처 스무딩 ⓘ",
   "tooltips.textureSmoothing": "디스플레이스먼트 맵에 가우시안 블러를 적용합니다. 값이 높을수록 표면 디테일이 더 부드럽고 완만해집니다. 0 = 꺼짐.",
+  "labels.textureAntialias": "안티앨리어싱 ⓘ",
+  "tooltips.textureAntialias": "샘플링 전에 정점 단위로, 메시가 실제로 표현할 수 있는 대역까지 맵을 제한합니다. 끄면 메시 간격보다 미세한 디테일이 사라지는 대신 노이즈가 됩니다. 이전 내보내기를 재현할 때가 아니면 켜 두세요.",
   "labels.capAngle": "캡 각도 ⓘ",
   "tooltips.capAngle": "상단/하단 캡 투영이 시작되는 수직 기준 각도(도)입니다. 값이 작을수록 캡 투영은 거의 평평한 면에만 제한됩니다.",
   "sections.masking": "마스킹",

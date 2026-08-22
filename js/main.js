@@ -26,6 +26,7 @@ import { computeAssignedFaces,
 import { runMultiSlotExport, snapBottomToFlat, decimateWithGuard } from './exportPipeline.js';
 import { resolveScaleU, snapScaleUForSeamlessWrap, SCALE_MM_INPUT_MIN, SCALE_MM_INPUT_MAX } from './scaleSnap.js';
 import { getScaleReferenceLengths } from './mapping.js';
+import { texPerMm } from './mipPyramid.js';
 import { computeBeamFrame } from './beamAxis.js';
 import { idbGet, idbSet, idbDel } from './idbStore.js';
 import { shouldOfferRecovery, recoveryAgeParts } from './recovery.js';
@@ -1065,6 +1066,11 @@ const settings = {
   mappingBlend:     1,
   seamBandWidth:    0.5,
   textureSmoothing: 0,
+  // Prefiltre mip du sampler de deplacement. ACTIF par defaut : c'est une
+  // correction d'echantillonnage, pas un effet — sans lui, tout detail plus fin
+  // que le pas de maille se replie en bruit au lieu de s'attenuer. Decoche, le
+  // sampler redevient EXACTEMENT l'historique (cf. js/mipPyramid.js).
+  textureAntialias: true,
   // Laplacian smoothing iterations applied to the per-vertex blend normal
   // (only the normal that drives projection-direction blend weights — not
   // the displacement direction). 0 = off, 4–8 = noticeable seam smoothing,
@@ -1123,6 +1129,8 @@ function updateSettingsUIFromSettings() {
 
   textureSmoothingSlider.value = settings.textureSmoothing;
   textureSmoothingVal.value = settings.textureSmoothing;
+
+  if (textureAntialiasCheckbox) textureAntialiasCheckbox.checked = settings.textureAntialias !== false;
 
   refineLenSlider.value = settings.refineLength;
   refineLenVal.value = settings.refineLength.toFixed(2);
@@ -1442,6 +1450,7 @@ const seamBandWidthSlider    = document.getElementById('seam-band-width');
 const seamBandWidthVal       = document.getElementById('seam-band-width-val');
 const textureSmoothingSlider = document.getElementById('texture-smoothing');
 const textureSmoothingVal    = document.getElementById('texture-smoothing-val');
+const textureAntialiasCheckbox = document.getElementById('texture-antialias');
 const capAngleSlider         = document.getElementById('cap-angle');
 const capAngleVal            = document.getElementById('cap-angle-val');
 const capAngleRow            = document.getElementById('cap-angle-row');
@@ -3586,6 +3595,8 @@ function wireEvents() {
   linkSlider(seamBlendSlider,        seamBlendVal,        v => { settings.mappingBlend     = v; return v.toFixed(2); });
   linkSlider(seamBandWidthSlider,    seamBandWidthVal,    v => { settings.seamBandWidth    = v; return v.toFixed(2); });
   linkSlider(textureSmoothingSlider, textureSmoothingVal, v => { settings.textureSmoothing = v; return v.toFixed(1); });
+  textureAntialiasCheckbox?.addEventListener('change', () => {
+    settings.textureAntialias = textureAntialiasCheckbox.checked;
   linkSlider(capAngleSlider,          capAngleVal,          v => { settings.capAngle         = v; return Math.round(v); });
   symmetricDispToggle.addEventListener('change', () => {
     settings.symmetricDisplacement = symmetricDispToggle.checked;
@@ -5598,6 +5609,10 @@ function applySmartResolution() {
   smartResInfo.classList.remove('hidden');
 }
 
+    settings: { ...settings, textureAspectU: tmax / Math.max(texW, 1), textureAspectV: tmax / Math.max(texH, 1) },
+    texW, texH,
+    refineLength: settings.refineLength,
+    antialias: settings.textureAntialias !== false,
 function updateSmartResBtnState() {
   if (!smartResBtn) return;
   smartResBtn.disabled = !(currentGeometry && activeMapEntry);
@@ -6144,6 +6159,13 @@ function buildParentFaceMap(subdivGeo) {
   return parentMap;
 }
 
+  };
+}
+
+/**
+ * La frontiere macro/micro est reglee en MILLIMETRES du modele — la seule unite
+ * qui ait un sens quand on parle de « pierres de 10 mm, ciseau de 0.2 mm ». La
+ * conversion en texels passe par `texPerMm`, la MEME source que le prefiltre
 function getEffectiveMapEntry() {
   if (!activeMapEntry || settings.textureSmoothing === 0) {
     _effectiveMapCache    = null;
@@ -8032,6 +8054,16 @@ function _applySettingsSnapshotInner(snap) {
   if (snap.mappingMode != null) {
     mappingSelect.value = String(snap.mappingMode);
     mappingSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  // Anciens projets sans la cle : on NE les bascule PAS en legacy. La cle
+  // absente signifie « enregistre avant que le reglage existe », pas
+  // « antialiasing refuse » — et le prefiltre est une correction, donc le
+  // defaut actif s'applique. Un projet qui l'a explicitement coupe porte
+  // false et le garde.
+  if (textureAntialiasCheckbox) {
+    textureAntialiasCheckbox.checked = snap.textureAntialias !== false;
+    textureAntialiasCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
   // invertDisplacement BEFORE amplitude — the amplitude setter reads the flag.

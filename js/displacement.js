@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { computeUV, getDominantCubicAxis, getCubicBlendWeights, scaleMmToRelative } from './mapping.js';
 import { QuantizedPointMap } from './meshIndex.js';
 import { computeBeamFrame, triMaskFromExcludeWeight } from './beamAxis.js';
+import { getMipPyramid, lodForFootprint, sampleBilinear, sampleFiltered, texPerMm } from './mipPyramid.js';
 
 /**
  * Apply displacement to every vertex of a non-indexed BufferGeometry.
@@ -91,6 +92,25 @@ const faceMask = settings.faceMask || null;
       })
     : null;
 
+  // Préfiltre d'antialiasing : actif sauf refus explicite, pour que les projets
+  // existants en bénéficient sans être ré-enregistrés. Le décocher reproduit
+  // exactement le sampler historique.
+  const antialias = settings.textureAntialias !== false;
+
+  // ── Antialiasing : facteur texels/mm, par slot ────────────────────────────
+  // L'empreinte texel d'un sommet vaut arête_mm × (texels/mm). La période monde
+  // et les dimensions de la carte sont constantes PAR SLOT : tout ce qui ne
+  // dépend pas du sommet est donc calculé ICI une fois, et la boucle par sommet
+  // ne garde qu'une division, une multiplication et un log2.
+  const texPerMmDefault = antialias ? texPerMm(settingsWithAspect, imgWidth, imgHeight) : 0;
+  const pyrDefault      = antialias ? getMipPyramid(imageData) : null;
+  const multiSlotFilter = (antialias && multiSlots)
+    ? multiSlots.map((slot, i) => ({
+        texPerMm: texPerMm(multiSlotAspect[i].settingsWithAspect, slot.width, slot.height),
+        pyr:      getMipPyramid(slot.imageData),
+      }))
+    : null;
+
   // 10 µm vertex-dedup cells. Must match subdivision.js QUANTISE so the
   // displacement pipeline sees the same vertex-uniqueness that subdivision
   // produced — coarser cells (1e4) collapsed real fillet vertices on small
@@ -167,6 +187,16 @@ const faceMask = settings.faceMask || null;
   const dispCacheVal = new Float64Array(uniqueCount);
   const dispCacheSet = new Uint8Array(uniqueCount);
 
+  // ── Antialiasing : intervalle d'échantillonnage local ─────────────────────
+  // Longueur d'arête RMS autour de chaque sommet unique, pondérée par l'aire.
+  // C'est l'INTERVALLE auquel la texture est échantillonnée à cet endroit, donc
+  // exactement ce qui décide du niveau de mip. Mesurée par sommet et non prise
+  // sur `refineLength` : la subdivision rend des arêtes inégales, et le mélange
+  // triplanaire/cubique fait varier l'empreinte sur un même export.
+  // Normalisée plus bas par `maskedFracTotal`, qui est déjà la somme des aires
+  // incidentes — pas de second compteur à porter.
+  const edgeLenAcc = antialias ? new Float32Array(uniqueCount) : null;
+
   for (let t = 0; t < count; t += 3) {
     vA.fromBufferAttribute(posAttr, t);
     vB.fromBufferAttribute(posAttr, t + 1);
@@ -178,6 +208,14 @@ const faceMask = settings.faceMask || null;
     // Determine if this face is masked (used to build the per-vertex blend weight).
     // Combines angle-based masking with optional user-painted exclusion.
     const faceArea   = faceNrm.length();                               // ∝ 2× triangle area
+    // RMS des 3 arêtes. Une seule racine par triangle (les carrés suffisent au
+    // reste), et légèrement conservatrice vs la moyenne — ce qui va dans le bon
+    // sens pour une largeur de filtre.
+    let rmsEdge = 0;
+    if (edgeLenAcc) {
+      const dx = edge2.x - edge1.x, dy = edge2.y - edge1.y, dz = edge2.z - edge1.z;
+      rmsEdge = Math.sqrt((edge1.lengthSq() + edge2.lengthSq() + dx*dx + dy*dy + dz*dz) / 3);
+    }
     const faceNzNorm = faceArea > 1e-12 ? faceNrm.z / faceArea : 0;  // unit-normal Z component
     const faceAngle  = Math.acos(Math.abs(faceNzNorm)) * (180 / Math.PI);
     const angleMasked = faceNzNorm < 0
@@ -235,6 +273,7 @@ const faceMask = settings.faceMask || null;
       }
       if (faceMasked) maskedFracMasked[vid] += faceArea;
       maskedFracTotal[vid] += faceArea;
+      if (edgeLenAcc) edgeLenAcc[vid] += rmsEdge * faceArea;
     }
   }
 
@@ -548,6 +587,21 @@ const faceMask = settings.faceMask || null;
       continue;
     }
 
+    // Niveau de mip de CE sommet = log2 de son empreinte texel. lod <= 0 (la
+    // maille échantillonne au texel ou plus fin : rien à corriger) renvoie
+    // `sampleFiltered` sur le sampler d'origine, aux octets d'origine.
+    let lod = 0;
+    let pyr = null;
+    if (antialias) {
+      const areaTot = maskedFracTotal[vid];
+      if (areaTot > 0) {
+        const meanEdge = edgeLenAcc[vid] / areaTot;
+        const f = sampleSlot ? multiSlotFilter[ownerSlot] : null;
+        lod = lodForFootprint(meanEdge * (f ? f.texPerMm : texPerMmDefault));
+        if (lod > 0) pyr = f ? f.pyr : pyrDefault;
+      }
+    }
+
     if (sampleSettings.mappingMode === 6 /* MODE_CUBIC */) {
       const md = Math.max(bounds.size.x, bounds.size.y, bounds.size.z, 1e-6);
       // scaleU/scaleV sont des mm absolus — le chemin rapide cubique fait sa
@@ -575,19 +629,19 @@ const faceMask = settings.faceMask || null;
           let rawU = (tmpPos.y-bounds.min.y)/md;
           if (smoothNrmX[vid] < 0) rawU = -rawU;
           const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV, relScale);
-          grey += sampleBilinear(sampleImageData.data, sampleWidth, sampleHeight, uv.u, uv.v) * wX;
+          grey += sampleFiltered(pyr, sampleImageData.data, sampleWidth, sampleHeight, uv.u, uv.v, lod) * wX;
         }
         if (wY > 0) {
           let rawU = (tmpPos.x-bounds.min.x)/md;
           if (smoothNrmY[vid] > 0) rawU = -rawU;
           const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV, relScale);
-          grey += sampleBilinear(sampleImageData.data, sampleWidth, sampleHeight, uv.u, uv.v) * wY;
+          grey += sampleFiltered(pyr, sampleImageData.data, sampleWidth, sampleHeight, uv.u, uv.v, lod) * wY;
         }
         if (wZ > 0) {
           let rawU = (tmpPos.x-bounds.min.x)/md;
           if (smoothNrmZ[vid] < 0) rawU = -rawU;
           const uv = _cubicUV(rawU, (tmpPos.y-bounds.min.y)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV, relScale);
-          grey += sampleBilinear(sampleImageData.data, sampleWidth, sampleHeight, uv.u, uv.v) * wZ;
+          grey += sampleFiltered(pyr, sampleImageData.data, sampleWidth, sampleHeight, uv.u, uv.v, lod) * wZ;
         }
         dispCacheVal[vid] = grey;
         continue;
@@ -601,10 +655,10 @@ const faceMask = settings.faceMask || null;
     if (uvResult.triplanar) {
       grey = 0;
       for (const s of uvResult.samples) {
-        grey += sampleBilinear(sampleImageData.data, sampleWidth, sampleHeight, s.u, s.v) * s.w;
+        grey += sampleFiltered(pyr, sampleImageData.data, sampleWidth, sampleHeight, s.u, s.v, lod) * s.w;
       }
     } else {
-      grey = sampleBilinear(sampleImageData.data, sampleWidth, sampleHeight, uvResult.u, uvResult.v);
+      grey = sampleFiltered(pyr, sampleImageData.data, sampleWidth, sampleHeight, uvResult.u, uvResult.v, lod);
     }
     dispCacheVal[vid] = grey;
   }
@@ -725,41 +779,6 @@ if (maskedOut || isFaceExcluded || isSealedBoundary) {
   out.setAttribute('position', new THREE.BufferAttribute(newPos, 3));
   out.setAttribute('normal',   new THREE.BufferAttribute(newNrm, 3));
   return out;
-}
-
-// ── Bilinear sampler ─────────────────────────────────────────────────────────
-
-/**
- * Sample a greyscale value (0–1) from raw RGBA ImageData using
- * bilinear interpolation. UV is tiled via mod 1.
- */
-function sampleBilinear(data, w, h, u, v) {
-  // Ensure [0,1) — guard against floating-point edge cases
-  u = ((u % 1) + 1) % 1;
-  v = ((v % 1) + 1) % 1;
-  // Flip V to match WebGL/Three.js texture convention (flipY=true means
-  // v=0 is the bottom of the image, but ImageData row 0 is the top).
-  v = 1 - v;
-
-  const fx = u * (w - 1);
-  const fy = v * (h - 1);
-  const x0 = Math.floor(fx);
-  const y0 = Math.floor(fy);
-  const x1 = Math.min(x0 + 1, w - 1);
-  const y1 = Math.min(y0 + 1, h - 1);
-  const tx = fx - x0;
-  const ty = fy - y0;
-
-  // Red channel — image is greyscale so R == G == B
-  const v00 = data[(y0 * w + x0) * 4] / 255;
-  const v10 = data[(y0 * w + x1) * 4] / 255;
-  const v01 = data[(y1 * w + x0) * 4] / 255;
-  const v11 = data[(y1 * w + x1) * 4] / 255;
-
-  return v00 * (1-tx) * (1-ty)
-       + v10 * tx * (1-ty)
-       + v01 * (1-tx) * ty
-       + v11 * tx * ty;
 }
 
 /** Apply scale/offset/rotation to raw UV for cubic projection.

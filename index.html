@@ -353,6 +353,12 @@
           </button>
         </div>
         <div id="active-map-name" class="active-map-name" data-i18n="ui.noMapSelected">No map selected</div>
+        <div class="form-row">
+          <label class="checkbox-label" for="texture-antialias">
+            <input type="checkbox" id="texture-antialias" checked />
+            <span data-i18n="labels.textureAntialias" data-i18n-title="tooltips.textureAntialias" title="Band-limits the map to what the mesh can actually carry, per vertex, before sampling it. Stops fine detail turning into noise on coarse meshes. Leave on unless reproducing an older export.">Antialiasing ⓘ</span>
+          </label>
+        </div>
         <div class="form-row slider-row">
           <label for="texture-smoothing" data-i18n="labels.textureSmoothing" data-i18n-title="tooltips.textureSmoothing" title="Applies a Gaussian blur to the displacement map. Higher values produce softer, more gradual surface detail. 0 = off.">Texture Smoothing ⓘ</label>
           <input type="range" id="texture-smoothing" min="0" max="20" step="any" value="0" />

@@ -65,6 +65,30 @@ const cases = {
     ],
     assignOriginal: (_t, _c, n) => (n.z >= 0 ? 0 : 1),  // all owned
   }),
+
+  // ── Prefiltre d'antialiasing (js/mipPyramid.js) ────────────────────────────
+  // Les cas ci-dessus figent le sampler HISTORIQUE : `baseSettings` y coupe
+  // explicitement `textureAntialias`, si bien que leurs empreintes prouvent que
+  // le chemin legacy n'a pas bouge d'un bit. Les trois cas qui suivent sont les
+  // MEMES montages avec le prefiltre allume : ils figent le nouveau chemin, et
+  // le damier 128 px sur une arete de 3-4 mm est franchement sous-echantillonne,
+  // donc ils exercent reellement des niveaux de mip eleves.
+  'aa-cube-triplanar': () => runSingle(fixture('cube'), {
+    refineLength: 3, texture: checker,
+    settings: s({ amplitude: 1.5, textureAntialias: true }),
+  }),
+  'aa-sphere-triplanar': () => runSingle(fixture('sphere'), {
+    refineLength: 3, texture: checker,
+    settings: s({ amplitude: 1.0, textureAntialias: true }),
+  }),
+  'aa-cube-multislot': () => runMultiSlot(fixture('cube'), {
+    refineLength: 4,
+    slots: [
+      { texture: checker, settings: s({ amplitude: 1.5, textureAntialias: true }) },
+      { texture: sine,    settings: s({ amplitude: 1.0, textureAntialias: true }) },
+    ],
+    assignOriginal: (_t, _c, n) => (n.z > 0.5 ? 0 : n.z < -0.5 ? 1 : -1),
+  }),
 };
 
 let pass = 0, fail = 0, wrote = 0;

@@ -54,6 +54,8 @@ export default {
   "tooltips.transitionSmoothing": "継ぎ目の端付近のブレンドゾーンの幅。低い値はトランジションを継ぎ目に近づけ、高い値はより広い帯域をブレンドします。",
   "labels.textureSmoothing": "テクスチャスムージング ⓘ",
   "tooltips.textureSmoothing": "ディスプレイスメントマップにガウシアンブラーを適用します。値が高いほど、より滑らかで緩やかな表面ディテールになります。0 = オフ。",
+  "labels.textureAntialias": "アンチエイリアス ⓘ",
+  "tooltips.textureAntialias": "サンプリング前に、頂点ごとにメッシュが実際に表現できる帯域までマップを制限します。無効だとメッシュ間隔より細かいディテールは薄れるのではなくノイズになります。以前の書き出しを再現する場合を除き、有効のままにしてください。",
   "labels.capAngle": "キャップ角度 ⓘ",
   "tooltips.capAngle": "上面/下面のキャップ投影が作動する垂直からの角度（度数）。小さい値はキャップ投影をほぼ平らな面に制限します。",
   "sections.masking": "マスキング",

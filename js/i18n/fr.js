@@ -54,6 +54,8 @@ export default {
   "tooltips.transitionSmoothing": "Largeur de la zone de fusion près des bords de couture. Les valeurs faibles maintiennent les transitions près de la couture ; les valeurs élevées lissent une bande plus large.",
   "labels.textureSmoothing": "Lissage de texture ⓘ",
   "tooltips.textureSmoothing": "Applique un flou gaussien à la carte de déplacement. Les valeurs élevées produisent des détails de surface plus doux et progressifs. 0 = désactivé.",
+  "labels.textureAntialias": "Antialiasing ⓘ",
+  "tooltips.textureAntialias": "Limite la bande passante de la carte à ce que la maille peut réellement porter, sommet par sommet, avant de l'échantillonner. Sans lui, le détail plus fin que le pas de maille ne s'atténue pas : il se transforme en bruit. À laisser actif, sauf pour reproduire un ancien export.",
   "labels.capAngle": "Angle de calotte ⓘ",
   "tooltips.capAngle": "Angle (en degrés) depuis la verticale auquel la projection de calotte supérieure/inférieure s'active. Les valeurs plus petites limitent la projection aux faces presque plates.",
   "sections.masking": "Masquage",

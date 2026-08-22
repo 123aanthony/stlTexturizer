@@ -54,6 +54,8 @@ export default {
   "tooltips.transitionSmoothing": "Breite der Übergangszone an Nahtkanten. Niedrige Werte halten den Übergang nah an der Naht; höhere Werte glätten einen breiteren Bereich.",
   "labels.textureSmoothing": "Texturglättung ⓘ",
   "tooltips.textureSmoothing": "Wendet einen Gaußschen Weichzeichner auf die Verschiebungskarte an. Höhere Werte erzeugen weichere, fließendere Oberflächendetails. 0 = aus.",
+  "labels.textureAntialias": "Kantenglättung ⓘ",
+  "tooltips.textureAntialias": "Begrenzt die Bandbreite der Karte pro Vertex auf das, was das Netz tatsächlich abbilden kann, bevor abgetastet wird. Ohne sie verschwinden Details feiner als der Netzabstand nicht, sondern werden zu Rauschen. Eingeschaltet lassen, außer zum Reproduzieren eines älteren Exports.",
   "labels.capAngle": "Übergangswinkel ⓘ",
   "tooltips.capAngle": "Winkel (in Grad) ab dem die Deckel-/Bodenprojektion einsetzt. Kleinere Werte beschränken die Deckelprojektion auf nahezu flache Flächen.",
   "sections.masking": "Maskierung",

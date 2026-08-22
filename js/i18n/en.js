@@ -54,6 +54,8 @@ export default {
   "tooltips.transitionSmoothing": "Width of the blending zone near seam edges. Lower values keep transitions tight to the seam; higher values blend a wider band.",
   "labels.textureSmoothing": "Texture Smoothing ⓘ",
   "tooltips.textureSmoothing": "Applies a Gaussian blur to the displacement map. Higher values produce softer, more gradual surface detail. 0 = off.",
+  "labels.textureAntialias": "Antialiasing ⓘ",
+  "tooltips.textureAntialias": "Band-limits the map to what the mesh can actually carry, per vertex, before sampling it. Without it, detail finer than the mesh spacing does not fade out — it turns into noise. Leave on unless reproducing an older export.",
   "labels.capAngle": "Cap Angle ⓘ",
   "tooltips.capAngle": "Angle (in degrees) from vertical at which the top/bottom cap projection kicks in. Smaller values limit cap projection to nearly flat faces.",
   "sections.masking": "Masking",

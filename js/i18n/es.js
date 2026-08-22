@@ -54,6 +54,8 @@ export default {
   "tooltips.transitionSmoothing": "Ancho de la zona de fusión cerca de los bordes de la costura. Valores bajos mantienen las transiciones pegadas a la costura; valores altos difuminan una banda más amplia.",
   "labels.textureSmoothing": "Suavizado de textura ⓘ",
   "tooltips.textureSmoothing": "Aplica un desenfoque gaussiano al mapa de desplazamiento. Valores más altos producen detalles de superficie más suaves y graduales. 0 = desactivado.",
+  "labels.textureAntialias": "Antialiasing ⓘ",
+  "tooltips.textureAntialias": "Limita el ancho de banda del mapa a lo que la malla puede representar realmente, vértice a vértice, antes de muestrearlo. Sin él, el detalle más fino que el paso de malla no se atenúa: se convierte en ruido. Déjalo activado salvo para reproducir una exportación antigua.",
   "labels.capAngle": "Ángulo de tapa ⓘ",
   "tooltips.capAngle": "Ángulo (en grados) desde la vertical en el que se activa la proyección de tapa superior/inferior. Valores más pequeños limitan la proyección a caras casi planas.",
   "sections.masking": "Enmascaramiento",

@@ -181,6 +181,12 @@ export function restoreFacesFromSignatures(signatures, fallbackIndices = [], geo
 // rather than resurrecting whatever quality a slot happened to be saved with.
 export const GLOBAL_EXPORT_QUALITY_KEYS = [
   'refineLength',
+  // Préfiltre mip du sampler de déplacement. GLOBAL et non par slot : c'est une
+  // propriété d'ÉCHANTILLONNAGE (le niveau de mip se déduit de la longueur
+  // d'arête, elle-même globale), pas un choix artistique. Vivre ici le fait
+  // aussi arriver dans `qualitySettings`, donc jusqu'au chemin multi-slot —
+  // `applyDisplacement` le lit sur les settings de TÊTE, pas sur ceux du slot.
+  'textureAntialias',
   'maxTriangles',
   'decimateEnabled',
   'smoothBottom',

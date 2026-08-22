@@ -450,3 +450,29 @@ function applyTransform(u, v, scaleU, scaleV, offsetU, offsetV, cosR, sinR) {
 
 /** Fractional part, always positive (mirrors GLSL fract) */
 function fract(x) { return x - Math.floor(x); }
+
+/**
+ * Période MONDE de la texture : combien de millimètres couvre UNE tuile
+ * complète, le long de U et de V.
+ *
+ * Depuis le portage en échelle absolue, scaleU/scaleV SONT la taille de tuile
+ * en mm (à l'aspect près), quel que soit le mode — les modes cylindrique et
+ * sphérique la mesurent en longueur d'ARC à leur rayon de référence, donc la
+ * valeur dérive un peu si la surface réelle s'en écarte.
+ *
+ * SOURCE UNIQUE : deux consommateurs en dépendent — `smartResolution.js`, qui
+ * choisit une longueur d'arête assez fine pour résoudre la texture, et
+ * `displacement.js`, qui choisit le niveau de mip qui band-limite la texture à
+ * cette arête. Ce sont les deux bouts de la MÊME contrainte de Nyquist (monter
+ * le taux d'échantillonnage, ou baisser la bande passante du signal) : s'ils
+ * calculaient la période séparément, ils pourraient diverger en silence et se
+ * contredire.
+ */
+export function computeWorldPeriod(settings) {
+  const aspectU = settings.textureAspectU ?? 1;
+  const aspectV = settings.textureAspectV ?? 1;
+  return {
+    periodU_mm: (settings.scaleU || 1e-6) / aspectU,
+    periodV_mm: (settings.scaleV || 1e-6) / aspectV,
+  };
+}

@@ -13,6 +13,7 @@
  */
 
 import { analyzeTexture } from './textureAnalysis.js';
+import { computeWorldPeriod } from './mapping.js';
 import { computeSurfaceArea } from './stlLoader.js';
 import {
   MODE_PLANAR_XY, MODE_PLANAR_XZ, MODE_PLANAR_YZ,
@@ -44,27 +45,6 @@ const HARD_CAP_HEADROOM  = 0.5;
 // simulateSubdivisionTriCount which models the real per-triangle split pattern.
 const TRIS_PER_AREA_GEOM = 4 / Math.sqrt(3); // ≈ 2.309
 
-/**
- * World-space "period" of the texture along U and V — i.e. how many world
- * millimetres correspond to one full UV repeat.  Mirrors the math in
- * mapping.js (computeUV → applyTransform).
- *
- * Returns { periodU_mm, periodV_mm }.  Undefined directions (rare) fall back
- * to the longest planar period so the min() in `computeSmartResolution` does
- * not pick a degenerate axis.
- */
-function computeWorldPeriod(settings, bounds) {
-  // Échelle ABSOLUE (portage 4437135) : scaleU/scaleV SONT déjà la période
-  // monde en mm (taille d'une tuile), à l'aspect près — quel que soit le mode.
-  // (Avant : fraction × longueur de référence par mode ; la table des
-  // références vit désormais dans mapping.js getScaleReferenceLengths.)
-  const aspectU = settings.textureAspectU ?? 1;
-  const aspectV = settings.textureAspectV ?? 1;
-  return {
-    periodU_mm: (settings.scaleU || 1e-6) / aspectU,
-    periodV_mm: (settings.scaleV || 1e-6) / aspectV,
-  };
-}
 
 // ── Subdivision triangle-count simulator ─────────────────────────────────────
 //
@@ -257,7 +237,7 @@ export function computeSmartResolution({ geometry, bounds, settings, texture }) 
   const { meanGrad, sharpFrac, pixelsPerEdge } = analyzeTexture(texture.imageData);
 
   // 2. World-space pixel size.
-  const { periodU_mm, periodV_mm } = computeWorldPeriod(settings, bounds);
+  const { periodU_mm, periodV_mm } = computeWorldPeriod(settings);
   const period_mm = Math.min(periodU_mm, periodV_mm);
   const texW = texture.imageData.width || texture.width || 512;
   const texH = texture.imageData.height || texture.height || 512;
@@ -339,3 +319,4 @@ export function computeSmartResolution({ geometry, bounds, settings, texture }) 
     },
   };
 }
+

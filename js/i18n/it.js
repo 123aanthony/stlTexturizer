@@ -54,6 +54,8 @@ export default {
   "tooltips.transitionSmoothing": "Larghezza della zona di fusione vicino ai bordi della giuntura. Valori più bassi mantengono le transizioni aderenti alla giuntura; valori più alti sfumano una fascia più ampia.",
   "labels.textureSmoothing": "Smoothing della texture ⓘ",
   "tooltips.textureSmoothing": "Applica una sfocatura gaussiana alla mappa di deformazione. Valori più alti producono dettagli superficiali più morbidi e graduali. 0 = disattivato.",
+  "labels.textureAntialias": "Antialiasing ⓘ",
+  "tooltips.textureAntialias": "Limita la banda della mappa a ciò che la mesh può realmente rappresentare, vertice per vertice, prima di campionarla. Senza, il dettaglio più fine del passo della mesh non si attenua: diventa rumore. Lascialo attivo, salvo per riprodurre un export precedente.",
   "labels.capAngle": "Angolo di copertura ⓘ",
   "tooltips.capAngle": "Angolo (in gradi) rispetto alla verticale al quale entra in gioco la proiezione della copertura superiore/inferiore. Valori più piccoli limitano la proiezione della copertura a facce quasi piatte.",
   "sections.masking": "Mascheramento",
