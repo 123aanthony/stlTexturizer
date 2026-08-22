@@ -27,6 +27,7 @@ import { runMultiSlotExport, snapBottomToFlat, decimateWithGuard } from './expor
 import { resolveScaleU, snapScaleUForSeamlessWrap, SCALE_MM_INPUT_MIN, SCALE_MM_INPUT_MAX } from './scaleSnap.js';
 import { getScaleReferenceLengths } from './mapping.js';
 import { recommendedSmoothing } from './mipPyramid.js';
+import { computeSmoothNormals } from './smoothNormals.js';
 import { texPerMm } from './mipPyramid.js';
 import { computeBeamFrame } from './beamAxis.js';
 import { idbGet, idbSet, idbDel } from './idbStore.js';
@@ -1072,6 +1073,7 @@ const settings = {
   // que le pas de maille se replie en bruit au lieu de s'attenuer. Decoche, le
   // sampler redevient EXACTEMENT l'historique (cf. js/mipPyramid.js).
   textureAntialias: true,
+  // position ne bouge et l'export ne change pas (cf. js/smoothNormals.js).
   // Laplacian smoothing iterations applied to the per-vertex blend normal
   // (only the normal that drives projection-direction blend weights — not
   // the displacement direction). 0 = off, 4–8 = noticeable seam smoothing,
