@@ -84,7 +84,22 @@ function startLocalServer(rootDir) {
     });
   });
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    // Sans ecouteur 'error', un EADDRINUSE remonte en exception NON CAPTUREE
+    // dans le process main : Electron affiche « A JavaScript error occurred in
+    // the main process » et l'app meurt avant d'avoir ouvert la moindre
+    // fenetre. Le cas n'a rien d'exotique — une 2e instance, ou un process
+    // orphelin qui tient encore le port apres un crash ou un test interrompu.
+    // Il doit degrader, pas tuer.
+    server.once('error', (err) => {
+      if (err.code !== 'EADDRINUSE') { reject(err); return; }
+      console.warn(`Port ${PORT} deja utilise — bascule sur un port ephemere.`);
+      // Port 0 : l'OS en choisit un libre. L'URL est construite APRES, depuis
+      // le port REELLEMENT obtenu (server.address().port), jamais depuis la
+      // constante — sinon la fenetre irait frapper le serveur du voisin.
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', () => resolve(server));
+    });
     server.listen(PORT, '127.0.0.1', () => resolve(server));
   });
 }
@@ -194,11 +209,27 @@ async function createWindow() {
     win.webContents.send('app-save-request');             // Save — renderer replies app-save-done
   });
 
-  await win.loadURL(`http://127.0.0.1:${PORT}/index.html`);
+  // Port REEL, pas la constante : apres un repli ephemere les deux different.
+  const port = localServer.address()?.port || PORT;
+  await win.loadURL(`http://127.0.0.1:${port}/index.html`);
 
 }
 
-app.whenReady().then(createWindow);
+// Une 2e instance ne doit pas se disputer le port avec la premiere : on
+// focalise celle qui tourne deja, comportement attendu d'une app de bureau.
+// Le verrou est indexe sur le repertoire userData, donc les instances de test
+// (BF_TEST_USERDATA, profil temporaire dedie) gardent le leur et ne bloquent
+// ni ne sont bloquees par l'app de l'utilisateur.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  });
+  app.whenReady().then(createWindow);
+}
 
 app.on('window-all-closed', () => {
   if (localServer) localServer.close();
