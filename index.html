@@ -369,6 +369,38 @@
                 data-i18n-title="tooltips.smoothingAuto"
                 title="Measure how many texture pixels each mesh edge spans, and size the blur from it.">Auto (measure sampling rate)</button>
         <div id="smoothing-auto-info" class="smart-res-info hidden"></div>
+
+        <h3 class="panel-subsection-heading" data-i18n="ui.mapPrepHeading" data-i18n-title="tooltips.mapPrep" title="Most maps are photos or renders, where fine grain carries as much height as the big shapes. These rebalance that before sampling.">Map preparation &#9432;</h3>
+        <div class="form-row slider-row">
+          <label for="map-macro" data-i18n="labels.mapMacro" data-i18n-title="tooltips.mapMacro" title="Gain on shapes coarser than the split size — the stones, planks, bricks. Raise it to make the big forms read.">Big shapes</label>
+          <input type="range" id="map-macro" min="0" max="2" step="0.05" value="1" />
+          <input type="number" class="val" id="map-macro-val" value="1" min="0" max="2" step="0.05" data-wheel-decimals="2" />
+        </div>
+        <div class="form-row slider-row">
+          <label for="map-micro" data-i18n="labels.mapMicro" data-i18n-title="tooltips.mapMicro" title="Gain on detail finer than the split size — grain, chisel marks, photo noise. Lower it when the surface comes out looking like crumbs.">Fine grain</label>
+          <input type="range" id="map-micro" min="0" max="2" step="0.05" value="1" />
+          <input type="number" class="val" id="map-micro-val" value="1" min="0" max="2" step="0.05" data-wheel-decimals="2" />
+        </div>
+        <div class="form-row slider-row">
+          <label for="map-split" data-i18n="labels.mapSplit" data-i18n-title="tooltips.mapSplit" title="Where big shapes end and fine grain begins, in millimetres on the model. Set it just under the size of your smallest stone or plank.">Split size (mm)</label>
+          <input type="range" id="map-split" min="0.1" max="10" step="0.1" value="1" />
+          <input type="number" class="val" id="map-split-val" value="1" min="0.1" max="50" step="0.1" data-wheel-decimals="1" />
+        </div>
+        <div class="form-row slider-row">
+          <label for="map-black" data-i18n="labels.mapBlack" data-i18n-title="tooltips.mapBlack" title="Everything darker than this becomes the lowest point. Raise it to sink the mortar joints.">Black point</label>
+          <input type="range" id="map-black" min="0" max="1" step="0.01" value="0" />
+          <input type="number" class="val" id="map-black-val" value="0" min="0" max="1" step="0.01" data-wheel-decimals="2" />
+        </div>
+        <div class="form-row slider-row">
+          <label for="map-white" data-i18n="labels.mapWhite" data-i18n-title="tooltips.mapWhite" title="Everything brighter than this becomes the highest point. Lower it to flatten the tops of the stones.">White point</label>
+          <input type="range" id="map-white" min="0" max="1" step="0.01" value="1" />
+          <input type="number" class="val" id="map-white-val" value="1" min="0" max="1" step="0.01" data-wheel-decimals="2" />
+        </div>
+        <div class="form-row slider-row">
+          <label for="map-gamma" data-i18n="labels.mapGamma" data-i18n-title="tooltips.mapGamma" title="Bends the midtones without moving the extremes. Above 1 lifts the middle heights, below 1 pushes them down.">Gamma</label>
+          <input type="range" id="map-gamma" min="0.2" max="5" step="0.05" value="1" />
+          <input type="number" class="val" id="map-gamma-val" value="1" min="0.2" max="5" step="0.05" data-wheel-decimals="2" />
+        </div>
       </section>
 
       <!-- Projection -->

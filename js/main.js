@@ -28,6 +28,7 @@ import { resolveScaleU, snapScaleUForSeamlessWrap, SCALE_MM_INPUT_MIN, SCALE_MM_
 import { getScaleReferenceLengths } from './mapping.js';
 import { recommendedSmoothing } from './mipPyramid.js';
 import { computeSmoothNormals } from './smoothNormals.js';
+import { prepareMap, isMapPrepActive, MAP_PREP_DEFAULTS } from './mapPrep.js';
 import { texPerMm } from './mipPyramid.js';
 import { computeBeamFrame } from './beamAxis.js';
 import { idbGet, idbSet, idbDel } from './idbStore.js';
@@ -1076,6 +1077,10 @@ const settings = {
   // Angle de pli de l'ombrage LISSE, en degres. Purement cosmetique : aucune
   // position ne bouge et l'export ne change pas (cf. js/smoothNormals.js).
   displayCreaseAngle: 40,
+  // Preparation de la carte (js/mapPrep.js). Valeurs NEUTRES : tant qu'elles ne
+  // bougent pas, la carte n'est meme pas recopiee et l'export est inchange.
+  mapBlack: 0, mapWhite: 1, mapGamma: 1,
+  mapMacro: 1, mapMicro: 1, mapSplitMm: 1.0,
   // Laplacian smoothing iterations applied to the per-vertex blend normal
   // (only the normal that drives projection-direction blend weights — not
   // the displacement direction). 0 = off, 4–8 = noticeable seam smoothing,
@@ -1140,6 +1145,13 @@ function updateSettingsUIFromSettings() {
   if (creaseAngleSlider) {
     creaseAngleSlider.value = settings.displayCreaseAngle;
     creaseAngleVal.value    = settings.displayCreaseAngle;
+  }
+
+  for (const [sl, vl, key] of _mapPrepControls()) {
+    if (!sl) continue;
+    sl.value = settings[key];
+    vl.value = settings[key];
+  }
 
   refineLenSlider.value = settings.refineLength;
   refineLenVal.value = settings.refineLength.toFixed(2);
@@ -1461,6 +1473,18 @@ const textureSmoothingSlider = document.getElementById('texture-smoothing');
 const textureSmoothingVal    = document.getElementById('texture-smoothing-val');
 const textureAntialiasCheckbox = document.getElementById('texture-antialias');
 const smoothingAutoBtn       = document.getElementById('smoothing-auto-btn');
+const mapMacroSlider  = document.getElementById('map-macro');
+const mapMacroVal     = document.getElementById('map-macro-val');
+const mapMicroSlider  = document.getElementById('map-micro');
+const mapMicroVal     = document.getElementById('map-micro-val');
+const mapSplitSlider  = document.getElementById('map-split');
+const mapSplitVal     = document.getElementById('map-split-val');
+const mapBlackSlider  = document.getElementById('map-black');
+const mapBlackVal     = document.getElementById('map-black-val');
+const mapWhiteSlider  = document.getElementById('map-white');
+const mapWhiteVal     = document.getElementById('map-white-val');
+const mapGammaSlider  = document.getElementById('map-gamma');
+const mapGammaVal     = document.getElementById('map-gamma-val');
 const creaseAngleSlider      = document.getElementById('crease-angle');
 const creaseAngleVal         = document.getElementById('crease-angle-val');
 const smoothingAutoInfo      = document.getElementById('smoothing-auto-info');
@@ -2672,10 +2696,43 @@ async function loadMaterialProfileFromFile(file) {
 _installProfileButtons();
 // ── Preset grid ───────────────────────────────────────────────────────────────
 
-function resetTextureSmoothing() {
+/**
+ * Remet a neutre TOUT ce qui est accorde a la carte courante.
+ *
+ * Lissage ET preparation (niveaux, macro/micro) : ces reglages se calibrent sur
+ * le CONTENU d'une carte — un point noir a 0.2 creuse les joints d'un mur mais
+ * mange la moitie d'une texture de bois. Les trainer d'une carte a la suivante
+ * fait porter a la nouvelle des reglages tailles pour l'ancienne, ce qui se lit
+ * comme un bug du chargement.
+ *
+ * ⚠️ Appelee UNIQUEMENT sur un choix explicite de l'utilisateur. La
+ * restauration d'un projet passe par `_selectPresetByName(..., false)`, qui la
+ * saute exprès — sinon rouvrir un fichier ecraserait les reglages qu'il porte.
+ */
+/**
+ * Valeurs NEUTRES de la preparation, sous les noms de reglages de l'app.
+ *
+ * Derivees de `MAP_PREP_DEFAULTS` — source unique : si un defaut change dans
+ * js/mapPrep.js, le reset suit. Et defini ICI, au-dessus de son unique
+ * utilisateur, plutot que lu dans `DEFAULT_SETTINGS_SNAPSHOT` qui est declare
+ * ~5000 lignes plus bas : un `const` reste en zone morte temporelle jusqu'a sa
+ * ligne, donc tout appel survenant pendant l'evaluation du module leverait.
+ */
+const MAP_PREP_NEUTRAL = Object.freeze({
+  mapMacro:   MAP_PREP_DEFAULTS.macroGain,
+  mapMicro:   MAP_PREP_DEFAULTS.microGain,
+  mapSplitMm: MAP_PREP_DEFAULTS.splitMm,
+  mapBlack:   MAP_PREP_DEFAULTS.black,
+  mapWhite:   MAP_PREP_DEFAULTS.white,
+  mapGamma:   MAP_PREP_DEFAULTS.gamma,
+});
+
+function resetMapAdjustments() {
   settings.textureSmoothing = 0;
   textureSmoothingSlider.value = 0;
   textureSmoothingVal.value    = 0;
+
+  for (const [sl, vl, key] of _mapPrepControls()) {
 }
 
 let _selectGeneration = 0;   // debounce rapid preset clicks
@@ -3617,6 +3674,7 @@ function wireEvents() {
     if (smoothingAutoInfo && !smoothingAutoInfo.classList.contains('hidden')) applySmoothingAuto();
   });
   if (smoothingAutoBtn) smoothingAutoBtn.addEventListener('click', applySmoothingAuto);
+  for (const [sl, vl, key] of _mapPrepControls()) {
     if (!sl) continue;
     linkSlider(sl, vl, v => {
       settings[key] = v;
@@ -6255,6 +6313,24 @@ function buildParentFaceMap(subdivGeo) {
   return parentMap;
 }
 
+/** Les 6 controles de preparation, dans l'ordre (slider, champ, cle de reglage). */
+function _mapPrepControls() {
+  return [
+    [mapMacroSlider, mapMacroVal, 'mapMacro'],
+    [mapMicroSlider, mapMicroVal, 'mapMicro'],
+    [mapSplitSlider, mapSplitVal, 'mapSplitMm'],
+    [mapBlackSlider, mapBlackVal, 'mapBlack'],
+    [mapWhiteSlider, mapWhiteVal, 'mapWhite'],
+    [mapGammaSlider, mapGammaVal, 'mapGamma'],
+  ];
+}
+
+/** Reglages de preparation, dans la forme qu'attend js/mapPrep.js. */
+function _mapPrepOpts() {
+  return {
+    black: settings.mapBlack, white: settings.mapWhite, gamma: settings.mapGamma,
+    macroGain: settings.mapMacro, microGain: settings.mapMicro,
+    splitMm: settings.mapSplitMm,
   };
 }
 
@@ -6262,8 +6338,18 @@ function buildParentFaceMap(subdivGeo) {
  * La frontiere macro/micro est reglee en MILLIMETRES du modele — la seule unite
  * qui ait un sens quand on parle de « pierres de 10 mm, ciseau de 0.2 mm ». La
  * conversion en texels passe par `texPerMm`, la MEME source que le prefiltre
+ * mip : les deux doivent decrire la meme empreinte, sinon la frontiere affichee
+ * ne serait pas celle appliquee.
+ */
+function _splitTexels(w, h) {
+  const tmax = Math.max(w, h, 1);
+  const ss = { ...settings, textureAspectU: tmax / Math.max(w, 1), textureAspectV: tmax / Math.max(h, 1) };
+  return Math.max(0, settings.mapSplitMm * texPerMm(ss, w, h));
+}
+
 function getEffectiveMapEntry() {
-  if (!activeMapEntry || settings.textureSmoothing === 0) {
+  const prepActive = isMapPrepActive(_mapPrepOpts());
+  if (!activeMapEntry || (settings.textureSmoothing === 0 && !prepActive)) {
     _effectiveMapCache    = null;
     _effectiveMapCacheKey = null;
     _effectiveMapCacheSrc = null;
@@ -6276,19 +6362,46 @@ function getEffectiveMapEntry() {
   // (aperçu au changement de slot ET géométrie exportée multi-slot). Les
   // entrées étant immuables (ré-import = nouvel objet), l'identité de
   // référence EST l'identité de contenu.
-  const cacheKey = `${name}_${width}_${height}_${settings.textureSmoothing}`;
+  const o = _mapPrepOpts();
+  const cacheKey = `${name}_${width}_${height}_${settings.textureSmoothing}`
+                 + `_${o.black}_${o.white}_${o.gamma}_${o.macroGain}_${o.microGain}_${o.splitMm}`;
   if (_effectiveMapCacheKey === cacheKey && _effectiveMapCacheSrc === activeMapEntry && _effectiveMapCache) {
     return _effectiveMapCache;
   }
   // Tile the source 3×3 before blurring so edge pixels have correct
   // neighbours and the blurred centre tile is seamlessly tileable.
+  // Preparation D'ABORD : les niveaux definissent ce que « hauteur » veut dire,
+  // et le reequilibrage macro/micro doit porter sur ces hauteurs-la. Le flou
+  // artistique reste en aval, inchange.
+  let srcCanvas = fullCanvas;
+  if (prepActive) {
+    const base = activeMapEntry.imageData
+      || fullCanvas.getContext('2d').getImageData(0, 0, width, height);
+    const prepped = prepareMap(base, { ..._mapPrepOpts(), splitTexels: _splitTexels(width, height) });
+    srcCanvas = document.createElement('canvas');
+    srcCanvas.width = width; srcCanvas.height = height;
+    srcCanvas.getContext('2d').putImageData(new ImageData(prepped.data, width, height), 0, 0);
+    if (settings.textureSmoothing === 0) {
+      // Rien a flouter : on sert directement la carte preparee, sans passer par
+      // le tuilage 3x3 (le flou de mapPrep BOUCLE deja, il est donc sans couture).
+      const texture0 = new THREE.CanvasTexture(srcCanvas);
+      texture0.wrapS = texture0.wrapT = THREE.RepeatWrapping;
+      if (_lastEffectiveTexture) _lastEffectiveTexture.dispose();
+      _lastEffectiveTexture = texture0;
+      _effectiveMapCache = { ...activeMapEntry, imageData: prepped, texture: texture0 };
+      _effectiveMapCacheKey = cacheKey;
+      _effectiveMapCacheSrc = activeMapEntry;
+      return _effectiveMapCache;
+    }
+  }
+
   const tiled = document.createElement('canvas');
   tiled.width  = width  * 3;
   tiled.height = height * 3;
   const tc = tiled.getContext('2d');
   for (let row = 0; row < 3; row++) {
     for (let col = 0; col < 3; col++) {
-      tc.drawImage(fullCanvas, col * width, row * height);
+      tc.drawImage(srcCanvas, col * width, row * height);
     }
   }
   // Blur the 3×3 canvas, then crop out only the centre tile.
@@ -8202,6 +8315,7 @@ function _applySettingsSnapshotInner(snap) {
   setLinkedVal(amplitudeVal,        snap.textureHeight);
   setLinkedVal(textureSmoothingVal, snap.textureSmoothing);
   setLinkedVal(creaseAngleVal,      snap.displayCreaseAngle);
+  for (const [, vl, key] of _mapPrepControls()) setLinkedVal(vl, snap[key]);
   setLinkedVal(seamBlendVal,        snap.mappingBlend);
   setLinkedVal(seamBandWidthVal,    snap.seamBandWidth);
   setLinkedVal(capAngleVal,         snap.capAngle);
@@ -8323,6 +8437,7 @@ const DEFAULT_SETTINGS_SNAPSHOT = Object.freeze({
   amplitude: 0.5, textureHeight: 0.5, invertDisplacement: false,
   symmetricDisplacement: false, noDownwardZ: false, smoothBottom: true, textureSmoothing: 0,
   textureAntialias: true, displayCreaseAngle: 40,
+  mapBlack: 0, mapWhite: 1, mapGamma: 1, mapMacro: 1, mapMicro: 1, mapSplitMm: 1.0,
   mappingBlend: 1, seamBandWidth: 0.5, capAngle: 20, boundaryFalloff: 0,
   bottomAngleLimit: 5, topAngleLimit: 0,
   refineLength: 1, maxTriangles: 750000, decimateEnabled: true,
