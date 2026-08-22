@@ -1073,7 +1073,9 @@ const settings = {
   // que le pas de maille se replie en bruit au lieu de s'attenuer. Decoche, le
   // sampler redevient EXACTEMENT l'historique (cf. js/mipPyramid.js).
   textureAntialias: true,
+  // Angle de pli de l'ombrage LISSE, en degres. Purement cosmetique : aucune
   // position ne bouge et l'export ne change pas (cf. js/smoothNormals.js).
+  displayCreaseAngle: 40,
   // Laplacian smoothing iterations applied to the per-vertex blend normal
   // (only the normal that drives projection-direction blend weights — not
   // the displacement direction). 0 = off, 4–8 = noticeable seam smoothing,
@@ -1134,6 +1136,10 @@ function updateSettingsUIFromSettings() {
   textureSmoothingVal.value = settings.textureSmoothing;
 
   if (textureAntialiasCheckbox) textureAntialiasCheckbox.checked = settings.textureAntialias !== false;
+
+  if (creaseAngleSlider) {
+    creaseAngleSlider.value = settings.displayCreaseAngle;
+    creaseAngleVal.value    = settings.displayCreaseAngle;
 
   refineLenSlider.value = settings.refineLength;
   refineLenVal.value = settings.refineLength.toFixed(2);
@@ -1455,6 +1461,8 @@ const textureSmoothingSlider = document.getElementById('texture-smoothing');
 const textureSmoothingVal    = document.getElementById('texture-smoothing-val');
 const textureAntialiasCheckbox = document.getElementById('texture-antialias');
 const smoothingAutoBtn       = document.getElementById('smoothing-auto-btn');
+const creaseAngleSlider      = document.getElementById('crease-angle');
+const creaseAngleVal         = document.getElementById('crease-angle-val');
 const smoothingAutoInfo      = document.getElementById('smoothing-auto-info');
 const capAngleSlider         = document.getElementById('cap-angle');
 const capAngleVal            = document.getElementById('cap-angle-val');
@@ -3609,6 +3617,24 @@ function wireEvents() {
     if (smoothingAutoInfo && !smoothingAutoInfo.classList.contains('hidden')) applySmoothingAuto();
   });
   if (smoothingAutoBtn) smoothingAutoBtn.addEventListener('click', applySmoothingAuto);
+    if (!sl) continue;
+    linkSlider(sl, vl, v => {
+      settings[key] = v;
+      // La carte preparee est memoisee sur ses reglages : il suffit d'invalider.
+      _effectiveMapCacheKey = null;
+      return v.toFixed(2);
+    });
+  }
+  if (creaseAngleSlider) {
+    linkSlider(creaseAngleSlider, creaseAngleVal, v => {
+      settings.displayCreaseAngle = v;
+      // On recalcule les NORMALES seules sur la geometrie deja construite : le
+      // deplacement, lui, ne depend pas de ce reglage, et le refaire couterait
+      // une passe de subdivision complete pour un changement d'ombrage.
+      refreshDisplayNormals();
+      return Math.round(v);
+    });
+  }
   linkSlider(capAngleSlider,          capAngleVal,          v => { settings.capAngle         = v; return Math.round(v); });
   symmetricDispToggle.addEventListener('change', () => {
     settings.symmetricDisplacement = symmetricDispToggle.checked;
@@ -5666,6 +5692,23 @@ function applySmoothingAuto() {
     want:  (rec.texelsPerEdge / 2).toFixed(1),
   });
   smoothingAutoInfo.classList.remove('hidden');
+}
+
+/**
+ * Re-pose les normales d'affichage sur l'apercu deja construit.
+ *
+ * L'angle de pli ne touche QUE l'ombrage : refaire subdivision + deplacement
+ * pour lui serait absurde (plusieurs secondes pour un changement de reflet).
+ * No-op tant qu'aucun apercu fusionne n'est affiche.
+ */
+function refreshDisplayNormals() {
+  if (!allSlotsPreviewGeometry) return;
+  const nrm = computeSmoothNormals(allSlotsPreviewGeometry, { creaseDeg: settings.displayCreaseAngle });
+  if (!nrm) return;
+  allSlotsPreviewGeometry.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  requestRender();
+}
+
 function updateSmartResBtnState() {
   if (!smartResBtn) return;
   smartResBtn.disabled = !(currentGeometry && activeMapEntry);
@@ -6859,7 +6902,17 @@ function mergePreviewGeometries(geometries) {
   }
   merged.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
 
-  if (normLen === posLen) {
+  // Normales LISSEES pour l'affichage. `applyDisplacement` rend une normale par
+  // FACE, si bien que le `flatShading: false` demande plus bas ne pouvait rien
+  // lisser : la surface se couvrait de chevrons suivant la triangulation alors
+  // que sa forme, elle, est lisse. Purement cosmetique et confine ICI — cette
+  // geometrie fusionnee ne sert qu'a l'apercu, l'export repart des geometries
+  // sources, qui gardent leurs normales plates (dont `exporter.js` depend pour
+  // ecrire la normale de facette du STL).
+  const smooth = computeSmoothNormals(merged, { creaseDeg: settings.displayCreaseAngle });
+  if (smooth) {
+    merged.setAttribute('normal', new THREE.Float32BufferAttribute(smooth, 3));
+  } else if (normLen === posLen) {
     const nrm = new Float32Array(normLen);
     offset = 0;
     for (const arr of normals) {
@@ -8036,7 +8089,11 @@ const PERSISTED_KEYS = [
   'mappingMode', 'scaleU', 'scaleV', 'scaleUnit', 'lockScale',
   'offsetU', 'offsetV', 'rotation',
   'amplitude', 'textureHeight', 'invertDisplacement',
-  'symmetricDisplacement', 'noDownwardZ', 'smoothBottom', 'textureSmoothing',
+  'symmetricDisplacement', 'noDownwardZ', 'smoothBottom', 'textureSmoothing', 'textureAntialias', 'displayCreaseAngle',
+  'mapBlack', 'mapWhite', 'mapGamma', 'mapMacro', 'mapMicro', 'mapSplitMm',
+  // NB : ces six-la sont PAR SLOT (chaque slot a sa carte, donc sa preparation),
+  // tandis que textureAntialias et displayCreaseAngle sont GLOBAUX — le partage
+  // est decide par GLOBAL_EXPORT_QUALITY_KEYS dans slotState.js, pas ici.
   'mappingBlend', 'seamBandWidth', 'capAngle', 'boundaryFalloff', 'boundaryFalloffCurve',
   'bottomAngleLimit', 'topAngleLimit',
   'refineLength', 'maxTriangles',
@@ -8144,6 +8201,7 @@ function _applySettingsSnapshotInner(snap) {
   setLinkedVal(rotationVal,         snap.rotation);
   setLinkedVal(amplitudeVal,        snap.textureHeight);
   setLinkedVal(textureSmoothingVal, snap.textureSmoothing);
+  setLinkedVal(creaseAngleVal,      snap.displayCreaseAngle);
   setLinkedVal(seamBlendVal,        snap.mappingBlend);
   setLinkedVal(seamBandWidthVal,    snap.seamBandWidth);
   setLinkedVal(capAngleVal,         snap.capAngle);
@@ -8264,6 +8322,7 @@ const DEFAULT_SETTINGS_SNAPSHOT = Object.freeze({
   offsetU: 0, offsetV: 0, rotation: 0,
   amplitude: 0.5, textureHeight: 0.5, invertDisplacement: false,
   symmetricDisplacement: false, noDownwardZ: false, smoothBottom: true, textureSmoothing: 0,
+  textureAntialias: true, displayCreaseAngle: 40,
   mappingBlend: 1, seamBandWidth: 0.5, capAngle: 20, boundaryFalloff: 0,
   bottomAngleLimit: 5, topAngleLimit: 0,
   refineLength: 1, maxTriangles: 750000, decimateEnabled: true,

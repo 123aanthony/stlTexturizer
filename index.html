@@ -649,6 +649,14 @@
             </label>
           </div>
 
+          <h3 class="panel-subsection-heading" data-i18n="ui.creaseAngleHeading">Shading Crease Angle</h3>
+          <p class="advanced-blurb" data-i18n="ui.creaseAngleDesc">Display only — no vertex moves, and the exported mesh is unaffected. Neighbouring faces closer than this angle are shaded as one smooth surface; sharper joints stay as hard edges. Lower it if creases in your texture look rounded off, raise it if the surface still looks faceted.</p>
+          <div class="form-row slider-row">
+            <label for="crease-angle" data-i18n="labels.creaseAngle">Crease angle (deg)</label>
+            <input type="range" id="crease-angle" min="0" max="90" step="1" value="40" />
+            <input type="number" class="val" id="crease-angle-val" value="40" min="0" max="90" step="1" data-wheel-decimals="0" />
+          </div>
+
           <h3 class="panel-subsection-heading" data-i18n="ui.smoothBottomHeading">Smooth Bottom</h3>
           <p class="advanced-blurb" data-i18n="ui.smoothBottomDesc">Snap any vertex within 0.1 mm of the bottom plane onto it after texturing. Keeps the bed-contact surface perfectly flat so slicers don't shade tiny height variations on bottom slivers.</p>
           <div class="form-row">
