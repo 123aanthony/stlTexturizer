@@ -1,6 +1,32 @@
 import * as THREE from 'three';
 
-const SIZE  = 512; // texture resolution for both preview and sampling
+// Resolution de travail des cartes : apercu ET echantillonnage du deplacement.
+//
+// POURQUOI 1024, ET PAS PLUS
+// --------------------------
+// Le facteur limitant n'est pas la texture mais le MAILLAGE : il ne peut porter
+// qu'une longueur d'onde de 2 aretes. A `refineLength` 0.15 mm, une tuile de
+// T millimetres n'a donc besoin que de ~2*T/0.15/2 texels — au-dela, le
+// prefiltre mip les remoyenne et le resultat converge.
+//
+// Le point de bascule est `SIZE * refineLength / 2` : a 512 il tombe a 38.4 mm.
+// MESURE sur un projet reel (house.bforge, 22 slots) : 5 slots depassaient ce
+// seuil (tuiles 43.8 et 51.7 mm, soit 1.49 a 1.75 texel par arete — sous les 2
+// requis), les 17 autres non. A 1024 le seuil monte a 76.8 mm et les couvre
+// tous avec marge (2.97 texels/arete a 51.7 mm).
+//
+// 2048 ne paierait qu'en descendant aussi l'arete sous 0.15 mm ; le cout mesure
+// (111 Mo de RAM pour 5 textures distinctes, contre 28) ne se justifie pas tant
+// que le maillage ne suit pas.
+//
+// ⚠️ `fitDimensions` clampe a 1 : une source plus petite n'est JAMAIS
+// agrandie. Relever ce cap ne coute donc rien sur les presets qui sont deja
+// sous la barre — seules les sources reellement plus grandes en profitent.
+//
+// ⚠️ Les cartes deja STOCKEES dans un projet ont ete reduites a l'import : la
+// relecture passe par le meme `fitDimensions`, qui n'agrandit pas. Il faut
+// re-importer le fichier source pour beneficier du nouveau cap.
+const SIZE  = 1024;
 const THUMB = 80;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
