@@ -460,6 +460,28 @@
         </div>
       </section>
 
+      <section class="panel-section">
+        <h3 class="panel-subsection-heading" data-i18n="ui.pieceHeading" data-i18n-title="tooltips.piece" title="Gives each separate part its own patch of the texture, so the wood grain stops running straight through every plank of a door.">Per-piece variation &#9432;</h3>
+        <div id="piece-info" class="smart-res-info"></div>
+        <div class="form-row slider-row">
+          <label for="piece-offset" data-i18n="labels.pieceOffset" data-i18n-title="tooltips.pieceOffset" title="How far each piece slides within the texture. 0 = off, exactly the previous behaviour.">Shift</label>
+          <input type="range" id="piece-offset" min="0" max="1" step="0.05" value="0" />
+          <input type="number" class="val" id="piece-offset-val" value="0" min="0" max="1" step="0.05" data-wheel-decimals="2" />
+        </div>
+        <div class="form-row slider-row">
+          <label for="piece-rotate" data-i18n="labels.pieceRotate" data-i18n-title="tooltips.pieceRotate" title="Random tilt per piece, plus or minus this many degrees. A couple of degrees is plenty for planks.">Tilt (deg)</label>
+          <input type="range" id="piece-rotate" min="0" max="15" step="0.5" value="0" />
+          <input type="number" class="val" id="piece-rotate-val" value="0" min="0" max="90" step="0.5" data-wheel-decimals="1" />
+        </div>
+        <div class="form-row">
+          <label class="checkbox-label" for="piece-flip">
+            <input type="checkbox" id="piece-flip" />
+            <span data-i18n="labels.pieceFlip" data-i18n-title="tooltips.pieceFlip" title="Turn roughly every other piece end for end, the way a joiner alternates boards.">Flip every other piece &#9432;</span>
+          </label>
+        </div>
+        <button id="piece-reseed-btn" class="smart-res-btn" data-i18n="labels.pieceReseed" data-i18n-title="tooltips.pieceReseed" title="Draw a different set of random shifts. Same seed always gives the same result.">Shuffle</button>
+      </section>
+
       <!-- Displacement -->
       <section class="panel-section">
         <h2 data-i18n="sections.displacement">Displacement</h2>

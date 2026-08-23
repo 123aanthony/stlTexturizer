@@ -123,4 +123,50 @@ test('sentinel colour (pure magenta) yields no group and no slot', () => {
     `${after.length} groups after vs ${before.length} before`);
 });
 
+
+// ── Identite de PIECE : les solides BREP ────────────────────────────────────
+// `solidOfTri` etait deja calcule par meshStep puis reduit a un NOM au retour.
+// Les trois sources possibles ne se valent pas, et l'ecart est enorme — mesure
+// sur interop_colored.step (7546 triangles, 34 solides reels) :
+//   composantes connexes ... 557  (sur-segmente 16x : des solides jointifs a
+//                                  sommets coincidents se fragmentent)
+//   noms de piece .......... 4    (sous-segmente 8.5x : plusieurs solides
+//                                  partagent le meme nom dans un compound)
+//   solides BREP ........... 34   exact
+// D'ou la regle : preferer `solidOfFace`, ne jamais se rabattre sur le nom.
+// (COL est deja charge plus haut dans ce fichier — on le reutilise.)
+
+test('solidOfFace est expose et aligne sur les faces', () => {
+  assert.ok(Array.isArray(COL.solidOfFace), 'solidOfFace absent du retour');
+  assert.equal(COL.solidOfFace.length, COL.sidecar.faces.length,
+    'il faut un identifiant de solide par face BREP');
+});
+
+test('il distingue PLUS finement que le nom de piece', () => {
+  const solides = new Set(COL.solidOfFace).size;
+  const noms = new Set(COL.partOfFace).size;
+  assert.ok(solides > noms,
+    `${solides} solides pour ${noms} noms : le nom ne peut pas servir d'identite`);
+});
+
+test("le sidecar PORTE l'identite, donc elle survit a la sauvegarde", () => {
+  // Sans ce champ, l'identite serait perdue a la reouverture du projet, et la
+  // variation par piece changerait toute seule d'un jour a l'autre.
+  for (const f of COL.sidecar.faces) {
+    assert.ok(Number.isInteger(f.solid), 'face sans champ `solid` entier');
+  }
+});
+
+test('les plages de triangles couvrent tout le maillage, sans trou', () => {
+  // C'est ce qui permet d'en deduire un identifiant PAR TRIANGLE : une plage
+  // manquante laisserait des triangles sans piece.
+  let cursor = 0;
+  for (const f of COL.sidecar.faces) {
+    assert.equal(f.range[0], cursor, 'plage non contigue');
+    cursor += f.range[1];
+  }
+  assert.equal(cursor, COL.sidecar.triCount, 'les plages ne couvrent pas tous les triangles');
+});
+
+
 console.error(`\nstepImport: ${passed} checks passed${process.exitCode ? ' (with failures)' : ''}`);

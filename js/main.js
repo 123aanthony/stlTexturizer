@@ -29,6 +29,7 @@ import { getScaleReferenceLengths } from './mapping.js';
 import { recommendedSmoothing } from './mipPyramid.js';
 import { computeSmoothNormals } from './smoothNormals.js';
 import { prepareMap, isMapPrepActive, MAP_PREP_DEFAULTS } from './mapPrep.js';
+import { isPieceVariationActive, buildPieceXforms, PIECE_VARIATION_DEFAULTS } from './pieceVariation.js';
 import { texPerMm } from './mipPyramid.js';
 import { computeBeamFrame } from './beamAxis.js';
 import { idbGet, idbSet, idbDel } from './idbStore.js';
@@ -1081,6 +1082,10 @@ const settings = {
   // bougent pas, la carte n'est meme pas recopiee et l'export est inchange.
   mapBlack: 0, mapWhite: 1, mapGamma: 1,
   mapMacro: 1, mapMicro: 1, mapSplitMm: 1.0,
+  // Variation du motif par PIÈCE (js/pieceVariation.js). Valeurs NEUTRES : tant
+  // qu'elles ne bougent pas, aucun identifiant de pièce n'est même calculé et
+  // le moteur exécute la ligne d'avant.
+  pieceOffset: 0, pieceRotate: 0, pieceFlip: false, pieceSeed: 1,
   // Laplacian smoothing iterations applied to the per-vertex blend normal
   // (only the normal that drives projection-direction blend weights — not
   // the displacement direction). 0 = off, 4–8 = noticeable seam smoothing,
@@ -1151,6 +1156,14 @@ function updateSettingsUIFromSettings() {
     if (!sl) continue;
     sl.value = settings[key];
     vl.value = settings[key];
+  }
+
+  if (pieceOffsetSlider) {
+    pieceOffsetSlider.value = settings.pieceOffset;
+    pieceOffsetVal.value    = settings.pieceOffset;
+    pieceRotateSlider.value = settings.pieceRotate;
+    pieceRotateVal.value    = settings.pieceRotate;
+    pieceFlipCheckbox.checked = !!settings.pieceFlip;
   }
 
   refineLenSlider.value = settings.refineLength;
@@ -1473,6 +1486,13 @@ const textureSmoothingSlider = document.getElementById('texture-smoothing');
 const textureSmoothingVal    = document.getElementById('texture-smoothing-val');
 const textureAntialiasCheckbox = document.getElementById('texture-antialias');
 const smoothingAutoBtn       = document.getElementById('smoothing-auto-btn');
+const pieceOffsetSlider = document.getElementById('piece-offset');
+const pieceOffsetVal    = document.getElementById('piece-offset-val');
+const pieceRotateSlider = document.getElementById('piece-rotate');
+const pieceRotateVal    = document.getElementById('piece-rotate-val');
+const pieceFlipCheckbox = document.getElementById('piece-flip');
+const pieceReseedBtn    = document.getElementById('piece-reseed-btn');
+const pieceInfo         = document.getElementById('piece-info');
 const mapMacroSlider  = document.getElementById('map-macro');
 const mapMacroVal     = document.getElementById('map-macro-val');
 const mapMicroSlider  = document.getElementById('map-micro');
@@ -3347,6 +3367,10 @@ function wireEvents() {
     await handleModelFile(modelFile);
     currentFaceSidecar = null;
     const stepData = isStep ? consumeStepSidecar() : null;
+    // Identite de PIECE selon l'autorite BREP. On la retient avant tout le
+    // reste : c'est la seule source exacte, les composantes connexes n'etant
+    // qu'un repli heuristique (cf. pieceIdOfTri).
+    _stepSolidOfFace = stepData?.solidOfFace || null;
     const sidecarData = stepData ? stepData.sidecar : rawSidecar;
     if (sidecarData) {
       try {
@@ -3680,6 +3704,26 @@ function wireEvents() {
     if (smoothingAutoInfo && !smoothingAutoInfo.classList.contains('hidden')) applySmoothingAuto();
   });
   if (smoothingAutoBtn) smoothingAutoBtn.addEventListener('click', applySmoothingAuto);
+  if (pieceOffsetSlider) {
+    linkSlider(pieceOffsetSlider, pieceOffsetVal, v => {
+      settings.pieceOffset = v; refreshPieceInfo(); return v.toFixed(2);
+    });
+    linkSlider(pieceRotateSlider, pieceRotateVal, v => {
+      settings.pieceRotate = v; refreshPieceInfo(); return v.toFixed(1);
+    });
+    pieceFlipCheckbox.addEventListener('change', () => {
+      settings.pieceFlip = pieceFlipCheckbox.checked;
+      refreshPieceInfo();
+    });
+  }
+  pieceReseedBtn?.addEventListener('click', () => {
+    // Graine ENTIERE tiree une fois, puis figee dans le projet : c'est ce qui
+    // rend le resultat reproductible d'un export a l'autre.
+    settings.pieceSeed = (Math.floor(Math.random() * 0x7FFFFFFF) | 0) || 1;
+    refreshPieceInfo();
+    markProjectDirty();
+  });
+
   for (const [sl, vl, key] of _mapPrepControls()) {
     if (!sl) continue;
     linkSlider(sl, vl, v => {
@@ -6353,6 +6397,177 @@ function _splitTexels(w, h) {
   return Math.max(0, settings.mapSplitMm * texPerMm(ss, w, h));
 }
 
+// ── Identifiants de PIÈCE ────────────────────────────────────────────────────
+// Composantes connexes du maillage d'ORIGINE, mémoïsées : l'adjacence est déjà
+// construite et mise en cache à chaque chargement, et `getShellAssignments`
+// existe déjà (meshValidation.js:473), exportée et utilisée par les
+// diagnostics. On ne construit donc rien de neuf.
+//
+// ⚠️ LIMITE MESURÉE, à connaître avant de s'y fier : l'adjacence ne relie que
+// les DEUX premières faces d'une arête (exclusion.js:111-114). Sur des solides
+// JOINTIFS à sommets coïncidents, ça sur-segmente — mesuré 1081 composantes
+// pour 34 solides sur un export réel. Sur des pièces SÉPARÉES (les lattes d'une
+// porte FW Diorama le sont, rainure de 0.3 mm) le découpage est exact. D'où le
+// compte publié dans l'UI : si tu vois 1081 pièces pour 34, ne t'y fie pas.
+let _pieceShellId = null, _pieceShellCount = 0, _pieceShellGeo = null;
+// Identite de SOLIDE par face BREP, quand le modele vient d'un STEP. Ecrite a
+// l'import, et relue depuis le sidecar a la reouverture d'un projet.
+let _stepSolidOfFace = null;
+let _pieceStepId = null, _pieceStepCount = 0, _pieceStepGeo = null;
+
+/**
+ * Identifiant de pièce par triangle du maillage d'ORIGINE, depuis le STEP.
+ *
+ * `currentFaceSidecar` donne, pour chaque face BREP, la plage contiguë de
+ * triangles qu'elle occupe ; `solidOfFace` donne le solide qui la porte. Le
+ * croisement des deux rend l'identite EXACTE, sans BFS ni adjacence, et sans
+ * l'ambiguite des pieces qui se touchent.
+ *
+ * Rend null si le modele ne vient pas d'un STEP — l'appelant retombe alors sur
+ * les composantes connexes.
+ */
+function pieceStepIds() {
+  if (!currentGeometry || !currentFaceSidecar || !_stepSolidOfFace) return null;
+  if (_pieceStepGeo === currentGeometry && _pieceStepId) return _pieceStepId;
+  const faces = currentFaceSidecar.faces || [];
+  if (faces.length !== _stepSolidOfFace.length) return null;   // desynchronise : on n'invente pas
+  const triCount = currentGeometry.attributes.position.count / 3;
+  const ids = new Int32Array(triCount).fill(-1);
+  const seen = new Set();
+  for (let f = 0; f < faces.length; f++) {
+    const [start, n] = faces[f].range;
+    const sid = _stepSolidOfFace[f];
+    seen.add(sid);
+    for (let t = start; t < start + n && t < triCount; t++) ids[t] = sid;
+  }
+  _pieceStepId = ids;
+  _pieceStepCount = seen.size;
+  _pieceStepGeo = currentGeometry;
+  return _pieceStepId;
+}
+
+function pieceShellIds() {
+  if (!currentGeometry || !triangleAdjacency) return null;
+  if (_pieceShellGeo === currentGeometry && _pieceShellId) return _pieceShellId;
+  const triCount = currentGeometry.attributes.position.count / 3;
+  const ids = getShellAssignments(triangleAdjacency, triCount);
+  let mx = 0;
+  for (let i = 0; i < ids.length; i++) if (ids[i] > mx) mx = ids[i];
+  _pieceShellId = ids;
+  _pieceShellCount = ids.length ? mx + 1 : 0;
+  _pieceShellGeo = currentGeometry;
+  return _pieceShellId;
+}
+
+/**
+ * Identifiant de pièce par triangle du maillage d'ORIGINE — SOURCE UNIQUE.
+ *
+ * Ordre de préférence assumé : l'identite BREP du STEP quand elle existe (elle
+ * est exacte), sinon les composantes connexes (heuristique, qui sur-segmente
+ * des que des solides jointifs partagent leurs sommets).
+ */
+function pieceIdOfTri() {
+  return pieceStepIds() || pieceShellIds();
+}
+
+/** Nombre de pièces détectées, et d'où vient le découpage. */
+function pieceCount() {
+  if (pieceStepIds()) return { n: _pieceStepCount, source: 'step' };
+  if (pieceShellIds()) return { n: _pieceShellCount, source: 'shells' };
+  return { n: 0, source: null };
+}
+
+/**
+ * `pieceOfTri` pour un maillage SUBDIVISÉ, via la carte enfant→parent.
+ *
+ * Rend `null` dès que la variation est inactive : le moteur teste `pieceOfTri`
+ * en premier, donc rendre null suffit à garantir le chemin historique.
+ * `faceParentId` est le motif de remappage déjà employé pour les masques de
+ * slot (slotMasks.js:93).
+ */
+function pieceOfTriFor(faceParentId) {
+  if (!isPieceVariationActive(settings) || !faceParentId) return null;
+  const shell = pieceIdOfTri();
+  if (!shell) return null;
+  const out = new Int32Array(faceParentId.length);
+  for (let i = 0; i < out.length; i++) {
+    const parent = faceParentId[i];
+    out[i] = (parent >= 0 && parent < shell.length) ? shell[parent] : 0;
+  }
+  return out;
+}
+
+/**
+ * Publie le nombre de pièces détectées.
+ *
+ * Ce chiffre n'est pas decoratif : le decoupage vient des composantes connexes,
+ * qui SUR-SEGMENTENT quand des solides jointifs partagent leurs sommets (mesure
+ * 1081 composantes pour 34 solides sur un export reel). Sans l'afficher, un
+ * resultat absurde serait indiscernable d'un resultat correct — c'est le meme
+ * principe que le bouton Auto du lissage : montrer le nombre qui explique ce
+ * qu'on voit.
+ */
+function refreshPieceInfo() {
+  if (!pieceInfo) return;
+  if (!isPieceVariationActive(settings)) {
+    pieceInfo.textContent = '';
+    pieceInfo.classList.add('hidden');
+    return;
+  }
+  const { n, source } = pieceCount();
+  pieceInfo.innerHTML = n > 0
+    ? t(source === 'step' ? 'ui.pieceCountStep' : 'ui.pieceCount', { n: String(n) })
+    : t('ui.pieceNone');
+  pieceInfo.classList.remove('hidden');
+}
+
+/**
+ * Pose l'attribut `pieceXform` sur la géométrie d'APERÇU.
+ *
+ * La table vient de `buildPieceXforms` — la MEME fonction que le moteur
+ * d'export. C'est la seule facon de garantir que l'apercu et le fichier
+ * exporte montrent le meme bois : deux calculs separes divergeraient au
+ * premier detail (ponderation d'aire, arrondi, ordre de parcours), et rien ne
+ * le signalerait.
+ *
+ * Le maillage d'apercu est NON INDEXE : les 3 sommets d'un triangle recoivent
+ * donc la meme valeur, et le varying reste constant sur le triangle. Sans ca,
+ * la variation serait interpolee entre pieces voisines — un degrade la ou il
+ * faut une rupture franche.
+ *
+ * @returns {boolean} true si l'attribut a ete pose (donc si le shader peut l'utiliser)
+ */
+function addPieceXform(geometry, parentMap) {
+  const n = geometry.attributes.position.count;
+  if (!isPieceVariationActive(settings) || !parentMap) {
+    geometry.deleteAttribute('pieceXform');
+    return false;
+  }
+  const src = pieceIdOfTri();
+  if (!src) { geometry.deleteAttribute('pieceXform'); return false; }
+
+  const triCount = n / 3;
+  const pieceOfTri = new Int32Array(triCount);
+  for (let t = 0; t < triCount; t++) {
+    const parent = parentMap[t];
+    pieceOfTri[t] = (parent >= 0 && parent < src.length) ? src[parent] : 0;
+  }
+
+  const { index, table } = buildPieceXforms(geometry.attributes.position.array, pieceOfTri, settings);
+  const arr = new Float32Array(n * 4);
+  for (let t = 0; t < triCount; t++) {
+    const x = table[index[t]];
+    const rot = x.rotDeg * Math.PI / 180;
+    const mir = x.mirrorU ? -1 : 1;
+    for (let v = 0; v < 3; v++) {
+      const o = (t * 3 + v) * 4;
+      arr[o] = x.du; arr[o + 1] = x.dv; arr[o + 2] = rot; arr[o + 3] = mir;
+    }
+  }
+  geometry.setAttribute('pieceXform', new THREE.Float32BufferAttribute(arr, 4));
+  return true;
+}
+
 function getEffectiveMapEntry() {
   const prepActive = isMapPrepActive(_mapPrepOpts());
   if (!activeMapEntry || (settings.textureSmoothing === 0 && !prepActive)) {
@@ -6952,6 +7167,10 @@ async function toggleDisplacementPreview(enable) {
 
     addSmoothNormals(activeGeo);
     addFaceNormals(activeGeo);
+    // Le garde du shader suit l'existence REELLE de l'attribut : un reglage
+    // actif sur une geometrie qui n'en a pas lirait des zeros, et le signe du
+    // miroir a zero diviserait l'echelle par zero.
+    const _pieceAttrOk = addPieceXform(activeGeo, activeParents);
 
     // Dispose previous preview geometry if any
     if (dispPreviewGeometry) dispPreviewGeometry.dispose();
@@ -6966,7 +7185,8 @@ async function toggleDisplacementPreview(enable) {
       previewMaterial.dispose();
       previewMaterial = null;
     }
-    const fullSettings = { ...settings, bounds: currentBounds, ..._previewAspect(), beamFrame: _previewBeamFrame() };
+    const fullSettings = { ...settings, bounds: currentBounds, ..._previewAspect(),
+                           beamFrame: _previewBeamFrame(), pieceVarOn: _pieceAttrOk };
     previewMaterial = createPreviewMaterial(getEffectiveMapEntry().texture, fullSettings);
     showMeshGeometry(dispPreviewGeometry);
     setMeshMaterial(previewMaterial);
@@ -7186,6 +7406,10 @@ setInterval(refreshExportAllSlotsButton, 500);
  * that combine the user-painted exclusion set AND the top/bottom angle mask.
  */
 async function handleExport(format = 'stl') {
+  // Carte enfant->parent : produite par subdivide() mais ignoree jusqu'ici sur
+  // ce chemin. C'est elle qui fait survivre un identifiant de piece a la
+  // subdivision — meme motif que les masques de slot (slotMasks.js:93).
+  let exportParentId = null;
   if (!currentGeometry || !activeMapEntry || isExporting || isBaking) return;
   const myToken = ++exportToken;
   isExporting = true;
@@ -7219,7 +7443,7 @@ async function handleExport(format = 'stl') {
       : null;
 
     let safetyCapHit;
-    ({ geometry: subdivided, safetyCapHit } = await subdivide(
+    ({ geometry: subdivided, safetyCapHit, faceParentId: exportParentId } = await subdivide(
       currentGeometry, settings.refineLength,
       (p, triCount, longestEdge) => {
         const label = triCount != null
@@ -7268,7 +7492,7 @@ async function handleExport(format = 'stl') {
         exportEntry.imageData,
         exportEntry.width,
         exportEntry.height,
-        settings,
+        { ...settings, pieceOfTri: pieceOfTriFor(exportParentId) },
         currentBounds,
         (p) => setProgress(0.38 + p * 0.32, t('progress.displacingVertices'))
       )
@@ -7507,6 +7731,7 @@ const displaced = await applyDisplacement(
   exportEntry.height,
     {
       ...slotSettings,
+      pieceOfTri: pieceOfTriFor(faceParentId),
       faceMask
     },
     currentBounds,
@@ -7666,7 +7891,7 @@ async function bakeTextures() {
         exportEntry.imageData,
         exportEntry.width,
         exportEntry.height,
-        settings,
+        { ...settings, pieceOfTri: pieceOfTriFor(faceParentId) },
         currentBounds,
         (p) => setBakeProgress(0.47 + p * 0.40, t('progress.displacingVertices'))
       )
@@ -8210,6 +8435,7 @@ const PERSISTED_KEYS = [
   'amplitude', 'textureHeight', 'invertDisplacement',
   'symmetricDisplacement', 'noDownwardZ', 'smoothBottom', 'textureSmoothing', 'textureAntialias', 'displayCreaseAngle',
   'mapBlack', 'mapWhite', 'mapGamma', 'mapMacro', 'mapMicro', 'mapSplitMm',
+  'pieceOffset', 'pieceRotate', 'pieceFlip', 'pieceSeed',
   // NB : ces six-la sont PAR SLOT (chaque slot a sa carte, donc sa preparation),
   // tandis que textureAntialias et displayCreaseAngle sont GLOBAUX — le partage
   // est decide par GLOBAL_EXPORT_QUALITY_KEYS dans slotState.js, pas ici.
@@ -8322,6 +8548,13 @@ function _applySettingsSnapshotInner(snap) {
   setLinkedVal(textureSmoothingVal, snap.textureSmoothing);
   setLinkedVal(creaseAngleVal,      snap.displayCreaseAngle);
   for (const [, vl, key] of _mapPrepControls()) setLinkedVal(vl, snap[key]);
+  setLinkedVal(pieceOffsetVal, snap.pieceOffset);
+  setLinkedVal(pieceRotateVal, snap.pieceRotate);
+  if (pieceFlipCheckbox && snap.pieceFlip != null) {
+    pieceFlipCheckbox.checked = !!snap.pieceFlip;
+    pieceFlipCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  if (snap.pieceSeed != null) settings.pieceSeed = snap.pieceSeed;
   setLinkedVal(seamBlendVal,        snap.mappingBlend);
   setLinkedVal(seamBandWidthVal,    snap.seamBandWidth);
   setLinkedVal(capAngleVal,         snap.capAngle);
@@ -8444,6 +8677,7 @@ const DEFAULT_SETTINGS_SNAPSHOT = Object.freeze({
   symmetricDisplacement: false, noDownwardZ: false, smoothBottom: true, textureSmoothing: 0,
   textureAntialias: true, displayCreaseAngle: 40,
   mapBlack: 0, mapWhite: 1, mapGamma: 1, mapMacro: 1, mapMicro: 1, mapSplitMm: 1.0,
+  pieceOffset: 0, pieceRotate: 0, pieceFlip: false, pieceSeed: 1,
   mappingBlend: 1, seamBandWidth: 0.5, capAngle: 20, boundaryFalloff: 0,
   bottomAngleLimit: 5, topAngleLimit: 0,
   refineLength: 1, maxTriangles: 750000, decimateEnabled: true,

@@ -28,6 +28,12 @@ export const MODE_WOOD_Z      = 10;
 
 const sharedGLSL = /* glsl */`
   uniform sampler2D displacementMap;
+  // Variation par piece. pieceVarOn est un GARDE, pas une coquetterie : sans
+  // lui, un attribut absent vaudrait 0 cote THREE, donc vPieceXform.w (le
+  // signe du miroir) vaudrait 0 et l'echelle serait DIVISEE PAR ZERO. Le garde
+  // rend aussi le chemin inactif litteralement identique a l'ancien.
+  uniform int       pieceVarOn;
+  varying vec4      vPieceXform;   // (du, dv, rotation en radians, signe du miroir)
   uniform int       mappingMode;
   // Beam-oriented Wood Auto (mode 7): PCA frame of the piece (else beamValid=0).
   uniform vec3      beamCenter;
@@ -106,8 +112,20 @@ const sharedGLSL = /* glsl */`
 
   // Sample after applying scale + tiling (aspect-corrected)
   float sampleMap(vec2 rawUV) {
-    vec2 uv = (rawUV * textureAspect) / scaleUV + offsetUV;
-    float c = cos(rotation); float s = sin(rotation);
+    // Miroir EXACT de applyTransform (js/mapping.js) : meme ordre d'operations,
+    // meme point d'injection — avant l'echelle pour le miroir, apres pour le
+    // decalage, et la rotation cumulee. Deux fonctions qui decrivent la meme
+    // geometrie doivent partager le meme point d'evaluation.
+    vec2 off = offsetUV;
+    float rot = rotation;
+    float mir = 1.0;
+    if (pieceVarOn == 1) {
+      off += vPieceXform.xy;
+      rot += vPieceXform.z;
+      mir  = vPieceXform.w;
+    }
+    vec2 uv = (rawUV * textureAspect) / (scaleUV * vec2(mir, 1.0)) + off;
+    float c = cos(rot); float s = sin(rot);
     uv -= 0.5;
     uv  = vec2(c * uv.x - s * uv.y, s * uv.x + c * uv.y);
     uv += 0.5;
@@ -287,6 +305,7 @@ const vertexShader = /* glsl */`
   precision highp float;
   ${sharedGLSL}
 
+  attribute vec4  pieceXform;   // (du, dv, rotation rad, signe du miroir)
   attribute vec3  smoothNormal;
   attribute vec3  faceNormal;
   attribute float faceMask;
@@ -303,6 +322,12 @@ const vertexShader = /* glsl */`
   varying float vMaskType;    // boundary mask type (0 = user mask, 1 = angle mask)
 
   void main() {
+    // ⚠️ AVANT tout appel a sampleMap : computeHeightAtPoint le lit plus bas.
+    // Le maillage etant NON INDEXE, les 3 sommets d'un triangle portent la meme
+    // valeur — l'interpolation du varying est donc constante sur le triangle,
+    // et la variation reste exacte au lieu d'etre lissee entre pieces.
+    vPieceXform = (pieceVarOn == 1) ? pieceXform : vec4(0.0, 0.0, 0.0, 1.0);
+
     vec3 safeN = length(normal) > 1e-6 ? normalize(normal) : vec3(0.0, 0.0, 1.0);
     // Use the true geometric face normal for angle masking so that
     // smooth/interpolated normals from subdivision don't cause mask bleeding.
@@ -546,6 +571,10 @@ export function updateMaterial(material, displacementTexture, settings) {
   u.amplitude.value     = settings.amplitude;
   u.offsetUV.value.set(settings.offsetU, settings.offsetV);
   u.rotation.value      = (settings.rotation ?? 0) * Math.PI / 180;
+  // Le garde suit l'existence REELLE de l'attribut, pas seulement le reglage :
+  // un reglage actif sur une geometrie sans attribut lirait des zeros et
+  // diviserait par zero au miroir.
+  u.pieceVarOn.value    = settings.pieceVarOn ? 1 : 0;
   if (settings.bounds) {
     u.boundsMin.value.copy(settings.bounds.min);
     u.boundsSize.value.copy(settings.bounds.size);
@@ -580,6 +609,10 @@ function buildUniforms(tex, settings) {
   };
   const uniforms = {
     displacementMap: { value: tex || createFallbackTexture() },
+    // Seme des la CREATION, pas seulement dans updateMaterial : un materiau
+    // fraichement cree et affiche avant la premiere mise a jour resterait sinon
+    // sur 0, et la variation ne s'allumerait qu'au reglage suivant.
+    pieceVarOn:      { value: settings.pieceVarOn ? 1 : 0 },
     mappingMode:     { value: settings.mappingMode ?? MODE_TRIPLANAR },
     beamCenter:      { value: new THREE.Vector3() },
     beamU:           { value: new THREE.Vector3(1, 0, 0) },

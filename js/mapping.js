@@ -151,10 +151,26 @@ export function computeUV(pos, normal, mode, settings, bounds) {
   // settings.scaleU/scaleV sont des mm absolus — conversion vers les facteurs
   // relatifs qu'attend la maths normalisée ci-dessous.
   const rel = scaleMmToRelative(mode, settings, bounds);
-  const scaleU = rel.u / aU;
+  // ── Variation par PIÈCE (js/pieceVariation.js) ────────────────────────────
+  // Modificateur ORTHOGONAL, applique ici — AVANT le switch — donc valable pour
+  // les 11 modes d'un coup, sans toucher une seule de leurs branches.
+  //
+  // NEUTRALITE PAR CONSTRUCTION : sans `pieceXform`, `px` vaut undefined, les
+  // trois `?? 0` rendent 0, `mirrorU` est faux, et les quatre constantes
+  // ci-dessous valent EXACTEMENT ce qu'elles valaient avant. Ce n'est pas une
+  // equivalence numerique : c'est la meme expression.
+  //
+  // Le miroir passe par le SIGNE de l'echelle : applyTransform ne fait que
+  // `u / scaleU`, donc un scaleU negatif y produit exactement `-u/|scaleU|`.
+  // Le plancher anti-zero de scaleMmToRelative est en amont, il ne detruit
+  // donc pas ce signe.
+  const px = settings.pieceXform;
+  const mir = (px && px.mirrorU) ? -1 : 1;
+  const scaleU = (rel.u / aU) * mir;
   const scaleV = rel.v / aV;
-  const { offsetU, offsetV } = settings;
-  const rotRad = (settings.rotation ?? 0) * Math.PI / 180;
+  const offsetU = settings.offsetU + (px?.du ?? 0);
+  const offsetV = settings.offsetV + (px?.dv ?? 0);
+  const rotRad = ((settings.rotation ?? 0) + (px?.rotDeg ?? 0)) * Math.PI / 180;
   const cosR = Math.cos(rotRad);
   const sinR = Math.sin(rotRad);
   const maxDim = Math.max(size.x, size.y, size.z);

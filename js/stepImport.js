@@ -67,6 +67,7 @@ export async function importStepText(text) {
   const positions = new Float32Array(triCount * 9);
   const faces = [];
   const partOfFace = [];
+  const solidOfFace = [];
   const colorGroupOfFace = [];
   const faceColor = r.colors?.faceColor || null;
   // FW Diorama — couleur SENTINELLE (magenta pur) = "do not texture".
@@ -105,6 +106,10 @@ export async function importStepText(text) {
     faces.push({
       id: `${part}.Face${fid}`,
       range: [cursor, tris.length],
+      // Champ OPTIONNEL : les sidecars v1 existants n'en ont pas, et
+      // parseFaceSidecar ne valide que version/faces/range/key — il traverse
+      // donc sans casser ni les anciens projets ni le chemin STL.
+      solid: solidId,
       key: {
         c: a2sum > 0 ? [cx / a2sum, cy / a2sum, cz / a2sum] : [0, 0, 0],
         n: nl > 1e-9 ? [nx / nl, ny / nl, nz / nl] : [0, 0, 0],
@@ -112,6 +117,11 @@ export async function importStepText(text) {
       },
     });
     partOfFace.push(part);
+    // Identite de SOLIDE, l'autorite BREP. Elle etait deja calculee ligne
+    // au-dessus puis reduite a un simple NOM — or deux solides distincts
+    // peuvent porter le meme nom dans un compound FreeCAD, donc le nom ne
+    // suffit pas a les distinguer. On garde l'entier.
+    solidOfFace.push(solidId);
     const _g = faceColor ? (faceColor.get(fid) ?? -1) : -1;
     colorGroupOfFace.push(_g === sentinelIdx ? -1 : _g);
     cursor += tris.length;
@@ -121,6 +131,7 @@ export async function importStepText(text) {
     positions,
     sidecar: { version: 1, units: 'mm', triCount, faces },
     partOfFace,
+    solidOfFace,
     colorGroupOfFace,
     palette: r.colors?.palette || null,
     diagnostics: r.diagnostics,

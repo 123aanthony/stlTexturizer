@@ -3,6 +3,7 @@ import { computeUV, getDominantCubicAxis, getCubicBlendWeights, scaleMmToRelativ
 import { QuantizedPointMap } from './meshIndex.js';
 import { computeBeamFrame, triMaskFromExcludeWeight } from './beamAxis.js';
 import { getMipPyramid, lodForFootprint, sampleBilinear, sampleFiltered, texPerMm } from './mipPyramid.js';
+import { isPieceVariationActive, buildPieceXforms } from './pieceVariation.js';
 
 /**
  * Apply displacement to every vertex of a non-indexed BufferGeometry.
@@ -96,6 +97,24 @@ const faceMask = settings.faceMask || null;
   // existants en bénéficient sans être ré-enregistrés. Le décocher reproduit
   // exactement le sampler historique.
   const antialias = settings.textureAntialias !== false;
+
+  // ── Variation par PIÈCE ───────────────────────────────────────────────────
+  // Active seulement si un identifiant de pièce PAR TRIANGLE est fourni ET
+  // qu'un réglage a bougé. Sinon rien n'est alloué, rien n'est calculé, et la
+  // passe 2 n'ajoute pas `pieceXform` aux settings — `computeUV` execute alors
+  // la meme ligne qu'avant (cf. js/pieceVariation.js).
+  const pieceOfTri = settings.pieceOfTri || null;
+  const pieceVar = !!pieceOfTri && isPieceVariationActive(settings);
+
+  // Table des transformations, calculee par la SOURCE UNIQUE que partage aussi
+  // l'apercu GPU (js/pieceVariation.js). La recalculer ici la ferait diverger
+  // du shader au premier detail — ponderation, arrondi, ordre de parcours — et
+  // l'apercu montrerait alors un bois different de celui qu'on exporte.
+  const pieceData = pieceVar
+    ? buildPieceXforms(posAttr.array, pieceOfTri, settings) : null;
+  const pieceIndex = pieceData ? pieceData.index : null;
+  const pieceXforms = pieceData ? pieceData.table : null;
+
 
   // ── Antialiasing : facteur texels/mm, par slot ────────────────────────────
   // L'empreinte texel d'un sommet vaut arête_mm × (texels/mm). La période monde
@@ -197,6 +216,17 @@ const faceMask = settings.faceMask || null;
   // incidentes — pas de second compteur à porter.
   const edgeLenAcc = antialias ? new Float32Array(uniqueCount) : null;
 
+  // Proprietaire d'un sommet unique = la piece du plus GRAND triangle incident.
+  // Un seul proprietaire par position => toutes les copies d'un sommet partage
+  // recoivent la MEME UV, donc le meme deplacement : aucune fissure possible,
+  // et sans avoir a APLATIR la jonction comme le fait la frontiere multi-slot
+  // (la, deux slots portent deux textures differentes ; ici c'est la meme, seul
+  // le decalage change, donc la surface reste continue).
+  // ⚠️ declare ICI et non plus haut : `uniqueCount` n'existe qu'apres la passe
+  // de soudure des sommets — un `const` reste en zone morte jusqu'a sa ligne.
+  const pieceOwner = pieceVar ? new Int32Array(uniqueCount).fill(-1) : null;
+  const pieceBest  = pieceVar ? new Float64Array(uniqueCount) : null;
+
   for (let t = 0; t < count; t += 3) {
     vA.fromBufferAttribute(posAttr, t);
     vB.fromBufferAttribute(posAttr, t + 1);
@@ -274,6 +304,17 @@ const faceMask = settings.faceMask || null;
       if (faceMasked) maskedFracMasked[vid] += faceArea;
       maskedFracTotal[vid] += faceArea;
       if (edgeLenAcc) edgeLenAcc[vid] += rmsEdge * faceArea;
+      if (pieceVar) {
+        const pid = pieceIndex[t / 3];
+        // Départage DÉTERMINISTE à aire égale (id le plus petit) : sans lui,
+        // deux triangles de meme aire feraient dependre le resultat de l'ordre
+        // de parcours.
+        if (faceArea > pieceBest[vid]
+            || (faceArea === pieceBest[vid] && (pieceOwner[vid] < 0 || pid < pieceOwner[vid]))) {
+          pieceBest[vid] = faceArea;
+          pieceOwner[vid] = pid;
+        }
+      }
     }
   }
 
@@ -561,6 +602,13 @@ const faceMask = settings.faceMask || null;
     }
   }
 
+  // Enveloppes MUTABLES des settings : on ne peut pas construire un objet par
+  // sommet (des millions d'allocations), et on ne doit pas polluer les objets
+  // partages. Une copie par slot, dont on ne change que `pieceXform`.
+  const uvWrap = pieceVar ? { ...settingsWithAspect } : null;
+  const uvWrapSlots = (pieceVar && multiSlots)
+    ? multiSlotAspect.map(a => ({ ...a.settingsWithAspect })) : null;
+
   // ── Pass 2: sample displacement texture once per unique position ──────────
 
   for (let i = 0; i < count; i++) {
@@ -587,6 +635,15 @@ const faceMask = settings.faceMask || null;
       continue;
     }
 
+    // Transformation de la pièce à laquelle appartient CE sommet.
+    let uvSettings = sampleSettingsWithAspect;
+    if (pieceVar) {
+      const pid = pieceOwner[vid];
+      const xf = pid >= 0 ? pieceXforms[pid] : null;
+      uvSettings = (sampleSlot ? uvWrapSlots[ownerSlot] : uvWrap);
+      uvSettings.pieceXform = xf;
+    }
+
     // Niveau de mip de CE sommet = log2 de son empreinte texel. lod <= 0 (la
     // maille échantillonne au texel ou plus fin : rien à corriger) renvoie
     // `sampleFiltered` sur le sampler d'origine, aux octets d'origine.
@@ -608,7 +665,11 @@ const faceMask = settings.faceMask || null;
       // propre division par l'échelle (_cubicUV), donc conversion ICI aussi
       // (miroir de computeUV).
       const relScale = scaleMmToRelative(6, sampleSettings, bounds);
-      const rotRad = (sampleSettings.rotation ?? 0) * Math.PI / 180;
+      // ⚠️ Ce chemin COURT-CIRCUITE computeUV (`continue` plus bas) : sans y
+      // reporter la variation, le mode cubique l'ignorerait EN SILENCE a
+      // l'export tout en marchant a l'apercu.
+      const cpx = pieceVar ? (pieceOwner[vid] >= 0 ? pieceXforms[pieceOwner[vid]] : null) : null;
+      const rotRad = ((sampleSettings.rotation ?? 0) + (cpx?.rotDeg ?? 0)) * Math.PI / 180;
       const cubicBlend = sampleSettings.mappingBlend ?? 0;
       const cubicBandWidth = sampleSettings.seamBandWidth ?? 0.35;
 
@@ -628,19 +689,19 @@ const faceMask = settings.faceMask || null;
         if (wX > 0) {
           let rawU = (tmpPos.y-bounds.min.y)/md;
           if (smoothNrmX[vid] < 0) rawU = -rawU;
-          const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV, relScale);
+          const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV, relScale, cpx);
           grey += sampleFiltered(pyr, sampleImageData.data, sampleWidth, sampleHeight, uv.u, uv.v, lod) * wX;
         }
         if (wY > 0) {
           let rawU = (tmpPos.x-bounds.min.x)/md;
           if (smoothNrmY[vid] > 0) rawU = -rawU;
-          const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV, relScale);
+          const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV, relScale, cpx);
           grey += sampleFiltered(pyr, sampleImageData.data, sampleWidth, sampleHeight, uv.u, uv.v, lod) * wY;
         }
         if (wZ > 0) {
           let rawU = (tmpPos.x-bounds.min.x)/md;
           if (smoothNrmZ[vid] < 0) rawU = -rawU;
-          const uv = _cubicUV(rawU, (tmpPos.y-bounds.min.y)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV, relScale);
+          const uv = _cubicUV(rawU, (tmpPos.y-bounds.min.y)/md, sampleSettings, rotRad, sampleAspectU, sampleAspectV, relScale, cpx);
           grey += sampleFiltered(pyr, sampleImageData.data, sampleWidth, sampleHeight, uv.u, uv.v, lod) * wZ;
         }
         dispCacheVal[vid] = grey;
@@ -650,7 +711,7 @@ const faceMask = settings.faceMask || null;
 
     tmpNrm.set(blendNrmX[vid], blendNrmY[vid], blendNrmZ[vid]);
 
-    const uvResult = computeUV(tmpPos, tmpNrm, sampleSettings.mappingMode, sampleSettingsWithAspect, bounds);
+    const uvResult = computeUV(tmpPos, tmpNrm, sampleSettings.mappingMode, uvSettings, bounds);
     let grey;
     if (uvResult.triplanar) {
       grey = 0;
@@ -783,10 +844,13 @@ if (maskedOut || isFaceExcluded || isSealedBoundary) {
 
 /** Apply scale/offset/rotation to raw UV for cubic projection.
  *  Mirrors the private applyTransform helper in mapping.js. */
-function _cubicUV(rawU, rawV, settings, rotRad, aspectU, aspectV, relScale) {
+function _cubicUV(rawU, rawV, settings, rotRad, aspectU, aspectV, relScale, px) {
   // relScale = scaleMmToRelative(...) — settings.scaleU/scaleV sont des mm.
-  let u = (rawU * aspectU) / relScale.u + settings.offsetU;
-  let v = (rawV * aspectV) / relScale.v + settings.offsetV;
+  // `px` (transformation de pièce) est optionnel : absent, les `?? 0` rendent
+  // 0 et le miroir vaut 1, donc les deux lignes sont IDENTIQUES au legacy.
+  const mir = (px && px.mirrorU) ? -1 : 1;
+  let u = (rawU * aspectU) / (relScale.u * mir) + settings.offsetU + (px?.du ?? 0);
+  let v = (rawV * aspectV) / relScale.v + settings.offsetV + (px?.dv ?? 0);
   if (rotRad !== 0) {
     const c = Math.cos(rotRad), s = Math.sin(rotRad);
     u -= 0.5; v -= 0.5;

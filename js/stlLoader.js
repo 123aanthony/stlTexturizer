@@ -491,6 +491,7 @@ export async function loadStepFile(file) {
   // mis-anchor selections.
   if ((nanCount + degenerateCount) === 0) {
     _pendingStepSidecar = { sidecar: r.sidecar, partOfFace: r.partOfFace,
+                            solidOfFace: r.solidOfFace,
                             colorGroupOfFace: r.colorGroupOfFace, palette: r.palette };
   } else {
     _pendingStepSidecar = null;
