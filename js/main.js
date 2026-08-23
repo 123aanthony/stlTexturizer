@@ -284,6 +284,13 @@ let textureSlots = TEXTURE_SLOT_DEFS.map(slot => ({
 
 let activeTextureSlotId = 'slot1';
 
+// Un projet a-t-il commence a se charger ? Drapeau COLLANT : il ne redevient
+// jamais faux. Le repli de carte du demarrage (dans le .then() de
+// loadAllThumbnails) doit s'effacer devant un projet, PENDANT son chargement
+// comme APRES — `isRestoringProject`, remis a faux en fin d'import, ne couvre
+// que la premiere moitie.
+let _projectLoadStarted = false;
+
 function getActiveTextureSlot() {
   return textureSlots.find(s => s.id === activeTextureSlotId);
 }
@@ -1220,6 +1227,40 @@ function updateSelectionModeUI() {
 
 
 function saveActiveSlotState() {
+  // ⚠️ NE RIEN ECRIRE PENDANT UNE RESTAURATION. Cette fonction recopie l'etat
+  // de MODULE (activeMapEntry, excludedFaces, selectionMode...) dans le slot
+  // actif. Pendant un chargement de projet cet etat est PERIME par definition :
+  // il decrit encore la session precedente, pas le projet qu'on ouvre.
+  //
+  // LE DEFAUT MESURE (trace d'execution sur un projet reel de 22 slots) :
+  //   setInterval(refreshExportAllSlotsButton, 500) appelle cette fonction
+  //   deux fois par seconde, indefiniment. Au demarrage le slot actif est
+  //   'slot1' (valeur initiale de activeTextureSlotId) et activeMapEntry vaut
+  //   le preset de repli. Or `activeTextureSlotId` n'est remplace par le slot
+  //   sauvegarde qu'APRES la boucle de restauration, laquelle `await` un
+  //   decodage d'image par slot personnalise. Le timer tombe donc en plein
+  //   milieu et reecrit le preset par-dessus la carte tout juste restauree.
+  //
+  //   Trace obtenue en instrumentant l'ecriture, sur le projet de l'utilisateur :
+  //     [1] slot1 <- null                              (boucle : remise a zero)
+  //     [2] slot1 <- Crystal                           (timer)
+  //     [3] slot1 <- japanese_stone_wall_disp_4k.png   (boucle : CORRECT)
+  //     [4..7] slot1 <- Crystal                        (timer, 4 fois de suite)
+  //   La restauration faisait son travail ; c'est le timer qui la piétinait.
+  //
+  //   Et cela explique pourquoi SEUL le slot 1 etait touche, alors que le slot
+  //   actif a la sauvegarde etait le slot 22 : slot1 est le slot actif au
+  //   DEMARRAGE, donc le seul que le timer puisse atteindre pendant la fenetre
+  //   de restauration.
+  //
+  // Le meme defaut avait deja ete constate pour les FACES : la boucle de
+  // restauration les re-affirme explicitement apres coup, avec en commentaire
+  // « avoids the active slot/global selection from being copied back into
+  // other slots by later callbacks ». Le symptome avait ete traite, la CAUSE
+  // non — d'ou sa reapparition sur les cartes. On la ferme ici, en amont, pour
+  // les 20 appelants a la fois.
+  if (isRestoringProject) return;
+
   const slot = getActiveTextureSlot();
   if (!slot) return;
 
@@ -2338,7 +2379,29 @@ loadAllThumbnails().then(thumbs => {
   if (targetIdx < 0 && !persistedName) {
     targetIdx = IMAGE_PRESETS.findIndex(p => p.name === DEFAULT_PRESET_NAME);
   }
-  if (targetIdx >= 0 && PRESETS[targetIdx]) {
+  // DURCISSEMENT — et NON le correctif du defaut « slot 1 » : celui-la vit dans
+  // `saveActiveSlotState`, dont le commentaire porte la trace d'execution qui
+  // l'etablit. Le coupable mesure etait le minuteur de 500 ms, pas ce repli.
+  //
+  // Deux gardes s'ajoutent ici, et il en faut bien DEUX :
+  //   `!activeMapEntry`      quelqu'un a deja revendique une carte (un clic, ou
+  //                          la restauration) : le repli du demarrage n'a plus
+  //                          rien a decider.
+  //   `!_projectLoadStarted` un projet se charge, ou s'est charge : c'est lui
+  //                          qui decide. Necessaire EN PLUS du precedent, car
+  //                          pendant la boucle de restauration seuls les
+  //                          `slot.activeMapEntry` sont renseignes — la
+  //                          variable de MODULE reste nulle jusqu'a
+  //                          `restoreSlotState()`, tout a la fin — et cette
+  //                          boucle `await` un decodage d'image par slot
+  //                          personnalise, donc la fenetre est large.
+  //
+  // Ce qui se produirait si ce repli passait pendant une restauration :
+  // `selectPreset` ecrit dans `getActiveTextureSlot()`, et sous `applyDefaults`
+  // il reecrit en plus `scaleU`. Aucune mesure ne l'a pris sur le fait — le
+  // minuteur arrivait le premier — mais le chemin est reel et rien ne le
+  // fermait.
+  if (targetIdx >= 0 && PRESETS[targetIdx] && !activeMapEntry && !_projectLoadStarted) {
     selectPreset(targetIdx, _presetSwatches[targetIdx], applyDefaults);
   }
 }).catch(err => console.error('Failed to load thumbnails:', err));
@@ -2542,6 +2605,11 @@ function serializeProjectTextureSlots() {
 }
 
 async function restoreProjectTextureSlots(savedSlots, savedActiveSlotId) {
+  // Redondant avec importProject aujourd'hui (son unique appelant), delibere :
+  // le jour ou un autre chemin restaurera des slots, il heritera du garde sans
+  // avoir a y penser.
+  _projectLoadStarted = true;
+  _selectGeneration++;
   if (!Array.isArray(savedSlots)) return;
 textureSlots = savedSlots.map((saved, index) => ({
   id: saved.id || `slot${index + 1}`,
@@ -9212,6 +9280,16 @@ async function importProject(file, options = {}) {
   if (file.size > PROJECT_MAX_IMPORT) {
     throw new Error(`File too large (${(file.size / 1024 / 1024).toFixed(1)} MB, max 500 MB)`);
   }
+
+  // Pose AVANT tout `await` : un garde arme au milieu du chargement laisse
+  // passer tout ce qui se resout avant lui.
+  _projectLoadStarted = true;
+  // Invalide tout `selectPreset` DEJA parti : il a franchi son propre garde et
+  // attend `loadFullPreset`, apres quoi il ecrirait sa carte dans le slot
+  // actif. Le compteur de generation existait pour departager deux clics
+  // rapides ; une restauration de projet doit gagner de la meme facon. Sans
+  // ca, le drapeau ci-dessus ne couvre que les replis PAS ENCORE partis.
+  _selectGeneration++;
 
   isRestoringProject = true;
   _undoApplyDepth++;
