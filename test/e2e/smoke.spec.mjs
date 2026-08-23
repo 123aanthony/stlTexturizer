@@ -14,12 +14,11 @@ const appRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 // so run this on a real desktop (or CI with GPU / ANGLE-swiftshader). See
 // test/e2e/README.md.
 test('app boots without uncaught errors and shows the viewer', async () => {
-  const { app, page } = await launchApp(appRoot);
+  // `bootErrors` vient de launchApp, qui attache ses ecouteurs AVANT tout delai :
+  // une erreur d'evaluation de module arrive a la milliseconde zero.
+  const { app, page, bootErrors: errors } = await launchApp(appRoot);
   try {
-    const errors = [];
     let crashed = false;
-    page.on('pageerror', (e) => errors.push(e.message));
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
     page.on('crash', () => { crashed = true; });
 
     await expect(page).toHaveTitle(/bump|stl/i);
@@ -28,6 +27,15 @@ test('app boots without uncaught errors and shows the viewer', async () => {
     // context is created by main.js initViewer(); if that throws or the GPU is
     // unavailable the renderer dies and this won't resolve.
     await expect(page.locator('#viewport')).toBeAttached();
+
+    // PREUVE POSITIVE que main.js s'est reellement execute jusqu'au bout.
+    // `#viewport` est STATIQUE dans index.html : sa presence ne prouve rien. La
+    // grille de textures, elle, est construite par le code de main.js — si le
+    // module a explose a l'evaluation, elle reste vide. Un import en double a
+    // deja fait passer ce test au vert sur une app entierement morte.
+    const swatches = await page.evaluate(() =>
+      document.querySelectorAll('.preset-swatch').length);
+    expect(swatches, "la grille de textures est vide : main.js n'a pas fini de s'evaluer").toBeGreaterThan(5);
 
     expect(crashed, 'renderer crashed during boot (WebGL/GPU unavailable?)').toBe(false);
     expect(errors, `uncaught errors during boot:\n${errors.join('\n')}`).toEqual([]);

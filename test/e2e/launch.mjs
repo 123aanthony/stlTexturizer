@@ -18,6 +18,16 @@ export async function launchApp(appRoot) {
     env: { ...process.env, BF_TEST_USERDATA: userData },
   });
   const page = await app.firstWindow();
+
+  // ⚠️ ECOUTEURS ATTACHES IMMEDIATEMENT, avant le moindre delai.
+  // Une erreur d'EVALUATION DE MODULE (import en double, par exemple) survient a
+  // la milliseconde zero et tue main.js en entier. Les attacher apres l'attente
+  // ci-dessous la rendait invisible : le smoke annoncait « demarre sans erreur »
+  // pendant que l'app n'avait construit ni grille de textures ni ecouteurs.
+  const bootErrors = [];
+  page.on('pageerror', (e) => bootErrors.push(e.message));
+  page.on('console', (m) => { if (m.type() === 'error') bootErrors.push(m.text()); });
+
   await page.waitForLoadState('domcontentloaded');
 
   // Clean profile = first run → the welcome overlay may cover the viewport and
@@ -26,5 +36,5 @@ export async function launchApp(appRoot) {
   await page.waitForTimeout(600);
   if (await gotIt.isVisible().catch(() => false)) await gotIt.click();
 
-  return { app, page };
+  return { app, page, bootErrors };
 }

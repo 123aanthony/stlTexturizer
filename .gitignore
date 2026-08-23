@@ -12,3 +12,6 @@ playwright-report/
 
 # Headless render outputs (regenerable)
 test/render/*.png
+
+# Artefacts E2E (modele genere a la volee)
+test/e2e/.tmp/
