@@ -50,6 +50,8 @@ export default {
   "labels.invertDisplacement": "Inverter (empurrar para dentro)",
   "labels.seamBlend": "Fusão de costuras ⓘ",
   "tooltips.seamBlend": "Suaviza a costura onde as faces de projeção se encontram. Eficaz para os modos Cúbico e Cilíndrico.",
+  "labels.seamWidth": "Largura da costura (mm) ⓘ",
+  "tooltips.seamWidth": "Largura, em milímetros, da faixa onde duas projeções se fundem através de uma aresta viva. 0 desativa. Uma mistura baseada na normal não consegue suavizar um canto de 90°: a normal salta sem valores intermediários. A faixa é medida ao longo da superfície, portanto não muda ao refinar a exportação.",
   "labels.transitionSmoothing": "Suavização de transição ⓘ",
   "tooltips.transitionSmoothing": "Largura da zona de fusão perto das bordas da costura. Valores baixos mantêm as transições próximas à costura; valores altos suavizam uma faixa mais larga.",
   "labels.textureSmoothing": "Suavização de textura ⓘ",

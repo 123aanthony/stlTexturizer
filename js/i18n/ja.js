@@ -50,6 +50,8 @@ export default {
   "labels.invertDisplacement": "反転 (外側ではなく内側へ)",
   "labels.seamBlend": "シームブレンド ⓘ",
   "tooltips.seamBlend": "投影面が接する境界の硬い継ぎ目を滑らかにします。キュービックおよび円筒モードで効果的です。",
+  "labels.seamWidth": "継ぎ目幅 (mm) ⓘ",
+  "tooltips.seamWidth": "硬いエッジをまたいで 2 つの投影を混ぜる帯の幅（ミリメートル）。0 で無効。法線に基づく混合は 90° の角を和らげられません（法線が中間値なしに跳ぶため）。帯は表面に沿って測られるので、エクスポートを細かくしても変わりません。",
   "labels.transitionSmoothing": "トランジションスムージング ⓘ",
   "tooltips.transitionSmoothing": "継ぎ目の端付近のブレンドゾーンの幅。低い値はトランジションを継ぎ目に近づけ、高い値はより広い帯域をブレンドします。",
   "labels.textureSmoothing": "テクスチャスムージング ⓘ",

@@ -433,6 +433,11 @@
           <input type="range" id="seam-band-width" min="0" max="1" step="0.01" value="0.5" />
           <input type="number" class="val" id="seam-band-width-val" value="0.5" min="0" max="1" step="0.01" data-wheel-decimals="2" />
         </div>
+        <div class="form-row slider-row">
+          <label for="seam-width" data-i18n="labels.seamWidth" data-i18n-title="tooltips.seamWidth" title="Width, in millimetres, of the band where two projections are blended across a hard edge. 0 disables it. Normal-based blending cannot soften a 90 degree corner: the normal jumps with no in-between values, so the band is measured along the surface instead.">Seam Width (mm) &#9432;</label>
+          <input type="range" id="seam-width" min="0" max="10" step="0.1" value="0" />
+          <input type="number" class="val" id="seam-width-val" value="0" min="0" max="10" step="0.1" data-wheel-decimals="1" />
+        </div>
         <div class="form-row slider-row" id="cap-angle-row" style="display:none">
           <label for="cap-angle" data-i18n="labels.capAngle" data-i18n-title="tooltips.capAngle" title="Angle (in degrees) from vertical at which the top/bottom cap projection kicks in. Smaller values limit cap projection to nearly flat faces.">Cap Angle ⓘ</label>
           <input type="range" id="cap-angle" min="1" max="89" step="1" value="20" />

@@ -1152,6 +1152,18 @@ const settings = {
   // the displacement direction). 0 = off, 4–8 = noticeable seam smoothing,
   // higher = diminishing returns and risk of losing macro orientation.
   blendNormalSmoothing: 32,
+  // Largeur, en MILLIMETRES, de la bande ou deux projections se fondent en
+  // travers d'une arete vive. 0 = desactive, ce qui est le defaut : le chemin
+  // est alors strictement l'ancien, a l'octet (les goldens le verifient).
+  //
+  // Un melange pilote par la NORMALE ne peut rien pour un coin a 90 degres —
+  // mesure, il vaut 0.0 % sur un mur plat meme a reglage maximum, la normale
+  // sautant sans valeur intermediaire. Et le lissage laplacien qui contourne
+  // cela diffuse en racine(k) ET proportionnellement au pas du maillage : a
+  // 0.15 mm de resolution les 32 iterations ci-dessus ne couvrent que ~0.65 mm,
+  // et AFFINER l'export resserre encore la couture. D'ou une largeur mesuree
+  // le long de la surface, donc independante de la resolution.
+  seamBlendWidthMm: 0,
   capAngle:         20,
   boundaryFalloff:  0,
   // 'linear' (pente constante), 'scurve' (smoothstep, adouci aux 2 bouts),
@@ -1576,6 +1588,8 @@ const bottomAngleLimitVal    = document.getElementById('bottom-angle-limit-val')
 const topAngleLimitVal       = document.getElementById('top-angle-limit-val');
 const seamBlendSlider        = document.getElementById('seam-blend');
 const seamBlendVal           = document.getElementById('seam-blend-val');
+const seamWidthSlider        = document.getElementById('seam-width');
+const seamWidthVal           = document.getElementById('seam-width-val');
 const seamBandWidthSlider    = document.getElementById('seam-band-width');
 const seamBandWidthVal       = document.getElementById('seam-band-width-val');
 const textureSmoothingSlider = document.getElementById('texture-smoothing');
@@ -3832,6 +3846,7 @@ function wireEvents() {
   linkSlider(topAngleLimitSlider,    topAngleLimitVal,    v => { settings.topAngleLimit    = v; _falloffDirty = true; return v; });
   linkSlider(seamBlendSlider,        seamBlendVal,        v => { settings.mappingBlend     = v; return v.toFixed(2); });
   linkSlider(seamBandWidthSlider,    seamBandWidthVal,    v => { settings.seamBandWidth    = v; return v.toFixed(2); });
+  linkSlider(seamWidthSlider,        seamWidthVal,        v => { settings.seamBlendWidthMm = v; return v.toFixed(1); });
   linkSlider(textureSmoothingSlider, textureSmoothingVal, v => { settings.textureSmoothing = v; return v.toFixed(1); });
   textureAntialiasCheckbox?.addEventListener('change', () => {
     settings.textureAntialias = textureAntialiasCheckbox.checked;
@@ -8608,7 +8623,7 @@ const PERSISTED_KEYS = [
   // NB : ces six-la sont PAR SLOT (chaque slot a sa carte, donc sa preparation),
   // tandis que textureAntialias et displayCreaseAngle sont GLOBAUX — le partage
   // est decide par GLOBAL_EXPORT_QUALITY_KEYS dans slotState.js, pas ici.
-  'mappingBlend', 'seamBandWidth', 'capAngle', 'boundaryFalloff', 'boundaryFalloffCurve',
+  'mappingBlend', 'seamBandWidth', 'seamBlendWidthMm', 'capAngle', 'boundaryFalloff', 'boundaryFalloffCurve',
   'bottomAngleLimit', 'topAngleLimit',
   'refineLength', 'maxTriangles',
   // ⚠️ Ces 9 cles n'etaient ecrites NULLE PART : absentes de cette liste, et
@@ -8736,6 +8751,7 @@ function _applySettingsSnapshotInner(snap) {
   }
   if (snap.pieceSeed != null) settings.pieceSeed = snap.pieceSeed;
   setLinkedVal(seamBlendVal,        snap.mappingBlend);
+  setLinkedVal(seamWidthVal,        snap.seamBlendWidthMm);
   setLinkedVal(seamBandWidthVal,    snap.seamBandWidth);
   setLinkedVal(capAngleVal,         snap.capAngle);
   setLinkedVal(boundaryFalloffVal,  snap.boundaryFalloff);
@@ -8858,7 +8874,7 @@ const DEFAULT_SETTINGS_SNAPSHOT = Object.freeze({
   textureAntialias: true, displayCreaseAngle: 40,
   mapBlack: 0, mapWhite: 1, mapGamma: 1, mapMacro: 1, mapMicro: 1, mapSplitMm: 1.0,
   pieceOffset: 0, pieceRotate: 0, pieceFlip: false, pieceSeed: 1,
-  mappingBlend: 1, seamBandWidth: 0.5, capAngle: 20, boundaryFalloff: 0,
+  mappingBlend: 1, seamBandWidth: 0.5, seamBlendWidthMm: 0, capAngle: 20, boundaryFalloff: 0,
   bottomAngleLimit: 5, topAngleLimit: 0,
   refineLength: 1, maxTriangles: 750000, decimateEnabled: true,
   snapSeamlessWrap: true,

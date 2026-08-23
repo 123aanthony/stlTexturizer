@@ -50,6 +50,8 @@ export default {
   "labels.invertDisplacement": "Invert (push in instead of out)",
   "labels.seamBlend": "Seam Blend ⓘ",
   "tooltips.seamBlend": "Softens the hard seam where projection faces meet. Effective for Cubic and Cylindrical modes.",
+  "labels.seamWidth": "Seam Width (mm) ⓘ",
+  "tooltips.seamWidth": "Width, in millimetres, of the band where two projections blend across a hard edge. 0 disables it. Normal-based blending cannot soften a 90° corner: the normal jumps with no in-between values. The band is measured along the surface instead, so it does not change when you refine the export.",
   "labels.transitionSmoothing": "Transition Smoothing ⓘ",
   "tooltips.transitionSmoothing": "Width of the blending zone near seam edges. Lower values keep transitions tight to the seam; higher values blend a wider band.",
   "labels.textureSmoothing": "Texture Smoothing ⓘ",

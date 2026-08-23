@@ -50,6 +50,8 @@ export default {
   "labels.invertDisplacement": "Inverti (spingi verso l'interno)",
   "labels.seamBlend": "Unione dei bordi ⓘ",
   "tooltips.seamBlend": "Attenua il bordo netto dove si incontrano le facce della proiezione. Efficace per le modalità Cubica e Cilindrica.",
+  "labels.seamWidth": "Larghezza cucitura (mm) ⓘ",
+  "tooltips.seamWidth": "Larghezza, in millimetri, della fascia in cui due proiezioni si fondono attraverso uno spigolo vivo. 0 disattiva. Una fusione basata sulla normale non può addolcire un angolo a 90°: la normale salta senza valori intermedi. La fascia è quindi misurata lungo la superficie e non cambia affinando l'esportazione.",
   "labels.transitionSmoothing": "Smoothing di transizione ⓘ",
   "tooltips.transitionSmoothing": "Larghezza della zona di fusione vicino ai bordi della giuntura. Valori più bassi mantengono le transizioni aderenti alla giuntura; valori più alti sfumano una fascia più ampia.",
   "labels.textureSmoothing": "Smoothing della texture ⓘ",

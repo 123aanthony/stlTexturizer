@@ -50,6 +50,8 @@ export default {
   "labels.invertDisplacement": "Invertieren (nach innen statt außen)",
   "labels.seamBlend": "Nahtglättung ⓘ",
   "tooltips.seamBlend": "Glättet den scharfen Übergang zwischen Projektionsflächen. Wirksam für Kubische und Zylindrische Modi.",
+  "labels.seamWidth": "Nahtbreite (mm) ⓘ",
+  "tooltips.seamWidth": "Breite des Bandes in Millimetern, in dem zwei Projektionen über eine harte Kante hinweg überblendet werden. 0 schaltet ab. Eine normalenbasierte Überblendung kann eine 90°-Ecke nicht mildern: die Normale springt ohne Zwischenwerte. Das Band wird daher entlang der Oberfläche gemessen und bleibt bei feinerem Export gleich.",
   "labels.transitionSmoothing": "Übergangsglättung ⓘ",
   "tooltips.transitionSmoothing": "Breite der Übergangszone an Nahtkanten. Niedrige Werte halten den Übergang nah an der Naht; höhere Werte glätten einen breiteren Bereich.",
   "labels.textureSmoothing": "Texturglättung ⓘ",

@@ -4,6 +4,7 @@ import { QuantizedPointMap } from './meshIndex.js';
 import { computeBeamFrame, triMaskFromExcludeWeight } from './beamAxis.js';
 import { getMipPyramid, lodForFootprint, sampleBilinear, sampleFiltered, texPerMm } from './mipPyramid.js';
 import { isPieceVariationActive, buildPieceXforms } from './pieceVariation.js';
+import { buildDedupAdjacency, spreadSeamWeights } from './seamBlend.js';
 
 /**
  * Apply displacement to every vertex of a non-indexed BufferGeometry.
@@ -156,7 +157,13 @@ const faceMask = settings.faceMask || null;
   // idPos{X,Y,Z} are only populated when boundary falloff is enabled, since
   // they're only consumed by the falloff distance field. Pre-sized to `count`
   // (upper bound on uniqueCount); read by ID, so extra tail slots stay unused.
-  const needIdPositions = (settings.boundaryFalloff ?? 0) > 0;
+  // Les positions par identifiant servent au retrait de bord ET a la mesure de
+  // distance geodesique de l'etalement de couture (js/seamBlend.js).
+  const _seamWidthOf = (st) => (st && st.mappingMode === 6 ? Math.max(0, st.seamBlendWidthMm || 0) : 0);
+  const _seamWidth = Math.max(
+    _seamWidthOf(settings),
+    ...(multiSlots ? multiSlots.map((sl) => _seamWidthOf((sl && sl.settings) || settings)) : [0]));
+  const needIdPositions = (settings.boundaryFalloff ?? 0) > 0 || _seamWidth > 0;
   // Typed-array point map: avoids V8's Map maximum-size limit on very dense exports.
   const _dedupMap = new QuantizedPointMap(QUANT, Math.min(count, 1 << 22));
   let _nextId = 0;
@@ -609,6 +616,67 @@ const faceMask = settings.faceMask || null;
   const uvWrapSlots = (pieceVar && multiSlots)
     ? multiSlotAspect.map(a => ({ ...a.settingsWithAspect })) : null;
 
+  // ── Etalement des coutures sur une largeur en MILLIMETRES ────────────────
+  // Le melange de couture est pilote par la NORMALE, or a une arete vive celle-ci
+  // saute de 90 degres sans valeur intermediaire : mesure, il vaut 0.0 % sur un
+  // mur plat meme a reglage maximum. Le lissage laplacien existant contourne
+  // cela, mais sa portee croit en racine(k) ET proportionnellement au pas du
+  // maillage : a 0.15 mm de resolution les 32 iterations par defaut ne couvrent
+  // que ~0.65 mm, et affiner l'export RESSERRE encore la couture.
+  //
+  // On mesure donc la distance reelle a la couture et l'on etale les poids sur
+  // la largeur demandee (js/seamBlend.js porte les mesures qui motivent ce
+  // choix). Largeur nulle => on n'entre pas ici du tout : l'ancien comportement
+  // est conserve a l'octet, ce que les goldens verifient.
+  let seamWX = null, seamWY = null, seamWZ = null;
+  if (_seamWidth > 0 && idPosX) {
+    seamWX = new Float32Array(uniqueCount);
+    seamWY = new Float32Array(uniqueCount);
+    seamWZ = new Float32Array(uniqueCount);
+    const vus = new Uint8Array(uniqueCount);
+    for (let i = 0; i < count; i++) {
+      const vid = vertexId[i];
+      if (vus[vid]) continue;
+      vus[vid] = 1;
+      const os = multiOwner ? multiOwner[vid] : -1;
+      const st = (multiSlots && os >= 0 && multiSlots[os] && multiSlots[os].settings)
+        ? multiSlots[os].settings : settings;
+      if (st.mappingMode !== 6) continue;
+      // MEME resolution que la boucle d'echantillonnage : normale lissee si elle
+      // est fiable, repli sur les aires de zone sinon. Deux calculs du meme poids
+      // qui divergeraient produiraient une couture differente de l'apercu.
+      if (smoothNrmReliability[vid] > 0.5) {
+        const w = getCubicBlendWeights(
+          { x: blendNrmX[vid], y: blendNrmY[vid], z: blendNrmZ[vid] },
+          st.mappingBlend ?? 0, st.seamBandWidth ?? 0.35);
+        seamWX[vid] = w.x; seamWY[vid] = w.y; seamWZ[vid] = w.z;
+      } else {
+        const tot = zoneAreaX[vid] + zoneAreaY[vid] + zoneAreaZ[vid];
+        if (tot > 0) {
+          seamWX[vid] = zoneAreaX[vid] / tot;
+          seamWY[vid] = zoneAreaY[vid] / tot;
+          seamWZ[vid] = zoneAreaZ[vid] / tot;
+        }
+      }
+    }
+    const { csrStart, neighbors } = buildDedupAdjacency(vertexId, count, uniqueCount);
+    // ⚠️ Une SEULE largeur pilote le parcours : la plus grande demandee. Les
+    // POIDS restent calcules avec les reglages propres a chaque slot ; seule
+    // l'etendue de la bande est mise en commun. En pratique les slots partagent
+    // ce reglage, et le cas contraire elargit la bande des plus modestes plutot
+    // que de tronquer celle des autres — le sens le moins surprenant.
+    const stat = spreadSeamWeights({
+      wX: seamWX, wY: seamWY, wZ: seamWZ, uniqueCount, csrStart, neighbors,
+      posX: idPosX, posY: idPosY, posZ: idPosZ, widthMm: _seamWidth,
+    });
+    if (stat.seeds === 0) {
+      // Aucune couture reperee : il n'y a rien a etaler, et surtout rien a
+      // substituer aux poids d'origine. On relache les tableaux pour reprendre
+      // le chemin historique tel quel.
+      seamWX = seamWY = seamWZ = null;
+    }
+  }
+
   // ── Pass 2: sample displacement texture once per unique position ──────────
 
   for (let i = 0; i < count; i++) {
@@ -674,7 +742,10 @@ const faceMask = settings.faceMask || null;
       const cubicBandWidth = sampleSettings.seamBandWidth ?? 0.35;
 
       let wX = 0, wY = 0, wZ = 0;
-      if (smoothNrmReliability[vid] > 0.5) {
+      if (seamWX) {
+        // Poids deja resolus ET etales autour des coutures (voir plus haut).
+        wX = seamWX[vid]; wY = seamWY[vid]; wZ = seamWZ[vid];
+      } else if (smoothNrmReliability[vid] > 0.5) {
         const sn = { x: blendNrmX[vid], y: blendNrmY[vid], z: blendNrmZ[vid] };
         const w = getCubicBlendWeights(sn, cubicBlend, cubicBandWidth);
         wX = w.x; wY = w.y; wZ = w.z;

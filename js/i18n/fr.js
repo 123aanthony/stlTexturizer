@@ -50,6 +50,8 @@ export default {
   "labels.invertDisplacement": "Inverser (pousser vers l'intérieur)",
   "labels.seamBlend": "Fusion des coutures ⓘ",
   "tooltips.seamBlend": "Adoucit la couture nette là où les faces de projection se rejoignent. Efficace pour les modes Cubique et Cylindrique.",
+  "labels.seamWidth": "Largeur de couture (mm) ⓘ",
+  "tooltips.seamWidth": "Largeur, en millimètres, de la bande où deux projections se fondent en travers d'une arête vive. 0 désactive. Un mélange fondé sur la normale ne peut rien pour un coin à 90° : la normale y saute sans valeur intermédiaire. La bande est donc mesurée le long de la surface, ce qui la rend indépendante de la résolution d'export.",
   "labels.transitionSmoothing": "Lissage de transition ⓘ",
   "tooltips.transitionSmoothing": "Largeur de la zone de fusion près des bords de couture. Les valeurs faibles maintiennent les transitions près de la couture ; les valeurs élevées lissent une bande plus large.",
   "labels.textureSmoothing": "Lissage de texture ⓘ",

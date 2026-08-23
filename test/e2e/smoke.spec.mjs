@@ -187,3 +187,49 @@ test('choisir une carte remet la preparation a neutre', async () => {
     await app.close();
   }
 });
+
+// Le reglage de largeur de couture (js/seamBlend.js) n'est pilotable que si son
+// controle existe VRAIMENT et porte l'id que main.js interroge. Un id mal
+// orthographie ne leve rien : getElementById rend null, l'optionnel l'avale, et
+// le reglage devient simplement inatteignable depuis l'interface — defaut
+// qu'aucun test headless ne peut voir, main.js n'etant pas importable.
+//
+// PORTEE : cablage seulement. Le COMPORTEMENT (largeur reellement atteinte,
+// independance a la resolution, non-regression a 0) est couvert bien plus
+// finement en headless par test/seamBlend.mjs.
+test('le reglage de largeur de couture est cable', async () => {
+  const { app, page } = await launchApp(appRoot);
+  try {
+    const erreurs = [];
+    page.on('pageerror', (e) => erreurs.push(e.message));
+
+    const etat = await page.evaluate(() => {
+      const sl = document.getElementById('seam-width');
+      const va = document.getElementById('seam-width-val');
+      if (!sl || !va) return { present: false };
+      const avant = Number(va.value);
+      // On pilote par l'evenement que le reste de l'app ecoute, pas par une
+      // affectation directe : c'est le cablage qu'on veut prouver.
+      sl.value = '3.5';
+      sl.dispatchEvent(new Event('input', { bubbles: true }));
+      return {
+        present: true,
+        visible: sl.getBoundingClientRect().width > 0,
+        avant,
+        apres: Number(va.value),
+      };
+    });
+
+    expect(etat.present, 'controle #seam-width absent du DOM').toBe(true);
+    expect(etat.visible, 'controle present mais invisible').toBe(true);
+    // Defaut 0 = desactive : la fonctionnalite ne doit rien changer tant que
+    // l'utilisateur ne l'a pas demandee.
+    expect(etat.avant, 'la largeur de couture doit demarrer a 0 (desactivee)').toBe(0);
+    expect(etat.apres, "le champ ne suit pas le curseur : linkSlider n'est pas branche").toBe(3.5);
+
+    expect(erreurs, `erreurs pendant le pilotage:\n${erreurs.join('\n')}`).toEqual([]);
+  } finally {
+    await page.evaluate(() => window.bumpforgeElectron?.setDirty(false)).catch(() => {});
+    await app.close();
+  }
+});
