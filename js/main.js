@@ -2564,10 +2564,47 @@ function _installProfileButtons() {
   });
 }
 
+/**
+ * Cle de CONTENU d'une carte, pour n'en stocker qu'un exemplaire par projet.
+ *
+ * FNV-1a 32 bits, complete par la LONGUEUR : deux chaines de longueurs
+ * differentes ne peuvent pas se confondre, ce qui reduit d'autant le risque de
+ * collision sur une empreinte aussi courte. On ne cherche pas une garantie
+ * cryptographique, juste a distinguer quelques textures dans un projet.
+ */
+function mapContentKey(dataUrl) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < dataUrl.length; i++) {
+    h ^= dataUrl.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return 'm' + (h >>> 0).toString(36) + '-' + dataUrl.length.toString(36);
+}
+
 function customMapEntryToDataUrl(entry) {
   if (!entry || !entry.fullCanvas) return null;
+  // MEMOISE. Chaque appel re-encodait un PNG COMPLET depuis le canevas. Or
+  // l'instantane de reprise (_writeRecoverySnapshot, declenche apres CHAQUE
+  // edition) serialise tous les slots : sur un projet reel de 18 slots, cela
+  // faisait 18 encodages 1024x1024 — dont 16 de la MEME image, les slots
+  // partageant leur entree de carte.
+  //
+  // MESURE sur le projet de l'utilisateur : 645 ms d'encodage par instantane,
+  // sur 2229 ms au total. C'est le meme defaut que les vignettes d'onglet, un
+  // etage plus haut.
+  //
+  // ⚠️ Sain parce que `fullCanvas` n'est JAMAIS redessine apres creation : il
+  // n'est que lu (getImageData). Verifie avant de memoiser — une memoisation
+  // sur une source mutable servirait des octets perimes, et le projet
+  // enregistre ne correspondrait plus a ce qui est affiche.
+  if (entry._dataUrl != null) return entry._dataUrl;
   try {
-    return entry.fullCanvas.toDataURL('image/png');
+    const u = entry.fullCanvas.toDataURL('image/png');
+    // Non enumerable : les entrees sont copiees par spread et parcourues par
+    // la serialisation ; une propriete enumerable s'y inviterait.
+    Object.defineProperty(entry, '_dataUrl',
+      { value: u, writable: true, enumerable: false, configurable: true });
+    return u;
   } catch (err) {
     console.warn('Could not serialize custom map:', entry.name, err);
     return null;
@@ -2645,10 +2682,32 @@ async function customEntryFromDataUrl(dataUrl, name = 'custom-map.png') {
   return entry;
 }
 
+/**
+ * Slots du projet, PLUS une bibliotheque de cartes dedupliquee.
+ *
+ * LE DEFAUT MESURE. Chaque slot portait sa propre copie de la carte, en data
+ * URL. Sur un projet reel de 18 slots n'employant que 3 textures distinctes :
+ * 57.7 Mo pour 9.6 Mo d'images — la meme image ecrite SEIZE fois. La
+ * compression n'y peut rien, la fenetre de deflate faisant 32 Ko : elle ne voit
+ * pas des doublons distants de plusieurs megaoctets.
+ *
+ * Prix paye a CHAQUE edition, l'instantane de reprise re-serialisant tout :
+ *     encodage des cartes    645 ms   (18 encodages PNG, dont 16 identiques)
+ *     serialisation          128 ms
+ *     compression           1456 ms   (59.5 Mo a comprimer)
+ *     -----------------------------
+ *     gel du thread principal ~1.5 s, six secondes apres chaque reglage touche.
+ *
+ * Chaque carte n'est donc ecrite qu'UNE fois, dans `mapLibrary` ; les slots la
+ * referencent par `customMapKey`. La LECTURE accepte toujours l'ancien format
+ * (`customMapDataUrl` en ligne) : les projets deja enregistres s'ouvrent
+ * inchanges.
+ */
 function serializeProjectTextureSlots() {
   saveActiveSlotState();
+  const mapLibrary = {};
 
-  return textureSlots.map(slot => {
+  const slots = textureSlots.map(slot => {
     const activeIsCustom = !!slot.activeMapEntry?.isCustom;
     const customEntry = slot.customMapEntry || (activeIsCustom ? slot.activeMapEntry : null);
 
@@ -2659,21 +2718,42 @@ function serializeProjectTextureSlots() {
       activeMapName: slot.activeMapEntry ? slot.activeMapEntry.name : null,
       presetName: !activeIsCustom && slot.activeMapEntry ? slot.activeMapEntry.name : null,
       customMapName: customEntry ? customEntry.name : null,
-      customMapDataUrl: customEntry ? customMapEntryToDataUrl(customEntry) : null,
+      ...(() => {
+        const url = customEntry ? customMapEntryToDataUrl(customEntry) : null;
+        if (!url) return { customMapDataUrl: null };
+        const key = mapContentKey(url);
+        if (!mapLibrary[key]) mapLibrary[key] = url;
+        return { customMapKey: key };
+      })(),
       selectionMode: typeof slot.selectionMode === 'boolean' ? slot.selectionMode : true,
       ...serializeSlotFaces(slot, currentGeometry),
       settings: { ...(slot.settings || {}) }
     };
   });
+
+  return { slots, mapLibrary };
 }
 
-async function restoreProjectTextureSlots(savedSlots, savedActiveSlotId) {
+async function restoreProjectTextureSlots(savedSlots, savedActiveSlotId, mapLibrary) {
   // Redondant avec importProject aujourd'hui (son unique appelant), delibere :
   // le jour ou un autre chemin restaurera des slots, il heritera du garde sans
   // avoir a y penser.
   _projectLoadStarted = true;
   _selectGeneration++;
   if (!Array.isArray(savedSlots)) return;
+
+  // Une entree de carte PAR IMAGE, pas par slot.
+  //
+  // La boucle plus bas appelait `customEntryFromDataUrl` pour chaque slot :
+  // sur un projet de 18 slots n'employant que 3 textures, cela fabriquait 18
+  // entrees distinctes — donc 18 canevas de 1024x1024 (72 Mo), 18 objets de
+  // texture GPU, et 18 encodages PNG a chaque enregistrement (619 ms mesures)
+  // pour trois images.
+  //
+  // Le partage rend la memoisation de `customMapEntryToDataUrl` effective : la
+  // premiere ecriture encode, les quinze suivantes lisent. Sans lui, memoiser
+  // ne servait a rien, chaque entree ayant son propre cache.
+  const cartesPartagees = new Map();
 textureSlots = savedSlots.map((saved, index) => ({
   id: saved.id || `slot${index + 1}`,
   name: saved.name || `Slot ${index + 1}`,
@@ -2736,11 +2816,28 @@ textureSlots = savedSlots.map((saved, index) => ({
     slot.activeMapEntry = null;
     slot.customMapEntry = null;
 
-    if (saved.activeMapType === 'custom' && saved.customMapDataUrl) {
-      const entry = await customEntryFromDataUrl(
-        saved.customMapDataUrl,
-        saved.customMapName || saved.activeMapName || `${slot.name}.png`
-      );
+    // Ancien format : la carte est en ligne dans le slot. Nouveau : elle est
+    // dans la bibliotheque, designee par sa cle. On accepte les DEUX, sans quoi
+    // les projets deja enregistres deviendraient illisibles.
+    const urlCarte = saved.customMapDataUrl
+      || (saved.customMapKey && mapLibrary ? mapLibrary[saved.customMapKey] : null)
+      || null;
+    if (saved.activeMapType === 'custom' && urlCarte) {
+      // Cle de partage : celle du projet si elle existe, sinon derivee du
+      // contenu — ainsi les fichiers a l'ancien format en profitent aussi.
+      const nomCarte = saved.customMapName || saved.activeMapName || `${slot.name}.png`;
+      // ⚠️ La cle inclut le NOM. Les slots partagent desormais l'OBJET d'entree,
+      // or `customEntryFromDataUrl` y ecrit `entry.name`, dont le repli est le
+      // nom du SLOT. Deux slots portant la meme image sous des noms differents
+      // recevraient donc un nom emprunte au premier arrive — un partage muet
+      // qui renommerait la carte de l'autre. Contenu ET nom : le partage n'a
+      // lieu que quand les deux concordent, ce qui est le cas courant.
+      const cle = (saved.customMapKey || mapContentKey(urlCarte)) + '|' + nomCarte;
+      let entry = cartesPartagees.get(cle);
+      if (!entry) {
+        entry = await customEntryFromDataUrl(urlCarte, nomCarte);
+        cartesPartagees.set(cle, entry);
+      }
       slot.customMapEntry = entry;
       slot.activeMapEntry = entry;
     } else if (saved.activeMapType === 'preset' || saved.presetName || saved.activeMapName) {
@@ -8976,7 +9073,10 @@ function buildProjectPayload({ includeModel = true, includeTexture = true } = {}
     ...getSettingsSnapshot(),
     activeTextureSlotId,
     selectionMode,
-    textureSlots: serializeProjectTextureSlots()
+    ...(() => {
+      const { slots, mapLibrary } = serializeProjectTextureSlots();
+      return { textureSlots: slots, mapLibrary };
+    })()
   };
 
   // Mark the custom map as the active reference so the importer restores it
@@ -9406,7 +9506,7 @@ async function importProject(file, options = {}) {
     // 3) Texture slots: new project files restore every slot independently.
     // Legacy files fall back to the old single-map behaviour.
     if (data && Array.isArray(data.textureSlots)) {
-      await restoreProjectTextureSlots(data.textureSlots, data.activeTextureSlotId);
+      await restoreProjectTextureSlots(data.textureSlots, data.activeTextureSlotId, data.mapLibrary);
     } else if (unzipped['texture.png']) {
       const texName = (data && data.activeMapName) || 'imported-texture.png';
       const texFile = new File([unzipped['texture.png']], texName, { type: 'image/png' });
