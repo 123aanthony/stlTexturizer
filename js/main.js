@@ -2322,7 +2322,22 @@ loadAllThumbnails().then(thumbs => {
     targetIdx = IMAGE_PRESETS.findIndex(p => p.name === persistedName);
     if (!(targetIdx >= 0 && PRESETS[targetIdx])) targetIdx = -1;
   }
-  if (targetIdx < 0) targetIdx = IMAGE_PRESETS.findIndex(p => p.name === DEFAULT_PRESET_NAME);
+  // ⚠️ Le repli sur le preset par defaut ne vaut QUE si l'utilisateur n'avait
+  // AUCUNE carte active. Si `persistedName` existe mais n'est pas un preset,
+  // c'est une carte PERSONNALISEE — restauree par ailleurs depuis son data URL
+  // (`activeMapType === 'custom'`, plus bas dans la restauration des slots).
+  // Lui substituer le preset par defaut ECRASE le pointeur du slot actif, et
+  // `saveActiveSlotState` grave ensuite l'ecrasement dans le projet.
+  //
+  // Le defaut etait particulierement vicieux : ce bloc vit dans le `.then()` de
+  // `loadAllThumbnails()`, donc il s'execute APRES la restauration du projet et
+  // passe par-dessus. MESURE sur un projet reel (house.bforge, 22 slots) : 3
+  // slots portaient deja `activeMapType: 'preset'` / `'Crystal'` alors que leur
+  // `customMapDataUrl` de 893 Ko etait toujours la — la texture n'etait pas
+  // perdue, seul son POINTEUR avait ete remplace, une session a la fois.
+  if (targetIdx < 0 && !persistedName) {
+    targetIdx = IMAGE_PRESETS.findIndex(p => p.name === DEFAULT_PRESET_NAME);
+  }
   if (targetIdx >= 0 && PRESETS[targetIdx]) {
     selectPreset(targetIdx, _presetSwatches[targetIdx], applyDefaults);
   }
@@ -8479,6 +8494,17 @@ const PERSISTED_KEYS = [
   'mappingBlend', 'seamBandWidth', 'capAngle', 'boundaryFalloff', 'boundaryFalloffCurve',
   'bottomAngleLimit', 'topAngleLimit',
   'refineLength', 'maxTriangles',
+  // ⚠️ Ces 9 cles n'etaient ecrites NULLE PART : absentes de cette liste, et
+  // retirees des reglages de slot par `stripGlobalQuality` (elles sont dans
+  // GLOBAL_EXPORT_QUALITY_KEYS). L'utilisateur decochait « Reduire aux
+  // triangles de sortie », enregistrait, rouvrait — et l'export re-decimait
+  // sans rien dire. Ce sont des reglages qui pilotent la GEOMETRIE exportee.
+  // Le test test/settingsCoverage.mjs interdit desormais qu'une cle retombe
+  // dans ce trou.
+  'decimateEnabled',
+  'regularizeEnabled', 'regularizeAspectThreshold', 'regularizeSlack',
+  'regularizeAggressiveSlack', 'regularizeExtremeAspect', 'regularizeNormalDeg',
+  'regularizeAggressiveNormalDeg', 'regularizeSecondPassMul',
   // Cylindrical-mode controls. cylinderCenterX/Y/radius are nullable —
   // null means "fall back to AABB defaults", which is what fresh loads get.
   'snapSeamlessWrap', 'cylinderCenterX', 'cylinderCenterY', 'cylinderRadius',
