@@ -999,6 +999,11 @@ function schedulePreviewUpdate() {
   }
 }
 let allSlotsPreviewActive = false;
+// Portee de l'apercu CPU : 'all' = tous les slots utilises, 'active' = celui sur
+// lequel on travaille. Meme calcul, meme rendu — seule la LISTE change. C'est ce
+// qui fait passer une iteration de plusieurs minutes a quelques secondes quand on
+// regle une seule matiere.
+let previewScope = 'all';
 let allSlotsPreviewBusy = false;
 let allSlotsPreviewGeometry = null;
 let allSlotsPreviewMaterial = null;
@@ -1421,6 +1426,7 @@ const exportBtn        = document.getElementById('export-btn');
 const exportAllSlotsBtn = document.getElementById('export-all-slots-btn');
 const export3mfBtn     = document.getElementById('export-3mf-btn');
 const previewAllSlotsBtn = document.getElementById('preview-all-slots-btn');
+const previewActiveSlotBtn = document.getElementById('preview-active-slot-btn');
 const clearSlotBtn = document.getElementById('clear-slot-btn');
 const exportProgress   = document.getElementById('export-progress');
 const exportProgBar    = document.getElementById('export-progress-bar');
@@ -7281,9 +7287,17 @@ function getUsedTextureSlots() {
 async function rebuildAllSlotsPreview() {
   if (!allSlotsPreviewActive || allSlotsPreviewBusy || !currentGeometry || !currentBounds) return;
 
-  const usedSlots = getUsedTextureSlots();
+  let usedSlots = getUsedTextureSlots();
+  if (previewScope === 'active') {
+    // Le slot ACTIF seulement. On le prend dans la liste des slots UTILISES
+    // plutot que de le construire a part : un slot sans carte ou sans faces
+    // n'aurait rien a afficher, et le message d'erreur ci-dessous reste juste.
+    usedSlots = usedSlots.filter(s => s.id === activeTextureSlotId);
+  }
   if (!usedSlots.length) {
-    alert('No used material slots to preview.');
+    alert(previewScope === 'active'
+      ? 'Ce slot n\'a pas de carte ou pas de faces assignees.'
+      : 'No used material slots to preview.');
     return;
   }
 
@@ -7322,7 +7336,7 @@ async function rebuildAllSlotsPreview() {
     allSlotsPreviewActive = false;
     if (previewAllSlotsBtn) {
       previewAllSlotsBtn.classList.remove('active');
-      previewAllSlotsBtn.textContent = 'Preview All Slots';
+      previewAllSlotsBtn.textContent = t('ui.previewAllSlots');
     }
     updatePreview();
   } finally {
@@ -7340,8 +7354,10 @@ async function rebuildAllSlotsPreview() {
 
 function exitAllSlotsPreview() {
   allSlotsPreviewActive = false;
-  previewAllSlotsBtn?.classList.remove('active');
-  if (previewAllSlotsBtn) previewAllSlotsBtn.textContent = 'Preview All Slots';
+  // Les DEUX boutons reviennent a l'etat neutre : remettre a zero le seul
+  // « tous les slots » laisserait l'autre affiche « Quitter l'apercu » alors
+  // qu'il n'y a plus d'apercu.
+  _refreshPreviewButtons();
 
   disposeAllSlotsPreview();
 
@@ -7358,21 +7374,42 @@ function exitAllSlotsPreview() {
   requestRender();
 }
 
-async function toggleAllSlotsPreview() {
+async function toggleAllSlotsPreview(scope = 'all') {
   if (allSlotsPreviewBusy) return;
 
+  // Deja actif : un clic sur le MEME bouton sort, un clic sur l'AUTRE bascule la
+  // portee et reconstruit — sinon il faudrait sortir puis rentrer a la main.
   if (allSlotsPreviewActive) {
-    exitAllSlotsPreview();
+    if (previewScope === scope) { exitAllSlotsPreview(); return; }
+    previewScope = scope;
+    _refreshPreviewButtons();
+    await rebuildAllSlotsPreview();
     return;
   }
 
+  previewScope = scope;
   allSlotsPreviewActive = true;
-  previewAllSlotsBtn?.classList.add('active');
-  if (previewAllSlotsBtn) previewAllSlotsBtn.textContent = 'Exit Preview';
+  _refreshPreviewButtons();
   await rebuildAllSlotsPreview();
 }
 
-previewAllSlotsBtn?.addEventListener('click', toggleAllSlotsPreview);
+/** Etat visuel des deux boutons : un seul peut etre « actif ». */
+function _refreshPreviewButtons() {
+  const on = allSlotsPreviewActive;
+  if (previewAllSlotsBtn) {
+    previewAllSlotsBtn.classList.toggle('active', on && previewScope === 'all');
+    previewAllSlotsBtn.textContent = (on && previewScope === 'all')
+      ? t('ui.exitPreview') : t('ui.previewAllSlots');
+  }
+  if (previewActiveSlotBtn) {
+    previewActiveSlotBtn.classList.toggle('active', on && previewScope === 'active');
+    previewActiveSlotBtn.textContent = (on && previewScope === 'active')
+      ? t('ui.exitPreview') : t('ui.previewActiveSlot');
+  }
+}
+
+previewAllSlotsBtn?.addEventListener('click', () => toggleAllSlotsPreview('all'));
+previewActiveSlotBtn?.addEventListener('click', () => toggleAllSlotsPreview('active'));
 clearSlotBtn?.addEventListener('click', () => clearTextureSlot(activeTextureSlotId));
 
 // Material brush: click = arm on the active slot (or disarm), double-click =
