@@ -589,6 +589,60 @@ btn.appendChild(actions);
 
   refreshTextureTabsUI();
 }
+/**
+ * URL de la vignette d'un onglet de slot, calculee UNE SEULE FOIS par carte.
+ *
+ * LE DEFAUT MESURE. Cette vignette etait produite par
+ * `entry.fullCanvas.toDataURL('image/png')` A CHAQUE rafraichissement des
+ * onglets — soit un encodage PNG COMPLET de la texture, par onglet. Or
+ * `refreshTextureTabsUI` est appele par `saveActiveSlotState`, lui-meme
+ * appele par `setInterval(refreshExportAllSlotsButton, 500)` : sur un projet
+ * de 22 slots, cela faisait 22 encodages PNG DEUX FOIS PAR SECONDE, pour
+ * peindre des vignettes de quelques dizaines de pixels.
+ *
+ * Mesure sur un projet reel (22 slots, cartes 512x512, maillage 53 312
+ * triangles) : le thread principal etait bloque 232 ms toutes les 500 ms.
+ * Au repos, sans que l'utilisateur touche a quoi que ce soit. La charge CPU
+ * MOYENNE restait basse (un demi-coeur), ce qui explique le « pourtant ma
+ * machine n'a pas l'air de souffrir » — c'est un a-coup periodique, pas une
+ * surcharge.
+ *
+ * Deux corrections, chacune suffisante seule mais complementaires :
+ *   - on encode une fois, dans un canevas de VIGNETTE (la cible fait quelques
+ *     dizaines de pixels : encoder la texture pleine resolution pour cela
+ *     etait de toute facon du gaspillage) ;
+ *   - le resultat est memoise SUR l'entree de carte, donc partage par tous
+ *     les slots qui pointent la meme texture.
+ *
+ * ⚠️ La propriete est NON ENUMERABLE : les entrees de carte sont copiees par
+ * spread (`{ ...entry, ...full }` dans selectPreset) et lues par la
+ * serialisation de projet. Une propriete enumerable s'y inviterait.
+ */
+const TAB_THUMB_PX = 96;   // suffit pour un ecran HiDPI ; la vignette fait ~48 px CSS
+function tabThumbUrl(entry) {
+  if (!entry) return '';
+  if (entry._tabThumbUrl != null) return entry._tabThumbUrl;
+
+  let url = '';
+  const src = entry.fullCanvas || entry.image || entry.texture?.image || null;
+  if (src) {
+    try {
+      const c = document.createElement('canvas');
+      c.width = c.height = TAB_THUMB_PX;
+      c.getContext('2d').drawImage(src, 0, 0, TAB_THUMB_PX, TAB_THUMB_PX);
+      url = c.toDataURL('image/png');
+    } catch {
+      // Canevas souille ou source non dessinable : on retombe sur l'URL de
+      // l'image si elle en a une, sinon pas de vignette. Jamais d'exception
+      // remontee — une vignette absente ne doit pas casser la barre d'onglets.
+      url = entry.texture?.image?.src || entry.image?.src || '';
+    }
+  }
+  Object.defineProperty(entry, '_tabThumbUrl',
+    { value: url, writable: true, enumerable: false, configurable: true });
+  return url;
+}
+
 function refreshTextureTabsUI() {
   const container = document.getElementById('texture-tabs');
   if (container) {
@@ -640,16 +694,11 @@ if (thumb && slot) {
   const stThumb = getSlotState(slot);
   const entry = stThumb.activeMapEntry || stThumb.customMapEntry;
 
-  thumb.style.backgroundImage = '';
   thumb.classList.toggle('has-texture', !!entry);
-
-  if (entry?.fullCanvas) {
-    thumb.style.backgroundImage = `url(${entry.fullCanvas.toDataURL('image/png')})`;
-  } else if (entry?.image) {
-    thumb.style.backgroundImage = `url(${entry.image.src})`;
-  } else if (entry?.texture?.image?.src) {
-    thumb.style.backgroundImage = `url(${entry.texture.image.src})`;
-  }
+  // Vignette MEMOISEE (voir tabThumbUrl) et ecrite seulement si elle change :
+  // reaffecter la meme valeur invalide le style pour rien.
+  const veut = entry ? `url(${tabThumbUrl(entry)})` : '';
+  if (thumb.style.backgroundImage !== veut) thumb.style.backgroundImage = veut;
 }
 
 const duplicateAction = btn.querySelector('.texture-tab-duplicate-action');
