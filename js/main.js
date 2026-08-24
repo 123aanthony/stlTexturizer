@@ -9484,6 +9484,21 @@ async function importProject(file, options = {}) {
       try {
         const triCount = (currentGeometry.attributes.position.count / 3) | 0;
         currentFaceSidecar = parseFaceSidecar(JSON.parse(strFromU8(unzipped['faces.json'])), triCount);
+        // ⚠️ L'identite EXACTE des pieces vient des solides du STEP. Elle n'etait
+        // renseignee qu'au chargement d'un STEP (`_stepSolidOfFace`, plus haut) :
+        // rouvrir un projet la perdait en silence et retombait sur les
+        // composantes connexes — un repli heuristique. Mesure sur un modele reel :
+        // 462 composantes, dont 128 d'un SEUL triangle, la ou les solides donnent
+        // les pieces veritables. On la reconstruit donc depuis le sidecar.
+        //
+        // Un sidecar ECRIT AVANT que le champ `solid` existe n'en porte pas : on
+        // retombe alors sur les composantes connexes, comme avant. Le repli est
+        // silencieux ici parce qu'il est LEGITIME — mais `refreshPieceInfo`
+        // annonce laquelle des deux sources est employee.
+        const _fs = currentFaceSidecar?.faces;
+        _stepSolidOfFace = (Array.isArray(_fs) && _fs.length && _fs.every((f) => f.solid != null))
+          ? _fs.map((f) => f.solid)
+          : null;
       } catch (err) { console.warn('Project sidecar rejected:', err); }
     }
 

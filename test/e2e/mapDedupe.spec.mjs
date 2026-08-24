@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { existsSync, statSync, readFileSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { launchApp } from './launch.mjs';
 
 const appRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -30,12 +31,61 @@ const CIBLE = join(tmpdir(), 'bumpforge-dedupe-test.bforge');
 // s'en apercevoir — le pire defaut possible ici. On verifie donc la fidelite
 // slot par slot, pas seulement que le fichier a maigri.
 
+
+/**
+ * Compte les slots DANS l'archive plutot que de le supposer.
+ *
+ * ⚠️ Le projet de reference est un fichier VIVANT que l'utilisateur
+ * re-enregistre. Une premiere version attendait 18 slots et expirait sans un mot
+ * le jour ou il n'en a garde que 13 — le test semblait denoncer le code alors
+ * qu'il decrivait un fichier perime.
+ */
+function nbSlots(chemin) {
+  const py = [
+    'import zipfile,json,sys',
+    'z=zipfile.ZipFile(sys.argv[1])',
+    "print(len(json.loads(z.read('settings.json')).get('textureSlots') or []))",
+  ].join(String.fromCharCode(10));
+  return parseInt(execFileSync('py', ['-3', '-c', py, chemin], { encoding: 'utf8' }).trim(), 10);
+}
+
+
+/**
+ * Images distinctes vs nombre de payloads REELLEMENT ecrits dans l'archive.
+ *
+ * ⚠️ On compte des OCCURRENCES, pas des valeurs distinctes. Une premiere version
+ * hachait les payloads et comptait l'ensemble obtenu : elle dedupliquait donc
+ * elle-meme, rendait « 3 copies » que la deduplication soit active ou non, et
+ * passait au VERT sur du code neutralise. Un oracle qui deduplique ne peut pas
+ * mesurer une duplication.
+ */
+function comptesDeCartes(chemin) {
+  const py = [
+    'import zipfile,json,sys,hashlib',
+    'z=zipfile.ZipFile(sys.argv[1])',
+    "d=json.loads(z.read('settings.json'))",
+    "sl=d.get('textureSlots') or []",
+    "noms={s.get('customMapName') for s in sl if s.get('customMapName')}",
+    "lib=d.get('mapLibrary') or {}",
+    "inline=sum(1 for s in sl if s.get('customMapDataUrl'))",
+    "copies=len(lib) + inline",
+    "print(len(noms), copies)",
+  ].join(String.fromCharCode(10));
+  const out = execFileSync('py', ['-3', '-c', py, chemin], { encoding: 'utf8' }).trim();
+  const [noms, copies] = out.split(/[ ]+/).map(Number);
+  return { noms, copies };
+}
+
 test.describe('deduplication des cartes du projet', () => {
   test('aller-retour fidele, et une seule copie par image', async () => {
     test.skip(!existsSync(SOURCE), `projet de reference absent : ${SOURCE}`);
     test.setTimeout(400_000);
 
     try { rmSync(CIBLE, { force: true }); } catch { /* pas encore la */ }
+
+    const slots = nbSlots(SOURCE);
+    console.log(`
+  projet de reference : ${slots} slots`);
 
     const { app, page } = await launchApp(appRoot);
     try {
@@ -46,9 +96,9 @@ test.describe('deduplication des cartes du projet', () => {
       }, CIBLE);
 
       await page.setInputFiles('#import-project-input', SOURCE);
-      await page.waitForFunction(() =>
-        document.querySelectorAll('.texture-tab[data-slot]').length === 18,
-        null, { timeout: 180_000 });
+      await page.waitForFunction(
+        (n) => document.querySelectorAll('.texture-tab[data-slot]').length === n,
+        slots, { timeout: 180_000 });
       await page.waitForTimeout(4000);
 
       // Etat de reference : la carte de CHAQUE slot, telle qu'affichee.
@@ -79,17 +129,24 @@ test.describe('deduplication des cartes du projet', () => {
       const tailleCible = statSync(CIBLE).size;
       console.log(`  fichier : ${(tailleSource / 1e6).toFixed(1)} Mo -> ${(tailleCible / 1e6).toFixed(1)} Mo`);
 
-      // Le fichier doit contenir une BIBLIOTHEQUE, et une seule copie par image.
-      const brut = readFileSync(CIBLE);
-      expect(tailleCible,
-        'le fichier n\'a pas maigri : la deduplication n\'a pas eu lieu')
-        .toBeLessThan(tailleSource * 0.6);
+      // ⚠️ ON MESURE LA DUPLICATION, PAS UN RAPPORT DE TAILLES. Un seuil du type
+      // « moins de 60 % de la source » supposait une source NON dedupliquee : le
+      // jour ou le fichier de reference est lui-meme au nouveau format, il ne
+      // reste rien a gagner et le test accuse le code a tort. Le nombre de copies
+      // exprime l'invariant directement, quel que soit le format de depart.
+      const compte = comptesDeCartes(CIBLE);
+      console.log(`  cartes : ${compte.noms} distincte(s), ${compte.copies} copie(s) stockee(s)`);
+      expect(compte.noms, 'aucune carte dans le fichier ecrit : le test ne prouverait rien')
+        .toBeGreaterThan(0);
+      expect(compte.copies,
+        'une image est stockee plusieurs fois : la deduplication n a pas eu lieu')
+        .toBe(compte.noms);
 
       // Aller-retour : on rouvre le fichier ecrit et on recompare slot par slot.
       await page.setInputFiles('#import-project-input', CIBLE);
-      await page.waitForFunction(() =>
-        document.querySelectorAll('.texture-tab[data-slot]').length === 18,
-        null, { timeout: 180_000 });
+      await page.waitForFunction(
+        (n) => document.querySelectorAll('.texture-tab[data-slot]').length === n,
+        slots, { timeout: 180_000 });
       await page.waitForTimeout(4000);
       const apres = await lire();
 
@@ -101,7 +158,7 @@ test.describe('deduplication des cartes du projet', () => {
       expect(ecarts,
         'des slots ont change de carte apres aller-retour : le format perd des donnees')
         .toEqual([]);
-      console.log('  aller-retour : les 18 slots retrouvent leur carte');
+      console.log(`  aller-retour : les ${slots} slots retrouvent leur carte`);
     } finally {
       await page.evaluate(() => window.bumpforgeElectron?.setDirty(false)).catch(() => {});
       await app.close();
