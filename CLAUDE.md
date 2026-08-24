@@ -21,13 +21,67 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
 
 ## Architecture (modules `js/`)
 
-- `main.js` — **monolithe ~8.4k lignes** : bootstrap, UI, état global, slots,
+- `main.js` — **monolithe ~9.7k lignes** : bootstrap, UI, état global, slots,
   orchestration d'export. **Cible du refacto en cours** (voir REFACTOR.md).
 - `subdivision.js` — subdivision adaptative **sans T-jonction**, watertight préservé.
 - `displacement.js` — **cœur du displacement** : normale lisse unique par position
   (anti-fissures), support multi-slot en une passe.
 - `mapping.js` — projection UV (planar/cylindrical/spherical/triplanar/cubic + Wood
   X/Y/Z). Modes : triplanar=5, cubic=6, wood X/Y/Z=8/9/10.
+- `presetTextures.js` — chargement des cartes, presets et personnalisées.
+  ⚠️ `SIZE` est la résolution de TRAVAIL : aperçu **et** échantillonnage. Portée de
+  512 à **1024**, parce que le facteur limitant n'est pas la texture mais le
+  MAILLAGE — il ne peut porter qu'une longueur d'onde de deux arêtes. Le point de
+  bascule vaut `SIZE × refineLength / 2`, soit 38.4 mm de tuile à 512 px et 0.15 mm
+  d'arête ; mesuré sur un projet réel, 5 slots sur 22 dépassaient ce seuil.
+  ⚠️ `fitDimensions` clampe à 1 : une source plus petite n'est JAMAIS agrandie —
+  relever le cap ne coûte donc rien sur les presets déjà sous la barre. Et les
+  cartes déjà STOCKÉES dans un projet passent par le même clamp : il faut
+  ré-importer le fichier source pour bénéficier du nouveau cap.
+  ⚠️ **Ce cap a un effet de levier sur le poids du projet** : à 1024 les data URL
+  d'un projet réel sont passées de 15.9 à 57.7 Mo, rendant insupportable la
+  duplication par slot qui préexistait (voir « Format projet » plus bas). Les deux
+  se lisent ensemble.
+- `mipPyramid.js` — **préfiltre d'antialiasing** : pyramide mip mémoïsée sur
+  l'identité de l'ImageData, LOD depuis l'empreinte texel (`arête_mm × texPerMm`).
+  Une bilinéaire est un filtre de RECONSTRUCTION, pas un préfiltre : sous-
+  échantillonner sans elle repliait le spectre. ⚠️ Charnière de non-régression :
+  `if (!pyr || !(lod > 0)) return sampleBilinear(...)` — le chemin inactif exécute
+  la MÊME ligne sur les MÊMES octets, ce que les goldens prouvent bit-à-bit.
+- `smoothNormals.js` — normales d'AFFICHAGE par angle de pli (`creaseDeg`).
+  ⚠️ Ne touche JAMAIS l'attribut `normal` du pipeline, dont `exporter.js:62` tire
+  les normales de facette du STL. Mesuré : facettage 10.93° → 0.29°, arêtes vives
+  conservées à 44.32°, zéro changement de position.
+- `mapPrep.js` — préparation de carte : niveaux (noir/blanc/gamma) puis séparation
+  MACRO/MICRO autour de la moyenne comme point fixe. `isMapPrepActive` teste
+  l'égalité EXACTE aux neutres : réglages neutres ⇒ la carte n'est pas touchée.
+- `pieceVariation.js` — variation du motif par PIÈCE (le veinage ne traverse plus
+  toutes les planches). ⚠️ La clé est le **centroïde pondéré par l'AIRE**, pas
+  l'index : une renumérotation du maillage déplacerait l'index, donc le veinage.
+  Identité des pièces = solides BREP du STEP quand il y en a (mesuré : 557
+  composantes connexes contre **34** solides réels) ; les composantes connexes ne
+  sont qu'un repli. `buildPieceXforms` est la SOURCE UNIQUE partagée par le moteur
+  CPU et l'attribut GPU — `test/previewParity.mjs` compare les deux formules.
+- `seamBlend.js` — étalement des poids de projection autour des coutures, sur une
+  largeur en **MILLIMÈTRES** (`seamBlendWidthMm`, 0 = désactivé).
+  ⚠️ Un mélange piloté par la NORMALE ne peut rien pour une arête vive : la normale
+  y saute de 90° sans valeur intermédiaire — mesuré, « Seam Blend » au MAXIMUM
+  donne **0.0 %** sur un mur plat, 0.1 % à 30°, et 50 % seulement à 45°.
+  ⚠️ Et `blendNormalSmoothing` (lissage laplacien) est une DIFFUSION : sa portée
+  croît en **√k** ET proportionnellement au pas du maillage — 1.88 / 4.38 / 8.75 /
+  16.88 mm pour k = 8 / 32 / 128 / 512, et 8.75 → 2.19 mm quand le pas passe de 2.0
+  à 0.5. À 0.15 mm de résolution les 32 itérations par défaut ne couvrent que
+  ~0.65 mm, et **affiner l'export RESSERRE la couture**. D'où une distance
+  géodésique réelle, bornée à la largeur demandée : coût proportionnel à la BANDE,
+  pas au maillage. La couture est repérée par un critère de GRAPHE (arête dont les
+  deux bouts n'ont pas le même axe dominant), donc valable même à mélange nul.
+  ⚠️ **Ce que ce module NE corrige PAS** : le « chevron » vu à un angle convexe
+  n'est PAS un défaut de placage — mesuré sur le modèle du PO, `du`/`dv` valent
+  +0.4858 des deux côtés et les stries penchent pareil (19.6° contre 21.3°). C'est
+  l'ÉCLAIRAGE : deux faces perpendiculaires sous une lumière unique orientent leurs
+  reflets jusqu'à 85° d'écart, exactement en miroir sous une lumière symétrique
+  (et l'écart retombe à 1.6° sous une lumière zénithale). Le seul levier est le
+  GRAIN de la carte — cf. la mesure d'anisotropie par tenseur de structure.
 - `slotMasks.js` — **cœur des masques multi-slot** (pur, extrait de main.js, testé).
 - `slotState.js` — état slot pur : signatures de faces, split réglages per-slot/
   globaux, **`resolveSlotState` = source unique de vérité** des lecteurs de slot.
@@ -64,6 +118,22 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
   `stepImport.js` + `vendor/meshstep/` (import STEP direct), lien vif (fs.watch),
   auto-slots par couleur. Sélections ancrées aux faces BREP → survivent aux
   re-exports FreeCAD.
+- **Format projet — cartes DÉDUPLIQUÉES** (`mapLibrary` + `customMapKey` par slot,
+  empreinte de contenu FNV-1a). Chaque slot portait sa propre copie en data URL :
+  sur un projet réel de 18 slots pour 3 textures distinctes, **57.7 Mo** — la même
+  image écrite SEIZE fois. La compression n'y peut rien, la fenêtre de deflate
+  faisant 32 Ko. Prix payé à CHAQUE édition, l'instantané de reprise re-sérialisant
+  tout : gel de **1488 ms**, six secondes après chaque réglage touché.
+  ⚠️ La LECTURE accepte toujours l'ancien format en ligne — les projets existants
+  s'ouvrent inchangés, ce que `test/e2e/mapDedupe.spec.mjs` vérifie en partant d'un
+  fichier à l'ancien format, slot par slot : sur un changement de FORMAT, la
+  fidélité compte avant la taille.
+  ⚠️ Il fallait DEUX correctifs. La restauration créait une entrée PAR SLOT (18
+  canevas et 18 textures GPU pour 3 images) : sans partage des entrées, mémoïser
+  l'encodage ne servait à rien, chaque entrée ayant son propre cache. Mesuré :
+  encodages 645 → 619 ms avec la seule déduplication, **105 ms** avec le partage.
+  Le partage est conditionné au NOM autant qu'au contenu (`entry.name` a pour repli
+  le nom du SLOT). Résultat : 47.8 → **10.8 Mo**, gel 1488 → **415 ms**.
 - `recovery.js` + `idbStore.js` — récupération après crash (brouillon projet complet
   en IndexedDB, bannière au relancement). `projectMigrate.js` — migration versionnée
   du payload projet.
@@ -108,16 +178,39 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
 ## Tests — workflow OBLIGATOIRE après tout changement géométrique
 
 ```bash
-npm test                    # unités (i18n/slots/scale/beam/recovery/migrate/interop/STEP) + golden
+npm test                    # 25 harnais headless, golden compris (liste dans package.json)
 npm run test:i18n           # parité des 8 packs vs en.js + clés réellement demandées par t()
 npm run test:golden         # golden seul (cube/sphère/cylindre/plaque + multi-slot + 2 STL réels)
 npm run fixtures            # régénère les modèles de référence
+npm run test:seamband       # caractérisation √k du lissage — HORS batterie (pas un invariant)
 npm run test:interop:update # régénère les fixtures FreeCAD (pilote FreeCADCmd)
-npm run test:e2e            # Playwright-Electron : smoke + interop×2 (machine GPU, app fermée)
+npm run test:e2e            # Playwright-Electron : 6 specs (machine GPU, app fermée)
 ```
 - `npm test` tourne en **headless** (Node + `three@0.170.0`, sans DOM/Electron) et
   est lancé **à chaque commit** par le hook `.githooks/pre-commit`
   (`git config core.hooksPath .githooks` une fois par clone ; bypass `--no-verify`).
+- **Trois gardes valent d'être connus**, chacun né d'un défaut qu'aucun autre
+  n'aurait vu :
+  - `moduleSyntax.mjs` importe RÉELLEMENT les 33 modules. Un `import` en double
+    est une erreur de syntaxe au niveau module : `main.js` cessait de s'évaluer,
+    l'app était morte à l'écran — et `node --check` rendait **0** (le fichier n'est
+    pas analysé comme module ES), pendant que le smoke passait au vert en attachant
+    ses écouteurs d'erreur APRÈS le délai de lancement.
+  - `settingsCoverage.mjs` DÉRIVE la couverture de persistance du code lui-même.
+    `PERSISTED_KEYS` est une liste d'inclusion tenue à la main : elle se périme en
+    silence, et **9 réglages** (`decimateEnabled` + les 8 `regularize*`) n'étaient
+    écrits NULLE PART — ils pilotent pourtant la géométrie exportée.
+  - `bootFallback.mjs` + `e2e/projectSlotMaps.spec.mjs` : le repli de carte du
+    démarrage écrasait la restauration. ⚠️ Le second a attrapé le défaut alors que
+    les gardes de câblage du premier étaient DÉJÀ posés — la vraie cause était
+    ailleurs (un `setInterval` de 500 ms). Un oracle de câblage ne remplace pas un
+    oracle de comportement.
+- ⚠️ **Les oracles de performance COMPTENT, ils ne chronomètrent pas.** Un seuil en
+  millisecondes dépend de la machine, de la charge et du GC ; un oracle instable
+  finit ignoré. `e2e/tabThumbs.spec.mjs` compte les appels à `toDataURL` — une
+  propriété du CODE, qui doit être NULLE quel que soit le matériel. Il vérifie
+  d'abord que les vignettes sont PEINTES : une mémoïsation qui n'afficherait rien
+  serait rapide et fausse.
 - Toute empreinte qui change = **régression**, sauf changement voulu → alors
   `npm run test:golden:update` **avec justification dans le commit** (cf. REFACTOR.md).
 - ⚠️ Le golden couvre le **cœur géométrique**, PAS le chemin d'appel de `main.js`.
@@ -135,9 +228,12 @@ npm run test:e2e            # Playwright-Electron : smoke + interop×2 (machine 
 - **`three` épinglé à 0.170.0** = version du CDN en prod. Ne pas bumper sans
   rebaseliner le golden (les empreintes peuvent légitimement bouger).
 - **FDM sans support** : parois ≥ ~0.8 mm, pontage en Y. L'imprimabilité prime.
-- **Pas de push / réécriture d'historique sans demander.** GitHub `mine` : 21
-  branches propres poussées ; 13 « sales » (artefact `dist/*.exe` 216 Mo > limite
-  100 Mo GitHub) laissées en local — nettoyage `git filter-repo` à proposer à part.
+- **Pas de push / réécriture d'historique sans demander.** GitHub `mine` :
+  **2 branches**, dépôt **17 Mo**. L'artefact `dist/*.exe` de 216 Mo qui bloquait
+  13 branches a été purgé et les branches mortes élaguées (23 → 2).
+  ⚠️ Le contrôle d'accessibilité doit interroger `refs/heads` AUTANT que
+  `refs/tags` et `refs/remotes` : un premier passage les avait oubliées, `gc` ne
+  récupérait que 0.4 Mo et le binaire vivait encore dans 13 branches locales.
 - Posture : expert proactif, livrer par **lots validés** (un comportement = un commit).
 
 ## Docs
