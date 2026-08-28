@@ -429,4 +429,25 @@ test('une preparation seule EST un materiau a copier', () => {
     'un reglage global seul n\'est pas un materiau');
 });
 
+test('un slot SANS la cle de seuil recoit quand meme le seuil a l export', () => {
+  // LE DEFAUT VECU. `pieceMinSizeMm` etait par slot. Les slots enregistres
+  // AVANT l'existence du reglage n'en portaient pas la cle : a l'export ils
+  // repartaient a zero, donc SANS seuil, en silence. L'utilisateur montait le
+  // curseur a 23 mm, l'apercu devenait presque propre — et le fichier exporte
+  // restait identique. Le seuil decrit la GEOMETRIE (un rivet est un rivet
+  // quel que soit le slot qui le peint), il appartient donc aux cles globales.
+  const slotAncien = { scaleU: 10, amplitude: 1 };        // pas de pieceMinSizeMm
+  const fusion = withGlobalQuality(slotAncien, { pieceMinSizeMm: 23 });
+  assert.equal(fusion.pieceMinSizeMm, 23,
+    'un slot sans la cle s exporterait sans seuil : c est le defaut d origine');
+});
+
+test('le seuil n est PAS recopie dans les reglages de slot', () => {
+  // Corollaire : s'il y restait, une valeur figee dans un vieux slot
+  // reprendrait le dessus sur la valeur globale au chargement suivant.
+  const stripped = stripGlobalQuality({ scaleU: 10, pieceMinSizeMm: 23 });
+  assert.equal('pieceMinSizeMm' in stripped, false,
+    'le seuil est stocke par slot : il divergera de la valeur globale');
+});
+
 console.error(`\nslotState: ${passed} checks passed${process.exitCode ? ' (with failures)' : ''}`);

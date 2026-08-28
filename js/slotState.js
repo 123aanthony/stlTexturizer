@@ -192,6 +192,13 @@ export const GLOBAL_EXPORT_QUALITY_KEYS = [
   // (À l'inverse, les réglages `map*` de préparation restent PAR SLOT : ils se
   // calibrent sur le contenu d'UNE carte.)
   'displayCreaseAngle',
+  // Seuil de taille des pieces. GLOBAL parce qu'il decrit la GEOMETRIE, pas une
+  // carte : un rivet est un rivet quel que soit le slot qui le peint. Par slot,
+  // il ne serait applique qu'a celui qu'on a sous les yeux — et surtout les
+  // slots enregistres AVANT l'existence du reglage n'en porteraient pas la cle,
+  // donc s'exporteraient sans seuil, en silence. Vecu : seuil monte a 23 mm,
+  // apercu presque propre, et le fichier exporte inchange.
+  'pieceMinSizeMm',
   'maxTriangles',
   'decimateEnabled',
   'smoothBottom',

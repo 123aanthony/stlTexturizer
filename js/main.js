@@ -6764,6 +6764,33 @@ function pieceOfTriFor(faceParentId) {
  * principe que le bouton Auto du lissage : montrer le nombre qui explique ce
  * qu'on voit.
  */
+/**
+ * Combien de pieces le seuil ecarte-t-il, VRAIMENT ?
+ *
+ * ⚠️ La valeur venait de `addPieceXform`, qui ne tourne que pour l'apercu 3D.
+ * Case decochee, elle restait a zero : le panneau annoncait « 0 sous le seuil »
+ * alors que le seuil ecartait des dizaines de pieces. Un compteur qui ne compte
+ * que dans un mode est un compteur menteur dans l'autre.
+ *
+ * On la calcule donc ici, sur le maillage d'ORIGINE (quelques dizaines de
+ * milliers de triangles, pas le maillage subdivise), et on memoise sur le
+ * couple (seuil, source) — `refreshPieceInfo` est appele a chaque cran de
+ * curseur.
+ */
+let _ignoreesCache = { cle: null, n: 0 };
+function _majPiecesIgnorees(seuil) {
+  const src = pieceIdOfTri();
+  if (!src || !currentGeometry) { _piecesIgnorees = 0; return; }
+  const cle = seuil + '|' + src.length + '|' + (settings.pieceSeed | 0);
+  if (_ignoreesCache.cle === cle) { _piecesIgnorees = _ignoreesCache.n; return; }
+  try {
+    const r = buildPieceXforms(currentGeometry.attributes.position.array, src,
+                               { ...settings, pieceMinSizeMm: seuil });
+    _piecesIgnorees = r.ignorees | 0;
+  } catch { _piecesIgnorees = 0; }
+  _ignoreesCache = { cle, n: _piecesIgnorees };
+}
+
 function refreshPieceInfo() {
   if (!pieceInfo) return;
   if (!isPieceVariationActive(settings)) {
@@ -6777,6 +6804,7 @@ function refreshPieceInfo() {
     : t('ui.pieceNone');
   // Le seuil n'a de sens que si l'on voit ce qu'il retire.
   const seuil = settings.pieceMinSizeMm || 0;
+  if (seuil > 0) _majPiecesIgnorees(seuil);
   pieceInfo.innerHTML = (seuil > 0 && n > 0)
     ? base + ' ' + t('ui.pieceIgnored', { n: String(_piecesIgnorees), mm: seuil.toFixed(1) })
     : base;
