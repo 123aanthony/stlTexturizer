@@ -49,7 +49,17 @@
 export const PIECE_VARIATION_DEFAULTS = Object.freeze({
   pieceOffset: 0,   // 0-1 : ampleur du décalage aléatoire le long du motif
   pieceRotate: 0,   // degrés : rotation aléatoire max, +/- cette valeur
-  pieceFlip: false, // retourner pseudo-aléatoirement une pièce sur deux
+  pieceFlip: false,
+  // Taille MINIMALE d'une piece pour qu'elle varie, en millimetres. 0 = aucun
+  // seuil, donc le comportement historique au bit pres.
+  //
+  // Mesure qui l'a motive, sur un modele reel : le slot du bois d'une porte
+  // comptait 118 « pieces », dont 67 de moins de 9 mm et d'a peine 1.93 mm
+  // d'epaisseur, eparpillees sur 86 x 71 x 68 mm — des clous et de petites
+  // ferrures, pas des planches. Avec un decalage de 0.3 tuile, 8 degres
+  // d'inclinaison et un retournement, chacune recevait son propre veinage :
+  // l'oeil y lisait un patchwork. Une tete de clou de 2 mm n'a pas de fil.
+  pieceMinSizeMm: 0, // retourner pseudo-aléatoirement une pièce sur deux
 });
 
 /**
@@ -178,6 +188,13 @@ export function buildPieceXforms(positions, pieceOfTri, settings = {}) {
 
   const cx = new Float64Array(count), cy = new Float64Array(count);
   const cz = new Float64Array(count), ca = new Float64Array(count);
+  // Boite englobante par piece — seulement si un seuil est demande. Sans cela
+  // on paierait six tableaux et un balayage pour rien sur le chemin courant.
+  const minSize = Math.max(0, settings.pieceMinSizeMm ?? PIECE_VARIATION_DEFAULTS.pieceMinSizeMm);
+  const bb = minSize > 0 ? {
+    lo: new Float64Array(count * 3).fill(Infinity),
+    hi: new Float64Array(count * 3).fill(-Infinity),
+  } : null;
   for (let t = 0; t < triCount; t++) {
     const a = t * 9;
     const ax = positions[a],     ay = positions[a + 1], az = positions[a + 2];
@@ -193,13 +210,42 @@ export function buildPieceXforms(positions, pieceOfTri, settings = {}) {
     cy[p] += ((ay + by + dy) / 3) * area;
     cz[p] += ((az + bz + dz) / 3) * area;
     ca[p] += area;
+    if (bb) {
+      const b = p * 3;
+      for (let v = 0; v < 3; v++) {
+        const o = a + v * 3;
+        for (let k = 0; k < 3; k++) {
+          const q = positions[o + k];
+          if (q < bb.lo[b + k]) bb.lo[b + k] = q;
+          if (q > bb.hi[b + k]) bb.hi[b + k] = q;
+        }
+      }
+    }
   }
 
   const seed = settings.pieceSeed | 0;
   const table = new Array(count);
+  let ignorees = 0;
   for (let i = 0; i < count; i++) {
     const a = ca[i] || 1;
+    if (bb) {
+      // TAILLE = la plus grande dimension de la boite englobante. Une planche
+      // est longue et fine : sa longueur la sauve. Un rivet est petit dans les
+      // TROIS axes. Prendre la diagonale ferait passer une plaque mince pour
+      // une grande piece ; prendre la plus petite dimension eliminerait toutes
+      // les planches.
+      const b = i * 3;
+      const dx = bb.hi[b] - bb.lo[b];
+      const dy = bb.hi[b + 1] - bb.lo[b + 1];
+      const dz = bb.hi[b + 2] - bb.lo[b + 2];
+      const grand = Math.max(dx, dy, dz);
+      if (Number.isFinite(grand) && grand < minSize) {
+        table[i] = NEUTRAL_XFORM;
+        ignorees++;
+        continue;
+      }
+    }
     table[i] = pieceTransform(pieceKey(cx[i] / a, cy[i] / a, cz[i] / a, seed), settings);
   }
-  return { index, table, count };
+  return { index, table, count, ignorees };
 }

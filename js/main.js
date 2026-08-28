@@ -1147,6 +1147,7 @@ const settings = {
   // qu'elles ne bougent pas, aucun identifiant de pièce n'est même calculé et
   // le moteur exécute la ligne d'avant.
   pieceOffset: 0, pieceRotate: 0, pieceFlip: false, pieceSeed: 1,
+  pieceMinSizeMm: 0,
   // Laplacian smoothing iterations applied to the per-vertex blend normal
   // (only the normal that drives projection-direction blend weights — not
   // the displacement direction). 0 = off, 4–8 = noticeable seam smoothing,
@@ -1601,6 +1602,8 @@ const pieceOffsetVal    = document.getElementById('piece-offset-val');
 const pieceRotateSlider = document.getElementById('piece-rotate');
 const pieceRotateVal    = document.getElementById('piece-rotate-val');
 const pieceFlipCheckbox = document.getElementById('piece-flip');
+const pieceMinSizeSlider = document.getElementById('piece-min-size');
+const pieceMinSizeVal    = document.getElementById('piece-min-size-val');
 const pieceReseedBtn    = document.getElementById('piece-reseed-btn');
 const pieceInfo         = document.getElementById('piece-info');
 const mapMacroSlider  = document.getElementById('map-macro');
@@ -3960,6 +3963,9 @@ function wireEvents() {
     });
     linkSlider(pieceRotateSlider, pieceRotateVal, v => {
       settings.pieceRotate = v; refreshPieceInfo(); return v.toFixed(1);
+    });
+    linkSlider(pieceMinSizeSlider, pieceMinSizeVal, v => {
+      settings.pieceMinSizeMm = v; refreshPieceInfo(); return v.toFixed(1);
     });
     pieceFlipCheckbox.addEventListener('change', () => {
       settings.pieceFlip = pieceFlipCheckbox.checked;
@@ -6663,6 +6669,7 @@ let _pieceShellId = null, _pieceShellCount = 0, _pieceShellGeo = null;
 // Identite de SOLIDE par face BREP, quand le modele vient d'un STEP. Ecrite a
 // l'import, et relue depuis le sidecar a la reouverture d'un projet.
 let _stepSolidOfFace = null;
+let _piecesIgnorees = 0;   // pieces sous le seuil de taille, au dernier calcul
 let _pieceStepId = null, _pieceStepCount = 0, _pieceStepGeo = null;
 
 /**
@@ -6765,9 +6772,14 @@ function refreshPieceInfo() {
     return;
   }
   const { n, source } = pieceCount();
-  pieceInfo.innerHTML = n > 0
+  const base = n > 0
     ? t(source === 'step' ? 'ui.pieceCountStep' : 'ui.pieceCount', { n: String(n) })
     : t('ui.pieceNone');
+  // Le seuil n'a de sens que si l'on voit ce qu'il retire.
+  const seuil = settings.pieceMinSizeMm || 0;
+  pieceInfo.innerHTML = (seuil > 0 && n > 0)
+    ? base + ' ' + t('ui.pieceIgnored', { n: String(_piecesIgnorees), mm: seuil.toFixed(1) })
+    : base;
   pieceInfo.classList.remove('hidden');
 }
 
@@ -6803,7 +6815,11 @@ function addPieceXform(geometry, parentMap) {
     pieceOfTri[t] = (parent >= 0 && parent < src.length) ? src[parent] : 0;
   }
 
-  const { index, table } = buildPieceXforms(geometry.attributes.position.array, pieceOfTri, settings);
+  const { index, table, ignorees } = buildPieceXforms(geometry.attributes.position.array, pieceOfTri, settings);
+  // Retenu pour l'affichage : un seuil dont on ne voit pas la portee se regle a
+  // l'aveugle. La valeur vient du calcul DEJA fait pour l'apercu — on ne
+  // refait pas une passe pour l'annoncer.
+  _piecesIgnorees = ignorees | 0;
   const arr = new Float32Array(n * 4);
   for (let t = 0; t < triCount; t++) {
     const x = table[index[t]];
@@ -8716,7 +8732,7 @@ const PERSISTED_KEYS = [
   'amplitude', 'textureHeight', 'invertDisplacement',
   'symmetricDisplacement', 'noDownwardZ', 'smoothBottom', 'textureSmoothing', 'textureAntialias', 'displayCreaseAngle',
   'mapBlack', 'mapWhite', 'mapGamma', 'mapMacro', 'mapMicro', 'mapSplitMm',
-  'pieceOffset', 'pieceRotate', 'pieceFlip', 'pieceSeed',
+  'pieceOffset', 'pieceRotate', 'pieceFlip', 'pieceSeed', 'pieceMinSizeMm',
   // NB : ces six-la sont PAR SLOT (chaque slot a sa carte, donc sa preparation),
   // tandis que textureAntialias et displayCreaseAngle sont GLOBAUX — le partage
   // est decide par GLOBAL_EXPORT_QUALITY_KEYS dans slotState.js, pas ici.
@@ -8842,6 +8858,7 @@ function _applySettingsSnapshotInner(snap) {
   for (const [, vl, key] of _mapPrepControls()) setLinkedVal(vl, snap[key]);
   setLinkedVal(pieceOffsetVal, snap.pieceOffset);
   setLinkedVal(pieceRotateVal, snap.pieceRotate);
+  setLinkedVal(pieceMinSizeVal, snap.pieceMinSizeMm);
   if (pieceFlipCheckbox && snap.pieceFlip != null) {
     pieceFlipCheckbox.checked = !!snap.pieceFlip;
     pieceFlipCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
@@ -8971,6 +8988,7 @@ const DEFAULT_SETTINGS_SNAPSHOT = Object.freeze({
   textureAntialias: true, displayCreaseAngle: 40,
   mapBlack: 0, mapWhite: 1, mapGamma: 1, mapMacro: 1, mapMicro: 1, mapSplitMm: 1.0,
   pieceOffset: 0, pieceRotate: 0, pieceFlip: false, pieceSeed: 1,
+  pieceMinSizeMm: 0,
   mappingBlend: 1, seamBandWidth: 0.5, seamBlendWidthMm: 0, capAngle: 20, boundaryFalloff: 0,
   bottomAngleLimit: 5, topAngleLimit: 0,
   refineLength: 1, maxTriangles: 750000, decimateEnabled: true,

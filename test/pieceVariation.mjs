@@ -22,7 +22,11 @@ import assert from 'node:assert/strict';
 import { subdivide } from '../js/subdivision.js';
 import { applyDisplacement } from '../js/displacement.js';
 import {
-  isPieceVariationActive, pieceKey, pieceTransform, PIECE_VARIATION_DEFAULTS,
+  isPieceVariationActive,
+  pieceKey,
+  pieceTransform,
+  PIECE_VARIATION_DEFAULTS,
+  buildPieceXforms,
 } from '../js/pieceVariation.js';
 import { proceduralTexture } from './lib/texture.mjs';
 import { computeBounds } from './lib/pipeline.mjs';
@@ -316,5 +320,59 @@ console.log('\n6. Le mode CUBIQUE ne l\'ignore pas en silence');
   });
 }
 
+console.log('');
+console.log('7. Seuil de taille : les petites pieces ne varient pas');
+
+/**
+ * Deux pieces : un CARRE de `c` mm de cote, et une LATTE longue et fine.
+ *
+ * La latte est le cas qui compte. Elle est mince sur un axe et longue sur
+ * l'autre : une taille mesuree sur la plus PETITE dimension l'eliminerait avec
+ * les rivets, et mesuree sur la DIAGONALE une plaque mince passerait pour une
+ * grande piece. On mesure donc la plus GRANDE dimension.
+ */
+function deuxPieces(c, longueur) {
+  const t = [];
+  const quad = (a, b, d, e) => { t.push(...a, ...b, ...d, ...a, ...d, ...e); };
+  quad([0, 0, 0], [c, 0, 0], [c, c, 0], [0, c, 0]);
+  quad([100, 0, 0], [100 + longueur, 0, 0], [100 + longueur, 1, 0], [100, 1, 0]);
+  return { positions: Float32Array.from(t), pieceOfTri: Int32Array.from([0, 0, 1, 1]) };
+}
+
+const REGL = { pieceOffset: 1, pieceRotate: 5, pieceFlip: true, pieceSeed: 7 };
+
+check('a seuil nul, la table est BIT-IDENTIQUE a l\'absence de seuil', () => {
+  const { positions, pieceOfTri } = deuxPieces(3, 40);
+  const sans = buildPieceXforms(positions, pieceOfTri, REGL);
+  const zero = buildPieceXforms(positions, pieceOfTri, { ...REGL, pieceMinSizeMm: 0 });
+  assert.deepEqual(zero.table, sans.table);
+});
+
+check('une piece plus petite que le seuil est laissee INTACTE', () => {
+  const { positions, pieceOfTri } = deuxPieces(3, 40);
+  const r = buildPieceXforms(positions, pieceOfTri, { ...REGL, pieceMinSizeMm: 10 });
+  const petite = r.table[r.index[0]];
+  assert.equal(petite.du, 0, 'la petite piece a bouge');
+  assert.equal(petite.dv, 0);
+  assert.equal(petite.rotDeg, 0);
+  assert.equal(petite.mirrorU, false);
+  assert.equal(r.ignorees, 1, 'ignorees = ' + r.ignorees + ', attendu 1');
+});
+
+check('une LATTE longue et fine survit au seuil', () => {
+  const { positions, pieceOfTri } = deuxPieces(3, 40);
+  const r = buildPieceXforms(positions, pieceOfTri, { ...REGL, pieceMinSizeMm: 10 });
+  const latte = r.table[r.index[2]];
+  assert.ok(latte.du !== 0 || latte.dv !== 0 || latte.rotDeg !== 0 || latte.mirrorU,
+    'la latte de 40 mm a ete ignoree alors qu elle depasse le seuil de 10 mm');
+});
+
+check('le seuil est un PLANCHER, compare a la plus grande dimension', () => {
+  const { positions, pieceOfTri } = deuxPieces(3, 40);
+  const haut = buildPieceXforms(positions, pieceOfTri, { ...REGL, pieceMinSizeMm: 50 });
+  assert.equal(haut.ignorees, 2, 'a 50 mm les deux devraient tomber, obtenu ' + haut.ignorees);
+  const bas = buildPieceXforms(positions, pieceOfTri, { ...REGL, pieceMinSizeMm: 2 });
+  assert.equal(bas.ignorees, 0, 'a 2 mm aucune ne devrait tomber, obtenu ' + bas.ignorees);
+});
 console.log(`\nVERDICT: ${fail ? 'FAIL' : 'PASS'}  (${pass} ok, ${fail} failed)`);
 process.exit(fail ? 1 : 0);

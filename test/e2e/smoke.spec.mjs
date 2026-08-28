@@ -220,6 +220,23 @@ test('le reglage de largeur de couture est cable', async () => {
       };
     });
 
+    // Meme controle pour le seuil de taille de piece : deux reglages ajoutes le
+    // meme jour, deux occasions d'un id mal orthographie.
+    const seuil = await page.evaluate(() => {
+      const sl = document.getElementById('piece-min-size');
+      const va = document.getElementById('piece-min-size-val');
+      if (!sl || !va) return { present: false };
+      const avant = Number(va.value);
+      sl.value = '6.5';
+      sl.dispatchEvent(new Event('input', { bubbles: true }));
+      return { present: true, visible: sl.getBoundingClientRect().width > 0,
+               avant, apres: Number(va.value) };
+    });
+    expect(seuil.present, 'controle #piece-min-size absent du DOM').toBe(true);
+    expect(seuil.visible, 'controle present mais invisible').toBe(true);
+    expect(seuil.avant, 'le seuil doit demarrer a 0 (aucune piece ecartee)').toBe(0);
+    expect(seuil.apres, "le champ ne suit pas le curseur : linkSlider n'est pas branche").toBe(6.5);
+
     expect(etat.present, 'controle #seam-width absent du DOM').toBe(true);
     expect(etat.visible, 'controle present mais invisible').toBe(true);
     // Defaut 0 = desactive : la fonctionnalite ne doit rien changer tant que
