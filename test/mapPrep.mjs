@@ -18,7 +18,7 @@
 //   5. les cas degeneres ne rendent ni NaN ni carte binaire.
 
 import assert from 'node:assert/strict';
-import { prepareMap, isMapPrepActive, radiusForSigma, MAP_PREP_DEFAULTS } from '../js/mapPrep.js';
+import { prepareMap, isMapPrepActive, radiusForSigma, MAP_PREP_DEFAULTS, measureLevels } from '../js/mapPrep.js';
 
 let pass = 0, fail = 0;
 function check(name, fn) {
@@ -285,6 +285,65 @@ check('radiusForSigma est monotone et vaut 0 a sigma 0', () => {
     assert.ok(r >= prev, `non monotone a sigma ${s}`);
     prev = r;
   }
+});
+
+console.log('');
+console.log('Mesure des niveaux (bouton Etirer)');
+
+/** Carte factice : canal rouge tire de `f(x,y)`, vert et bleu differents. */
+function carte(w, h, f, autresCanaux = false) {
+  const d = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = (y * w + x) * 4;
+    d[i] = f(x, y);
+    // Vert et bleu deliberement DIFFERENTS : c'est ce qui distingue une mesure
+    // sur le canal rouge d'une mesure sur la luminance.
+    d[i + 1] = autresCanaux ? 255 - d[i] : d[i];
+    d[i + 2] = autresCanaux ? 0 : d[i];
+    d[i + 3] = 255;
+  }
+  return { data: d, width: w, height: h };
+}
+
+check('une carte a plage etroite est reperee, avec son gain', () => {
+  // 95..194, la carte de bois du projet reel.
+  const m = measureLevels(carte(64, 64, (x) => 95 + Math.round((x / 63) * 99)));
+  assert.ok(m.ok, 'la carte devrait etre jugee etirable');
+  assert.ok(Math.abs(m.black - 95 / 255) < 0.02, `noir ${m.black.toFixed(3)}`);
+  assert.ok(Math.abs(m.white - 194 / 255) < 0.02, `blanc ${m.white.toFixed(3)}`);
+  assert.ok(Math.abs(m.used - 99 / 255) < 0.03, `plage occupee ${m.used.toFixed(3)}`);
+  assert.ok(m.gain > 2.3 && m.gain < 3.1, `gain ${m.gain.toFixed(2)}, attendu ~2.6`);
+});
+
+check('une carte deja pleine ne promet aucun gain', () => {
+  const m = measureLevels(carte(64, 64, (x) => Math.round((x / 63) * 255)));
+  assert.ok(m.gain < 1.1, `gain ${m.gain.toFixed(2)} sur une carte pleine`);
+});
+
+check('une carte plate est REFUSEE au lieu d etre etiree', () => {
+  // Etirer une plage de deux valeurs amplifierait le bruit de quantification,
+  // pas le relief. On le dit plutot que de rendre un reglage absurde.
+  const m = measureLevels(carte(32, 32, () => 128));
+  assert.equal(m.ok, false, 'une carte plate ne devrait pas etre jugee etirable');
+});
+
+check('la mesure suit le canal ROUGE, pas la luminance', () => {
+  // Le sampler lit data[i * 4]. Une mesure sur la luminance decrirait une
+  // AUTRE image : juste sur une carte grise, fausse sur une carte couleur.
+  const m = measureLevels(carte(64, 64, (x) => 95 + Math.round((x / 63) * 99), true));
+  assert.ok(Math.abs(m.black - 95 / 255) < 0.02,
+    `noir ${m.black.toFixed(3)} : la mesure a suivi autre chose que le rouge`);
+  assert.ok(Math.abs(m.white - 194 / 255) < 0.02, `blanc ${m.white.toFixed(3)}`);
+});
+
+check('quelques pixels parasites ne ruinent pas la mesure', () => {
+  // Min et max diraient 0..255 et concluraient « deja pleine ». Les centiles
+  // tiennent bon — c'est toute la raison de ne pas prendre les extremes.
+  const c = carte(64, 64, (x) => 100 + Math.round((x / 63) * 50));
+  c.data[0] = 0; c.data[4] = 255; c.data[8] = 0; c.data[12] = 255;
+  const m = measureLevels(c);
+  assert.ok(m.gain > 3.5,
+    `gain ${m.gain.toFixed(2)} : quatre pixels ont suffi a masquer la plage etroite`);
 });
 
 console.log(`\nVERDICT: ${fail ? 'FAIL' : 'PASS'}  (${pass} ok, ${fail} failed)`);

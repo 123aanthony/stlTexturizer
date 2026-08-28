@@ -28,7 +28,7 @@ import { resolveScaleU, snapScaleUForSeamlessWrap, SCALE_MM_INPUT_MIN, SCALE_MM_
 import { getScaleReferenceLengths } from './mapping.js';
 import { recommendedSmoothing } from './mipPyramid.js';
 import { computeSmoothNormals } from './smoothNormals.js';
-import { prepareMap, isMapPrepActive, MAP_PREP_DEFAULTS } from './mapPrep.js';
+import { prepareMap, isMapPrepActive, MAP_PREP_DEFAULTS, measureLevels } from './mapPrep.js';
 import { isPieceVariationActive, buildPieceXforms, PIECE_VARIATION_DEFAULTS } from './pieceVariation.js';
 import { texPerMm } from './mipPyramid.js';
 import { computeBeamFrame } from './beamAxis.js';
@@ -1597,6 +1597,8 @@ const textureSmoothingSlider = document.getElementById('texture-smoothing');
 const textureSmoothingVal    = document.getElementById('texture-smoothing-val');
 const textureAntialiasCheckbox = document.getElementById('texture-antialias');
 const smoothingAutoBtn       = document.getElementById('smoothing-auto-btn');
+const levelsAutoBtn          = document.getElementById('levels-auto-btn');
+const levelsAutoInfo         = document.getElementById('levels-auto-info');
 const pieceOffsetSlider = document.getElementById('piece-offset');
 const pieceOffsetVal    = document.getElementById('piece-offset-val');
 const pieceRotateSlider = document.getElementById('piece-rotate');
@@ -3957,6 +3959,7 @@ function wireEvents() {
     if (smoothingAutoInfo && !smoothingAutoInfo.classList.contains('hidden')) applySmoothingAuto();
   });
   if (smoothingAutoBtn) smoothingAutoBtn.addEventListener('click', applySmoothingAuto);
+  if (levelsAutoBtn) levelsAutoBtn.addEventListener('click', applyLevelsAuto);
   if (pieceOffsetSlider) {
     linkSlider(pieceOffsetSlider, pieceOffsetVal, v => {
       settings.pieceOffset = v; refreshPieceInfo(); return v.toFixed(2);
@@ -6789,6 +6792,55 @@ function _majPiecesIgnorees(seuil) {
     _piecesIgnorees = r.ignorees | 0;
   } catch { _piecesIgnorees = 0; }
   _ignoreesCache = { cle, n: _piecesIgnorees };
+}
+
+/**
+ * Etire les niveaux sur la plage REELLEMENT occupee par la carte active.
+ *
+ * Le moteur mappe le gris 0..1 sur la hauteur demandee : une carte qui n'occupe
+ * qu'une fraction de 0..255 rend d'autant moins de relief, et rien dans
+ * l'interface ne le disait. Mesure sur un projet reel : une carte de bois allant
+ * de 95 a 194 rendait 0.097 mm pour 0.25 demandes — 1.2 couche a 0.08 mm, donc
+ * presque plat — pendant que les onze autres cartes du meme projet occupaient
+ * 99 a 100 % de leur plage.
+ *
+ * Le bouton PUBLIE son diagnostic (plage occupee, gain attendu), comme l'Auto du
+ * lissage : c'est le chiffre qui explique ce qu'on voit. Un bouton qui agirait en
+ * silence laisserait l'utilisateur sans moyen de juger.
+ */
+function applyLevelsAuto() {
+  if (!levelsAutoInfo) return;
+  const entry = activeMapEntry;
+  if (!entry || !entry.imageData) {
+    levelsAutoInfo.textContent = t('ui.levelsNoMap');
+    levelsAutoInfo.classList.remove('hidden');
+    return;
+  }
+  const m = measureLevels(entry.imageData);
+  if (!m.ok) {
+    // Carte trop plate : l'etirer amplifierait le bruit de quantification, pas
+    // le relief. On le DIT plutot que de poser un reglage absurde.
+    levelsAutoInfo.innerHTML = t('ui.levelsFlat', { pct: (m.used * 100).toFixed(0) });
+    levelsAutoInfo.classList.remove('hidden');
+    return;
+  }
+  // ⚠️ On ecrit dans le CHAMP et on dispatche `change` — l'idiome de
+  // `applySmoothingAuto`. C'est le gestionnaire de `linkSlider` qui propage
+  // ensuite au curseur ET a `settings` : ecrire les trois a la main les
+  // laisserait diverger au premier oubli. (`setLinkedVal` n'est pas un helper
+  // de module : il est local a la restauration d'instantane, et l'appeler ici
+  // levait « setLinkedVal is not defined » — le gestionnaire mourait AVANT
+  // d'afficher son diagnostic, donc le bouton semblait inerte.)
+  const poser = (champ, valeur) => {
+    if (!champ) return;
+    champ.value = valeur.toFixed(2);
+    champ.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  poser(mapBlackVal, m.black);
+  poser(mapWhiteVal, m.white);
+  levelsAutoInfo.innerHTML = t('ui.levelsStretched',
+    { pct: (m.used * 100).toFixed(0), gain: m.gain.toFixed(1) });
+  levelsAutoInfo.classList.remove('hidden');
 }
 
 function refreshPieceInfo() {

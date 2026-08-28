@@ -193,3 +193,63 @@ export function prepareMap(imageData, opts = {}) {
   }
   return { data: dst, width: w, height: h };
 }
+
+/**
+ * Plage REELLEMENT occupee par une carte, et les niveaux qui l'etireraient.
+ *
+ * POURQUOI. Une carte de hauteur qui n'occupe qu'une fraction de 0..255 rend
+ * d'autant moins de relief : le moteur mappe le gris sur l'amplitude demandee,
+ * donc une carte allant de 95 a 194 ne rend que 39 % de la hauteur reglee.
+ * Mesure sur un projet reel : 0.097 mm obtenus pour 0.25 demandes, soit 1.2
+ * couche a 0.08 mm — physiquement presque plat. Les autres cartes du meme
+ * projet occupaient 99 a 100 % de leur plage : rien dans l'interface ne
+ * distinguait les deux cas.
+ *
+ * ⚠️ ON LIT LE CANAL ROUGE, parce que c'est celui que le sampler lit
+ * (`data[i * 4]` dans mipPyramid.js). Mesurer une luminance decrirait une AUTRE
+ * image que celle qui produit le relief — juste sur une carte grise, faux sur
+ * une carte couleur, et faux sans prevenir.
+ *
+ * ⚠️ ON PREND DES CENTILES, PAS LE MIN ET LE MAX. Quelques pixels parasites
+ * — un liseré, un artefact de compression — suffiraient a rendre l'etirement
+ * inutile en pretendant que la plage est deja pleine.
+ *
+ * @returns {{black:number, white:number, gain:number, used:number, ok:boolean}}
+ *   `black`/`white` en 0..1, prets pour mapBlack/mapWhite ; `used` la fraction
+ *   de plage occupee ; `gain` le facteur de relief a esperer ; `ok` faux quand
+ *   la carte est trop plate pour qu'un etirement ait un sens.
+ */
+export function measureLevels(imageData, { low = 0.01, high = 0.99 } = {}) {
+  const d = imageData && imageData.data;
+  const n = d ? (d.length / 4) | 0 : 0;
+  if (!n) return { black: 0, white: 1, gain: 1, used: 0, ok: false };
+
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < n; i++) hist[d[i * 4]]++;
+
+  const seuil = (frac) => {
+    const cible = frac * n;
+    let cum = 0;
+    for (let v = 0; v < 256; v++) {
+      cum += hist[v];
+      if (cum >= cible) return v;
+    }
+    return 255;
+  };
+  const lo = seuil(low), hi = seuil(high);
+  const span = hi - lo;
+
+  // Une plage trop etroite ne se redresse pas : l'etirement amplifierait le
+  // bruit de quantification au lieu du relief. On le DIT au lieu de rendre un
+  // reglage absurde.
+  if (!(span > 4)) {
+    return { black: lo / 255, white: hi / 255, gain: 1, used: span / 255, ok: false };
+  }
+  return {
+    black: lo / 255,
+    white: hi / 255,
+    used: span / 255,
+    gain: 255 / span,
+    ok: true,
+  };
+}

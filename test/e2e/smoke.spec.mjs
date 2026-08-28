@@ -237,6 +237,30 @@ test('le reglage de largeur de couture est cable', async () => {
     expect(seuil.avant, 'le seuil doit demarrer a 0 (aucune piece ecartee)').toBe(0);
     expect(seuil.apres, "le champ ne suit pas le curseur : linkSlider n'est pas branche").toBe(6.5);
 
+    // Le bouton « Etirer les niveaux » : il MESURE la carte active, donc il ne
+    // peut pas etre teste a vide. Une texture preset est chargee au demarrage.
+    const niveaux = await page.evaluate(() => {
+      const b = document.getElementById('levels-auto-btn');
+      const info = document.getElementById('levels-auto-info');
+      if (!b || !info) return { present: false };
+      const cacheAvant = info.classList.contains('hidden');
+      b.click();
+      return {
+        present: true,
+        visible: b.getBoundingClientRect().width > 0,
+        cacheAvant,
+        cacheApres: info.classList.contains('hidden'),
+        texte: info.textContent.trim(),
+      };
+    });
+    expect(niveaux.present, 'bouton #levels-auto-btn absent du DOM').toBe(true);
+    expect(niveaux.visible, 'bouton present mais invisible').toBe(true);
+    expect(niveaux.cacheAvant, 'la ligne de diagnostic doit demarrer masquee').toBe(true);
+    expect(niveaux.cacheApres, 'le bouton doit publier son diagnostic').toBe(false);
+    // Un bouton qui agit sans rien dire laisserait l'utilisateur sans moyen de
+    // juger : le diagnostic doit porter une MESURE, pas un simple accuse.
+    expect(niveaux.texte, `diagnostic sans mesure : "${niveaux.texte}"`).toMatch(/\d/);
+
     expect(etat.present, 'controle #seam-width absent du DOM').toBe(true);
     expect(etat.visible, 'controle present mais invisible').toBe(true);
     // Defaut 0 = desactive : la fonctionnalite ne doit rien changer tant que
