@@ -33,9 +33,11 @@ let wireframeVisible = false;
 let exclusionMesh = null;    // flat orange overlay for user-excluded faces
 let hoverMesh = null;        // semi-transparent yellow bucket-fill preview
 let overlapMesh = null;      // red overlay for faces claimed by 2+ slots
+let slotOverlayMesh = null;  // carte des couleurs par slot proprietaire
 let _exclMaterial = null;
 let _hoverMaterial = null;
 let _overlapMaterial = null;
+let _slotOverlayMaterial = null;
 let _needsRender = true;
 let _diagEdges = null;       // LineSegments2 for open/non-manifold edges
 let _diagFaces = [];         // Array of THREE.Mesh overlays for face highlights
@@ -871,6 +873,45 @@ export function setOverlapOverlay(overlayGeo, color = 0xff2fd0, opacity = 0.92) 
   overlapMesh = new THREE.Mesh(overlayGeo, _overlapMaterial);
   overlapMesh.renderOrder = 1;
   scene.add(overlapMesh);
+  requestRender();
+}
+
+/**
+ * Overlay « couleurs par slot ». CANAL DEDIE, distinct de celui des
+ * recouvrements et de celui des diagnostics : partager un canal ferait
+ * disparaitre une carte quand on allume l'autre, en silence.
+ *
+ * Les couleurs viennent de l'attribut `color` de la geometrie, pas du materiau :
+ * une seule passe de rendu quel que soit le nombre de slots.
+ *
+ * @param {THREE.BufferGeometry|null} overlayGeo  position + color, ou null
+ * @param {number} [opacity=0.85]
+ */
+export function setSlotOverlay(overlayGeo, opacity = 0.85) {
+  if (slotOverlayMesh) {
+    scene.remove(slotOverlayMesh);
+    slotOverlayMesh.geometry.dispose();
+    slotOverlayMesh = null;
+  }
+  if (!overlayGeo || overlayGeo.attributes.position.count === 0) { requestRender(); return; }
+  if (!_slotOverlayMaterial) {
+    _slotOverlayMaterial = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity,
+      polygonOffset: true,
+      polygonOffsetFactor: -1.2,
+      polygonOffsetUnits: -1.2,
+    });
+  } else {
+    _slotOverlayMaterial.opacity = opacity;
+  }
+  slotOverlayMesh = new THREE.Mesh(overlayGeo, _slotOverlayMaterial);
+  // Sous le surlignage de recouvrement (renderOrder 1) : quand les deux modes
+  // sont allumes, c'est le probleme qui doit rester lisible.
+  slotOverlayMesh.renderOrder = 0;
+  scene.add(slotOverlayMesh);
   requestRender();
 }
 

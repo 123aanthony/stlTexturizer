@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { initViewer, loadGeometry, setMeshMaterial, setMeshGeometry, setWireframe,
          getControls, getCamera, getCurrentMesh,
-         setExclusionOverlay, setHoverPreview, setOverlapOverlay, setViewerTheme,
+         setExclusionOverlay, setHoverPreview, setOverlapOverlay, setSlotOverlay, setViewerTheme,
          setProjection, requestRender,
          clearDiagOverlays, setDiagEdges, addDiagFaces,
          setRotationGizmo, isGizmoDragging } from './viewer.js';
@@ -14,9 +14,10 @@ import { regularizeMesh }     from './regularize.js';
 import { applyDisplacement }  from './displacement.js';
 import { exportSTL, export3MF } from './exporter.js';
 import { buildAdjacency, bucketFill,
-         buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
+         buildExclusionOverlayGeo, buildFaceWeights,
+         buildSlotColorOverlayGeo, expandOwnerThroughParents } from './exclusion.js';
 import { buildCombinedFaceWeights, buildUnionExcludedFacesForSlots,
-         buildExclusiveSlotFaceMasks } from './slotMasks.js';
+         buildExclusiveSlotFaceMasks, ownerSlotOfFaces } from './slotMasks.js';
 import { computeAssignedFaces,
          pickGlobalQuality, stripGlobalQuality, withGlobalQuality,
          serializeSlotFaces, restoreSlotFaces,
@@ -728,7 +729,7 @@ if (removeAction) removeAction.style.display = slot && !isUsed && textureSlots.l
 
   // Slot mutations that never touch the painting funnel (clear, duplicate,
   // project load, add/remove slot) land here — keep the highlight in step.
-  scheduleOverlapOverlay();
+  scheduleFaceOverlays();
 }
 
 
@@ -1075,6 +1076,45 @@ function _scheduleAllSlotsRebuild() {
     rebuildAllSlotsPreview();
   }, 800);
 }
+
+// SIGNATURE DES REGLAGES QUI FACONNENT LE BAKE.
+//
+// LE DEFAUT
+// ---------
+// L'apercu fige ne se reconstruisait que par `updatePreview()`. Or plusieurs
+// controles ne l'appellent PAS, et a raison du point de vue de l'apercu
+// SHADER : celui-ci ombre par PIXEL, il se moque de la finesse du maillage.
+// Leurs commentaires le disaient noir sur blanc — « la case ne change rien a
+// l'ecran, seulement a l'export », « No preview rebuild needed — final-export
+// step only », et deux `linkSlider(..., false)`. Depuis que l'apercu « tous
+// les slots » EST l'export, c'est faux : resolution, budget de triangles,
+// decimation, antialias, aplanissement du dessous et regularisation le
+// changent tous — en silence.
+//
+// POURQUOI UNE SIGNATURE PLUTOT QUE SIX APPELS AJOUTES
+// ----------------------------------------------------
+// Cabler `updatePreview()` dans les six gestionnaires manquants marche
+// AUJOURD'HUI et se perime au septieme reglage ajoute — c'est exactement
+// comme ca que ce defaut est ne. On compare donc l'ETAT REEL du pipeline, pas
+// une liste de gestionnaires : tout ce qui finit dans `settings` entre dans la
+// signature, donc tout reglage futur est couvert PAR CONSTRUCTION, sans une
+// ligne de plus.
+//
+// `displayCreaseAngle` est le seul exclu : il ne touche que les NORMALES, que
+// `refreshDisplayNormals()` recalcule deja sur la geometrie bakee — rebatir
+// couterait une passe de subdivision complete pour un changement d'ombrage.
+const _BAKE_SIG_SKIP = new Set(['displayCreaseAngle']);
+function _bakeSignature() {
+  const out = [];
+  for (const k of Object.keys(settings).sort()) {
+    if (_BAKE_SIG_SKIP.has(k)) continue;
+    const v = settings[k];
+    out.push(k + '=' + (v && typeof v === 'object' ? JSON.stringify(v) : String(v)));
+  }
+  return out.join('|');
+}
+// Signature des reglages avec lesquels la vue AFFICHEE a ete construite.
+let _lastBakeSig = null;
 
 // Boundary edge data texture for per-fragment falloff in bump-only preview
 let _boundaryEdgeTex   = null;
@@ -1485,6 +1525,14 @@ let precisionExcludedFaces  = new Set(); // precision face indices excluded whil
 // ── Slot-overlap highlight state ──────────────────────────────────────────────
 let showOverlapHighlight = false;  // "Show overlaps" checkbox in the viewport footer
 let _overlapPending      = false;  // rAF coalescing (painting fires per mousemove)
+let slotColorMode        = false;  // "Couleurs par slot" — meme pied de viewport
+let _slotColorPending    = false;  // meme coalescence par frame
+// ⚠️ CES DEUX-CI SE DECLARENT ICI, PAS AUPRES DE LEUR MODE. Le cablage des
+// controles s'execute pendant l'evaluation du module et lit `slotColorMode`
+// (via _refreshPreviewButtons -> _syncSlotColorsAvailability). Declares plus
+// bas, ils sont en ZONE MORTE a cet instant : la lecture LEVE, l'evaluation
+// s'arrete, et l'application demarre sur une page blanche. Mesure : 4 tests
+// e2e verts avant, 4 rouges apres.
 
 // ── Displacement preview state ────────────────────────────────────────────────
 let dispPreviewGeometry  = null;   // subdivided geometry with smoothNormal attribute
@@ -1547,6 +1595,9 @@ const advancedToggle   = document.getElementById('advanced-toggle');
 const wireframeToggle  = document.getElementById('wireframe-toggle');
 const projectionToggle = document.getElementById('projection-toggle');
 const overlapToggle    = document.getElementById('overlap-toggle');
+const slotColorsToggle = document.getElementById('slot-colors-toggle');
+const slotColorsLabel  = document.getElementById('slot-colors-label');
+const slotLegendEl     = document.getElementById('slot-legend');
 const copyMaterialBtn  = document.getElementById('copy-material-btn');
 const placeOnFaceBtn   = document.getElementById('place-on-face-btn');
 const rotateBtn        = document.getElementById('rotate-btn');
@@ -3952,10 +4003,11 @@ function wireEvents() {
   linkSlider(textureSmoothingSlider, textureSmoothingVal, v => { settings.textureSmoothing = v; return v.toFixed(1); });
   textureAntialiasCheckbox?.addEventListener('change', () => {
     settings.textureAntialias = textureAntialiasCheckbox.checked;
-    // L'apercu n'echantillonne pas par sommet (il ombre par PIXEL, a la
-    // resolution de l'ecran) : la case ne change donc rien a l'ecran, seulement
-    // a l'export. On rafraichit tout de meme le diagnostic, dont la
-    // recommandation depend de l'etat de la case.
+    // L'apercu SHADER n'echantillonne pas par sommet (il ombre par PIXEL, a la
+    // resolution de l'ecran) : la case ne lui change rien. Elle change en
+    // revanche l'apercu « tous les slots », qui EST l'export — rebati par le
+    // delegue du panneau (_bakeOnEdit). On rafraichit ici le seul diagnostic,
+    // dont la recommandation depend de l'etat de la case.
     if (smoothingAutoInfo && !smoothingAutoInfo.classList.contains('hidden')) applySmoothingAuto();
   });
   if (smoothingAutoBtn) smoothingAutoBtn.addEventListener('click', applySmoothingAuto);
@@ -4014,7 +4066,9 @@ function wireEvents() {
   smoothBottomChk.checked = settings.smoothBottom;
   smoothBottomChk.addEventListener('change', () => {
     settings.smoothBottom = smoothBottomChk.checked;
-    // No preview rebuild needed — the snap is a final-export step only.
+    // Rien a refaire pour l'apercu SHADER (l'aplanissement est une etape de
+    // fin d'export). L'apercu « tous les slots », lui, EST l'export : c'est le
+    // delegue du panneau (_bakeOnEdit) qui le rebatit, pas cette ligne.
   });
 
   // Regularize (Advanced/Beta) — toggle + 7 debug knobs.  The toggle disables
@@ -4208,6 +4262,11 @@ exportAllSlotsBtn?.addEventListener('click', async () => {
   overlapToggle?.addEventListener('change', () => {
     showOverlapHighlight = overlapToggle.checked;
     refreshOverlapOverlay();   // immediate, not coalesced: it's a direct action
+  });
+
+  slotColorsToggle?.addEventListener('change', () => {
+    slotColorMode = slotColorsToggle.checked;
+    refreshSlotColorOverlay();  // direct, comme ci-dessus : pas de coalescence
   });
 
   // ── Projection toggle ──
@@ -4477,6 +4536,15 @@ function setExclusionTool(tool) {
   // Deactivate place-on-face and rotate if an exclusion tool is being activated
   if (exclusionTool && placeOnFaceActive) togglePlaceOnFace(false);
   if (exclusionTool && rotateActive) toggleRotateMode(false);
+
+  // L'apercu « tous les slots » est une PHOTO : le maillage affiche est le
+  // maillage BAKE (subdivise puis decime), dont les index de triangle n'ont
+  // AUCUN rapport avec ceux de `currentGeometry` que la selection indexe.
+  // Peindre dessus ne laissait pas seulement la vue perimee : `paintAt`
+  // ajoutait a la selection des faces prises AU HASARD, sans un mot. Meme
+  // geste que le changement de slot ou le chargement d'une carte : on SORT de
+  // l'apercu, on ne le rafraichit pas.
+  if (exclusionTool && allSlotsPreviewActive) exitAllSlotsPreview();
 
   // Exit 3D displacement preview when a masking tool is activated
   if (exclusionTool && settings.useDisplacement) {
@@ -5265,7 +5333,7 @@ function refreshExclusionOverlay() {
   // la PCA par mousemove de pinceau serait un coût plein-maillage par trait.
   _bumpFaceSelectionRev();
   if (settings.mappingMode === 7) schedulePreviewUpdate();
-  scheduleOverlapOverlay();
+  scheduleFaceOverlays();
 }
 
 // ── Slot-overlap highlight ("Show overlaps") ─────────────────────────────────
@@ -5307,17 +5375,178 @@ function refreshOverlapOverlay() {
 // invariant structural instead of eight reminders to rebuild the overlay.
 function showMeshGeometry(geo) {
   setMeshGeometry(geo);
-  scheduleOverlapOverlay();
+  scheduleFaceOverlays();
+}
+
+// ── Carte « couleurs par slot » ───────────────────────────────────────────────
+// Le surlignage des recouvrements dit OU deux slots se disputent une face ;
+// celle-ci dit A QUI revient chaque face texturee, et lesquelles ne le sont pas.
+//
+// ⚠️ L'APPARTENANCE EST CELLE DE L'EXPORT, pas une regle inventee pour la vue :
+// `ownerSlotOfFaces` est la meme fonction que celle dont `buildExclusiveSlotFaceMasks`
+// derive les masques du fichier ecrit. Une carte qui montrerait une autre
+// appartenance que celle du STL serait pire qu'aucune carte — elle donnerait
+// confiance dans un mensonge. Consequence visible et VOULUE : sur une face
+// revendiquee par deux slots, seule la couleur du PREMIER apparait.
+
+// Teintes qualitatives, choisies pour se distinguer entre elles ET du gris du
+// modele — un gris de plus dans la palette serait invisible la ou il compte.
+// Au-dela de 12 slots on recycle : mieux vaut deux slots eloignes de meme
+// couleur que douze teintes indiscernables.
+const SLOT_COLORS = [
+  0xE69F00, 0x56B4E9, 0x009E73, 0xF0E442, 0x0072B2, 0xD55E00,
+  0xCC79A7, 0x8DD3C7, 0xBEBADA, 0xFB8072, 0xB3DE69, 0xBC80BD,
+];
+// Meme palette en 0..1, prete pour l'attribut `color` (calculee une fois).
+const SLOT_COLORS_RGB = SLOT_COLORS.map(h => [
+  ((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255,
+]);
+const slotColorHex = (i) =>
+  '#' + SLOT_COLORS[i % SLOT_COLORS.length].toString(16).padStart(6, '0');
+
+
+/**
+ * Les slots qui PEIGNENT quelque chose, dans l'ordre ou l'export les lit.
+ *
+ * Meme filtre que l'export (`readySlots` : une carte ET des faces) — un slot
+ * sans carte n'ecrit rien dans le STL, le colorier promettrait une texture qui
+ * n'arrivera pas. Etat resolu par `getSlotState`, donc la selection EN COURS du
+ * slot actif compte : la carte suit le pinceau sans qu'on ait a sauver l'etat.
+ */
+function slotColorEntries() {
+  const out = [];
+  for (const slot of textureSlots) {
+    const st = getSlotState(slot);
+    if (!st.activeMapEntry) continue;
+    if (!st.assignedFaces || st.assignedFaces.size === 0) continue;
+    out.push({ slot, st });
+  }
+  return out;
+}
+
+function refreshSlotColorOverlay() {
+  if (!slotColorMode || !currentGeometry) {
+    setSlotOverlay(null);
+    renderSlotLegend(null);
+    return;
+  }
+
+  const entries = slotColorEntries();
+  const triCount = (currentGeometry.attributes.position.count / 3) | 0;
+  const owner = ownerSlotOfFaces(
+    entries.map(e => ({ assignedFaces: e.st.assignedFaces })), triCount);
+
+  // Batir sur la geometrie REELLEMENT a l'ecran : les maillages de precision
+  // et d'apercu de deplacement sont subdivises, un overlay bati sur
+  // `currentGeometry` s'enfoncerait sous la surface deplacee. Tous deux portent
+  // une carte enfant->parent (meme mecanique que le surlignage des
+  // recouvrements).
+  const shown = getCurrentMesh()?.geometry || currentGeometry;
+  let parentMap = null;
+  if (shown === precisionGeometry)        parentMap = precisionParentMap;
+  else if (shown === dispPreviewGeometry) parentMap = dispPreviewParentMap;
+
+  const target = parentMap ? shown : currentGeometry;
+  const ownerOnTarget = parentMap ? expandOwnerThroughParents(owner, parentMap) : owner;
+
+  setSlotOverlay(buildSlotColorOverlayGeo(target, ownerOnTarget, SLOT_COLORS_RGB));
+  renderSlotLegend(entries, owner, triCount);
+}
+
+/**
+ * La legende. Des couleurs sans table de correspondance ne se lisent pas.
+ *
+ * Les comptes sont ceux de `owner`, donc D'APRES arbitrage des recouvrements —
+ * pas `assignedFaces.size`. C'est la seule facon de faire correspondre le
+ * chiffre a ce que la vue montre ET a ce que le fichier contiendra ; la somme
+ * des tailles brutes, elle, depasserait le nombre de faces du modele.
+ */
+function renderSlotLegend(entries, owner = null, triCount = 0) {
+  if (!slotLegendEl) return;
+  if (!entries) { slotLegendEl.classList.add('hidden'); slotLegendEl.innerHTML = ''; return; }
+
+  const counts = new Array(entries.length).fill(0);
+  let none = 0;
+  if (owner) {
+    for (let t = 0; t < owner.length; t++) {
+      if (owner[t] >= 0) counts[owner[t]]++; else none++;
+    }
+  } else {
+    none = triCount;
+  }
+
+  const rows = entries.map((e, i) =>
+    '<div class="slot-legend-row">' +
+      '<span class="slot-legend-chip" style="background:' + slotColorHex(i) + '"></span>' +
+      '<span class="slot-legend-name">' + _escapeHtml(e.slot.name || e.slot.id) + '</span>' +
+      '<span class="slot-legend-count">' + counts[i].toLocaleString() + '</span>' +
+    '</div>');
+  if (none > 0) {
+    rows.push(
+      '<div class="slot-legend-row">' +
+        '<span class="slot-legend-chip none"></span>' +
+        '<span class="slot-legend-name">' + _escapeHtml(t('ui.slotLegendNone')) + '</span>' +
+        '<span class="slot-legend-count">' + none.toLocaleString() + '</span>' +
+      '</div>');
+  }
+
+  slotLegendEl.innerHTML = rows.join('');
+  slotLegendEl.classList.toggle('hidden', rows.length === 0);
+}
+
+// Les noms de slot sont saisis par l'utilisateur : ils vont dans du HTML, ils
+// passent donc par un echappement. Un slot nomme `<img onerror=...>` ne doit
+// pas devenir du balisage.
+function _escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/**
+ * L'apercu « tous les slots » affiche un maillage BAKE, sans carte vers les
+ * faces originales : la couleur par slot ne peut pas y etre posee juste. On
+ * DESACTIVE la case au lieu de dessiner quelque chose de faux — et on le dit
+ * dans son infobulle.
+ */
+function _syncSlotColorsAvailability() {
+  if (!slotColorsToggle) return;
+  const blocked = allSlotsPreviewActive;
+  slotColorsToggle.disabled = blocked;
+  slotColorsLabel?.classList.toggle('disabled', blocked);
+  if (blocked && slotColorMode) {
+    setSlotOverlay(null);
+    renderSlotLegend(null);
+  } else if (!blocked && slotColorMode) {
+    scheduleFaceOverlays();
+  }
 }
 
 // Painting mutates the selection per mousemove; coalesce to one rebuild a frame
 // (the overlay allocates a full BufferGeometry). No-op while the mode is off.
+//
+// UN SEUL ordonnanceur pour les DEUX surimpressions : elles se rafraichissent
+// aux memes moments (peinture, changement de slot, echange de maillage). En
+// laisser une de cote a un point d'appel, c'est la laisser perimee a l'ecran.
+function scheduleFaceOverlays() {
+  scheduleOverlapOverlay();
+  scheduleSlotColorOverlay();
+}
+
 function scheduleOverlapOverlay() {
   if (!showOverlapHighlight || _overlapPending) return;
   _overlapPending = true;
   requestAnimationFrame(() => {
     _overlapPending = false;
     refreshOverlapOverlay();
+  });
+}
+
+function scheduleSlotColorOverlay() {
+  if (!slotColorMode || _slotColorPending) return;
+  _slotColorPending = true;
+  requestAnimationFrame(() => {
+    _slotColorPending = false;
+    refreshSlotColorOverlay();
   });
 }
 
@@ -7626,6 +7855,9 @@ function getUsedTextureSlots() {
 
 async function rebuildAllSlotsPreview() {
   if (!allSlotsPreviewActive || allSlotsPreviewBusy || !currentGeometry || !currentBounds) return;
+  // L'apercu « tous les slots » emprunte le pipeline d'export, donc son jeton
+  // d'annulation : le lancer pendant un export avorterait celui-ci.
+  if (isExporting || isBaking) return;
 
   let usedSlots = getUsedTextureSlots();
   if (previewScope === 'active') {
@@ -7642,6 +7874,9 @@ async function rebuildAllSlotsPreview() {
   }
 
   allSlotsPreviewBusy = true;
+  // Les reglages avec lesquels CETTE vue est construite. Tout ce qui bouge
+  // ensuite la rend perimee — c'est ce que compare le delegue du panneau.
+  _lastBakeSig = _bakeSignature();
   previewAllSlotsBtn?.classList.add('busy');
   if (previewAllSlotsBtn) previewAllSlotsBtn.disabled = true;
 
@@ -7651,9 +7886,40 @@ async function rebuildAllSlotsPreview() {
     setProgress(0.01, 'Building all-slots preview');
     exportProgress?.classList.remove('hidden');
 
-    for (let i = 0; i < usedSlots.length; i++) {
-      const geo = await buildExportGeometryForSlot(usedSlots[i], i, usedSlots.length);
-      built.push(geo);
+    if (previewScope === 'all') {
+      // MEME PIPELINE QUE L'EXPORT — et c'est le fond du correctif.
+      //
+      // LE DEFAUT
+      // ---------
+      // Cette boucle appelait `buildExportGeometryForSlot` une fois PAR SLOT,
+      // puis concatenait les resultats. Or ce constructeur ne rend PAS les
+      // seuls triangles du slot : il subdivise et rend le MAILLAGE ENTIER, en
+      // ne deplacant que les faces assignees (le reste garde le nu). Fusionner
+      // N slots empilait donc N COPIES COMPLETES du modele, superposees.
+      //
+      // POURQUOI CA SE VOIT — ET PAS EN APERCU DE SLOT
+      // ----------------------------------------------
+      // Le deplacement est SIGNE et centre sur le gris moyen — displacement.js
+      // en tete : « (grey - 0.5) x 2 x amplitude, 50% gris = pas de
+      // deplacement, blanc = dehors, noir = dedans ». Une copie NON deplacee se
+      // pose donc au MILIEU du relief, pas dessous : elle rebouche tous les
+      // creux (joints de mortier, veines du bois) et z-fight avec tout ce qui
+      // frole le gris moyen. Le relief ne survit que la ou le gris depasse 0.5,
+      // d'ou une pierre qui parait LISSE alors que sa geometrie est bien
+      // texturee. Avec UN seul slot il n'y a aucune copie parasite : l'apercu
+      // de slot etait juste, et c'est l'ecart entre les deux vues qui a ete
+      // signale.
+      //
+      // Trois autres divergences avec le fichier exporte tombent du meme coup :
+      // masques EXCLUSIFS (une face revendiquee par 2 slots va au premier, pas
+      // aux deux), UNE subdivision partagee, UNE decimation au budget global.
+      // L'apercu montre desormais exactement ce que l'export ecrira.
+      built.push(await buildExportGeometryForAllSlots(usedSlots, ++exportToken));
+    } else {
+      for (let i = 0; i < usedSlots.length; i++) {
+        const geo = await buildExportGeometryForSlot(usedSlots[i], i, usedSlots.length);
+        built.push(geo);
+      }
     }
 
     disposeAllSlotsPreview();
@@ -7672,7 +7938,12 @@ async function rebuildAllSlotsPreview() {
     requestRender();
   } catch (err) {
     console.error('All-slots preview failed:', err);
-    alert(`All-slots preview failed: ${err.message}`);
+    // Une ANNULATION n'est pas un echec : un export lance entre-temps (ou un
+    // changement de modele) reprend le jeton et fait lever le pipeline. On
+    // sort de l'apercu sans importuner l'utilisateur.
+    if (!/cancelled/i.test(err.message || '')) {
+      alert(`All-slots preview failed: ${err.message}`);
+    }
     allSlotsPreviewActive = false;
     if (previewAllSlotsBtn) {
       previewAllSlotsBtn.classList.remove('active');
@@ -7694,6 +7965,7 @@ async function rebuildAllSlotsPreview() {
 
 function exitAllSlotsPreview() {
   allSlotsPreviewActive = false;
+  _lastBakeSig = null;
   // Les DEUX boutons reviennent a l'etat neutre : remettre a zero le seul
   // « tous les slots » laisserait l'autre affiche « Quitter l'apercu » alors
   // qu'il n'y a plus d'apercu.
@@ -7736,6 +8008,9 @@ async function toggleAllSlotsPreview(scope = 'all') {
 /** Etat visuel des deux boutons : un seul peut etre « actif ». */
 function _refreshPreviewButtons() {
   const on = allSlotsPreviewActive;
+  // La carte des couleurs ne peut pas se poser sur le maillage bake : la case
+  // se grise avec l'apercu et se ranime en sortant.
+  _syncSlotColorsAvailability();
   if (previewAllSlotsBtn) {
     previewAllSlotsBtn.classList.toggle('active', on && previewScope === 'all');
     previewAllSlotsBtn.textContent = (on && previewScope === 'all')
@@ -9052,6 +9327,19 @@ const _settingsPanel = document.getElementById('settings-panel');
 if (_settingsPanel) {
   _settingsPanel.addEventListener('input', _autoSaveSettings);
   _settingsPanel.addEventListener('change', _autoSaveSettings);
+  // MEME DELEGATION POUR L'APERCU FIGE : « tout curseur, champ, liste et case
+  // a cocher du panneau, d'un coup » — y compris ceux a naitre. Le delegue est
+  // pose sur l'ANCETRE, donc il s'execute APRES le gestionnaire du controle,
+  // quand `settings` porte deja la nouvelle valeur. On ne rebatit que si cette
+  // valeur change vraiment le bake ; les BOUTONS, eux, n'emettent ni input ni
+  // change, donc cliquer « Apercu de tous les slots » ne se re-declenche pas.
+  const _bakeOnEdit = () => {
+    if (!allSlotsPreviewActive) return;
+    if (_bakeSignature() === _lastBakeSig) return;
+    _scheduleAllSlotsRebuild();
+  };
+  _settingsPanel.addEventListener('input', _bakeOnEdit);
+  _settingsPanel.addEventListener('change', _bakeOnEdit);
 }
 // The lock-scale button doesn't emit input/change — catch it separately.
 lockScaleBtn.addEventListener('click', _autoSaveSettings);
@@ -9235,6 +9523,10 @@ async function saveProjectToPath(filePath) {
 // Serialize save operations: a second Ctrl+S / button click while a zip+write is
 // in flight is ignored, and the Save buttons are disabled for the duration (#C).
 let _saveInProgress = false;
+// Sauvegarde EN VOL, exposee pour pouvoir etre ATTENDUE. Un second Ctrl+S
+// reste ignore ({busy:true}) — mais la fermeture, elle, ne peut pas se
+// contenter d'un echec : c'est la MEME sauvegarde qu'elle demande.
+let _savePromise = null;
 function _setSaveBusy(busy) {
   _saveInProgress = busy;
   for (const b of [projectSaveBtn, projectSaveAsBtn]) if (b) b.disabled = busy;
@@ -9242,8 +9534,11 @@ function _setSaveBusy(busy) {
 async function _runSave(fn) {
   if (_saveInProgress) return { busy: true };
   _setSaveBusy(true);
-  try { return await fn(); }
-  finally { _setSaveBusy(false); }
+  _savePromise = (async () => {
+    try { return await fn(); }
+    finally { _setSaveBusy(false); _savePromise = null; }
+  })();
+  return _savePromise;
 }
 
 async function _saveProjectAsFlow() {
@@ -9427,10 +9722,44 @@ function _syncClosePrompt() {
   });
 }
 _syncClosePrompt();
+// FERMETURE AVEC « Enregistrer ».
+//
+// LE DEFAUT (rapporte en GUI : « le programme ne se ferme pas du fait des
+// sauvegardes demandees »)
+// ------------------------------------------------------------------------
+// Le processus principal n'autorise la fermeture que sur `saveDone(true)`. Ce
+// gestionnaire rendait `false` dans TROIS cas, et sans un mot a chaque fois :
+//   - `{busy:true}`, quand une sauvegarde etait deja en vol (Ctrl+S puis X sur
+//     un gros projet) — or c'est la MEME sauvegarde, pas un echec ;
+//   - `{canceled:true}`, quand l'utilisateur ferme le selecteur de fichier ;
+//   - une exception, AVALEE par un `catch` vide — echec d'ecriture, disque
+//     plein, chemin refuse : rien ne le disait.
+// Dans les trois cas la fenetre restait ouverte, muette. Un refus doit porter
+// sa RAISON, sinon il se lit comme un blocage.
 window.bumpforgeElectron?.onSaveRequest?.(async () => {
   let ok = false;
-  try { const r = await saveProject(); ok = !!r && !r.canceled && !r.busy && !r.error; }
-  catch { ok = false; }
+  try {
+    // On ATTEND la sauvegarde en vol au lieu de la declarer echouee.
+    if (_savePromise) { try { await _savePromise; } catch { /* rapporte plus bas */ } }
+
+    if (!projectDirty) {
+      ok = true;                       // deja sauve entre-temps : plus rien a faire
+    } else {
+      const r = await saveProject();
+      if (r?.error) throw new Error(r.error);
+      if (r?.canceled) {
+        // Annuler le selecteur de fichier, c'est annuler la fermeture. C'est
+        // legitime — mais il faut le DIRE, sinon le clic sur X parait ignore.
+        showToast(t('toasts.closeCancelled'), { type: 'info' });
+      } else {
+        ok = !!r && !r.busy;
+      }
+    }
+  } catch (err) {
+    showToast(t('toasts.saveFailed', { msg: err?.message || String(err) }),
+              { type: 'error', duration: 6000 });
+    ok = false;
+  }
   window.bumpforgeElectron?.saveDone?.(ok);
 });
 

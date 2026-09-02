@@ -86,31 +86,59 @@ export function buildUnionExcludedFacesForSlots(readySlots, geometry) {
 }
 
 /**
- * One exclusive face mask per slot on the SUBDIVIDED mesh: each original face is
- * owned by the first slot that claims it (overlap resolved by slot order), then
- * expanded to subdivided faces via faceParentId.
+ * Slot PROPRIETAIRE de chaque face du maillage ORIGINAL.
+ *
+ * Regle : la premiere case qui reclame une face la garde (le recouvrement se
+ * tranche par ORDRE de slot). -1 = personne, donc pas de texture.
+ *
+ * SOURCE UNIQUE. C'est la regle de l'export, et c'est desormais aussi celle que
+ * lit la vue « couleurs par slot » : une carte qui montrerait une autre
+ * appartenance que celle du fichier ecrit serait pire qu'aucune carte. La
+ * fonction ci-dessous, qui produit les masques exclusifs du maillage SUBDIVISE,
+ * s'appuie sur elle plutot que d'en garder une copie.
+ *
+ * @param {{assignedFaces:Set<number>}[]} readySlots
+ * @param {number} triCount  nombre de faces du maillage original
+ * @returns {Int16Array}  index de slot par face, -1 si aucune
  */
-export function buildExclusiveSlotFaceMasks(faceParentId, readySlots) {
-  const masks = readySlots.map(() => new Uint8Array(faceParentId.length));
-  const ownerByParent = new Map();
+export function ownerSlotOfFaces(readySlots, triCount) {
+  const owner = new Int16Array(triCount).fill(-1);
 
   for (let slotIndex = 0; slotIndex < readySlots.length; slotIndex++) {
     const assigned = readySlots[slotIndex].assignedFaces || new Set();
 
     for (const face of assigned) {
       const idx = Number(face);
-      if (!Number.isInteger(idx) || idx < 0) continue;
-      if (!ownerByParent.has(idx)) ownerByParent.set(idx, slotIndex);
+      if (!Number.isInteger(idx) || idx < 0 || idx >= triCount) continue;
+      if (owner[idx] < 0) owner[idx] = slotIndex;
     }
   }
+
+  return owner;
+}
+
+/**
+ * One exclusive face mask per slot on the SUBDIVIDED mesh: each original face is
+ * owned by the first slot that claims it (overlap resolved by slot order), then
+ * expanded to subdivided faces via faceParentId.
+ */
+export function buildExclusiveSlotFaceMasks(faceParentId, readySlots) {
+  const masks = readySlots.map(() => new Uint8Array(faceParentId.length));
+
+  // Taille du maillage ORIGINAL, deduite de la carte enfant->parent : c'est la
+  // seule information dont on dispose ici, et elle suffit.
+  let maxParent = -1;
+  for (let i = 0; i < faceParentId.length; i++) {
+    if (faceParentId[i] > maxParent) maxParent = faceParentId[i];
+  }
+  const ownerByParent = ownerSlotOfFaces(readySlots, maxParent + 1);
 
   const counts = new Array(readySlots.length).fill(0);
 
   for (let subTri = 0; subTri < faceParentId.length; subTri++) {
-    const parent = faceParentId[subTri];
-    const owner = ownerByParent.get(parent);
+    const owner = ownerByParent[faceParentId[subTri]];
 
-    if (owner != null) {
+    if (owner >= 0) {
       masks[owner][subTri] = 1;
       counts[owner]++;
     }

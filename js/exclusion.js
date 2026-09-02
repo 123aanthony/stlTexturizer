@@ -7,6 +7,7 @@
  *  2. bucketFill       – BFS flood fill that respects a max dihedral-angle
  *                        threshold (stops at "sharp" edges).
  *  3. buildExclusionOverlayGeo – compact geometry for the orange preview overlay.
+ *  5. buildSlotColorOverlayGeo - overlay COLORE, une teinte par slot proprietaire.
  *  4. buildFaceWeights – per-vertex exclusion weights for the subdivision pass.
  */
 
@@ -162,6 +163,65 @@ export function bucketFill(seedTriIdx, adjacency, thresholdDeg) {
  * @param {boolean}              [invert=false]  when true, include faces NOT in faceSet
  * @returns {THREE.BufferGeometry}
  */
+/**
+ * Overlay COLORE : une teinte par slot proprietaire, sur les seules faces qui
+ * appartiennent a quelqu'un.
+ *
+ * UNE geometrie et UN materiau (couleurs par SOMMET) plutot qu'un maillage par
+ * slot : le nombre de slots est libre, et un maillage par slot multiplierait les
+ * appels de rendu par autant. Les faces sans proprietaire ne sont pas emises du
+ * tout - le modele nu reste visible dessous, ce qui EST la reponse a « quelles
+ * surfaces ne sont pas texturees ».
+ *
+ * @param {THREE.BufferGeometry} geometry     maillage affiche (non indexe)
+ * @param {Int16Array|number[]}  ownerOfFace  slot par face, -1 = aucune
+ * @param {number[][]}           colors       [r,g,b] en 0..1, par index de slot
+ */
+export function buildSlotColorOverlayGeo(geometry, ownerOfFace, colors) {
+  const srcPos = geometry.attributes.position.array;
+  const total  = (srcPos.length / 9) | 0;
+  const n      = Math.min(total, ownerOfFace.length);
+
+  let count = 0;
+  for (let t = 0; t < n; t++) if (ownerOfFace[t] >= 0) count++;
+
+  const outPos = new Float32Array(count * 9);
+  const outCol = new Float32Array(count * 9);
+  let dst = 0;
+
+  for (let t = 0; t < n; t++) {
+    const o = ownerOfFace[t];
+    if (o < 0) continue;
+    outPos.set(srcPos.subarray(t * 9, t * 9 + 9), dst);
+    const c = colors[o % colors.length] || [1, 1, 1];
+    for (let v = 0; v < 3; v++) {
+      outCol[dst + v * 3]     = c[0];
+      outCol[dst + v * 3 + 1] = c[1];
+      outCol[dst + v * 3 + 2] = c[2];
+    }
+    dst += 9;
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(outPos, 3));
+  geo.setAttribute('color',    new THREE.BufferAttribute(outCol, 3));
+  return geo;
+}
+
+/**
+ * Etend une appartenance PAR FACE ORIGINALE au maillage affiche, qui peut etre
+ * subdivise (masquage de precision, apercu de deplacement). Sans cette etape
+ * l'overlay serait bati sur les mauvais index et se poserait n'importe ou.
+ */
+export function expandOwnerThroughParents(ownerOfFace, parentMap) {
+  const out = new Int16Array(parentMap.length).fill(-1);
+  for (let i = 0; i < parentMap.length; i++) {
+    const p = parentMap[i];
+    if (p >= 0 && p < ownerOfFace.length) out[i] = ownerOfFace[p];
+  }
+  return out;
+}
+
 export function buildExclusionOverlayGeo(geometry, faceSet, invert = false) {
   const srcPos   = geometry.attributes.position.array;
   const srcNrm   = geometry.attributes.normal ? geometry.attributes.normal.array : null;

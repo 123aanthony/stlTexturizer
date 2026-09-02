@@ -207,6 +207,7 @@
         </div>
         <canvas id="viewport" role="img" aria-label="3D model preview"></canvas>
         <div id="brush-cursor"></div>
+        <div id="slot-legend" class="slot-legend hidden"></div>
         <div id="mesh-diagnostics" class="mesh-diagnostics hidden">
           <button id="mesh-diag-dismiss" class="mesh-diag-dismiss" aria-label="Dismiss">&times;</button>
           <div id="mesh-diag-fast" class="mesh-diag-results"></div>
@@ -249,6 +250,12 @@
         <label class="wireframe-toggle">
           <input type="checkbox" id="projection-toggle" />
           <span data-i18n="ui.perspective">Perspective View</span>
+        </label>
+        <label class="wireframe-toggle" id="slot-colors-label"
+          data-i18n-title="tooltips.showSlotColors"
+          title="Colour every textured face by the slot that owns it, using the export's own rule: a face claimed by several slots goes to the first one. Uncoloured = not textured.">
+          <input type="checkbox" id="slot-colors-toggle" />
+          <span data-i18n="ui.showSlotColors">Colour by Slot</span>
         </label>
         <label class="wireframe-toggle" data-i18n-title="tooltips.showOverlaps"
           title="Highlight the faces claimed by more than one slot (Include-mode slots only). The export gives such a face to the first slot that claims it.">
