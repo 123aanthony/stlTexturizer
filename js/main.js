@@ -37,6 +37,8 @@ import { idbGet, idbSet, idbDel } from './idbStore.js';
 import { shouldOfferRecovery, recoveryAgeParts } from './recovery.js';
 import { migrateProjectPayload } from './projectMigrate.js';
 import { parseFaceSidecar, facesToTriangleSet, selectionToFaceKeys, matchFaceKeys, groupFacesByColor } from './faceGroups.js';
+import { colorKey, keyToRgb, mapContentKey, emptyLibrary, normalizeLibrary,
+         putMaterial, planFromGroups, librarySize } from './materialLibrary.js';
 
 // Beam PCA frame for the live preview shader (Wood Auto), from the ACTIVE slot's
 // selected faces (a beam is a selection inside the model — using the whole mesh
@@ -111,6 +113,9 @@ function createTextureSlot(index) {
     excludedFaces: new Set(),
     assignedFaces: new Set(),
     selectionMode: true,
+    // Couleur FreeCAD du groupe qui a cree ce slot ('#rrggbb'), ou null pour un
+    // slot peint a la main. C'est la cle de la bibliotheque de matieres.
+    colorKey: null,
     settings: {}
   };
 }
@@ -174,6 +179,10 @@ function duplicateTextureSlot(slotId) {
   copy.name = `${source.name || 'Slot'} Copy`;
   copy.activeMapEntry = source.activeMapEntry || null;
   copy.customMapEntry = source.customMapEntry || null;
+  // ⚠️ `colorKey` n'est DELIBEREMENT pas copie : la couleur FreeCAD identifie
+  // UN groupe du modele, pas une matiere. Deux slots portant la meme couleur
+  // se disputeraient l'entree de la bibliotheque, et la derniere memorisee
+  // gagnerait — arbitrairement. Une copie est un slot fait main : sans couleur.
   copy.selectionMode = source.selectionMode;
   copy.settings = { ...(source.settings || {}) };
   copy.excludedFaces = new Set(source.excludedFaces || []);
@@ -376,6 +385,9 @@ function clearTextureSlot(slotId = activeTextureSlotId) {
   slot.excludedFaces = new Set();
   slot.assignedFaces = new Set();
   slot.selectionMode = true;
+  // La couleur FreeCAD est venue AVEC les faces du groupe : les effacer sans
+  // l'effacer laisserait un slot vide qui pretend encore etre une matiere.
+  slot.colorKey = null;
   slot.settings = { ...slotDefaults };
   // Taille de tuile par défaut ANCRÉE AU MODÈLE (l'équivalent mm de l'ancien
   // relatif 0,5) — le défaut figé 25 mm ne convient qu'au modèle de repli.
@@ -2723,10 +2735,36 @@ function _installProfileButtons() {
   input.accept = '.stltprofile,application/json';
   input.style.display = 'none';
 
+  // Memoriser les matieres pour leurs COULEURS FreeCAD. Voisin des deux
+  // boutons de profil parce que c'est le meme geste, a l'echelle du modele :
+  // le profil transfere UNE matiere vers le slot actif, celui-ci les retient
+  // TOUTES, chacune accrochee a sa couleur, pour le prochain batiment.
+  const rememberBtn = document.createElement('button');
+  rememberBtn.id = 'remember-materials-btn';
+  rememberBtn.className = 'secondary-btn material-action-btn';
+  rememberBtn.type = 'button';
+  rememberBtn.textContent = t('matlib.rememberBtn');
+  rememberBtn.title = t('matlib.rememberTitle');
+  // Les attributs data-i18n, EN PLUS du t() ci-dessus : le t() sert au premier
+  // rendu (le bouton est cree en JS, il peut l'etre avant que le pack ne soit
+  // charge), les attributs a tous les suivants — sans eux le bouton resterait
+  // dans sa langue de naissance au changement de langue, applyTranslations ne
+  // parcourant que le DOM porteur de ces attributs.
+  rememberBtn.dataset.i18n = 'matlib.rememberBtn';
+  rememberBtn.dataset.i18nTitle = 'matlib.rememberTitle';
+
   anchor.appendChild(saveBtn);
   anchor.appendChild(loadBtn);
+  anchor.appendChild(rememberBtn);
   anchor.appendChild(input);
 
+  rememberBtn.addEventListener('click', async () => {
+    try { await rememberSlotMaterials(); }
+    catch (err) {
+      console.error('Failed to remember materials:', err);
+      showToast(String(err && err.message || err), { type: 'error', duration: 5000 });
+    }
+  });
   saveBtn.addEventListener('click', saveMaterialProfileToFile);
   loadBtn.addEventListener('click', () => input.click());
   input.addEventListener('change', async (e) => {
@@ -2742,21 +2780,109 @@ function _installProfileButtons() {
   });
 }
 
-/**
- * Cle de CONTENU d'une carte, pour n'en stocker qu'un exemplaire par projet.
- *
- * FNV-1a 32 bits, complete par la LONGUEUR : deux chaines de longueurs
- * differentes ne peuvent pas se confondre, ce qui reduit d'autant le risque de
- * collision sur une empreinte aussi courte. On ne cherche pas une garantie
- * cryptographique, juste a distinguer quelques textures dans un projet.
- */
-function mapContentKey(dataUrl) {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < dataUrl.length; i++) {
-    h ^= dataUrl.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
+// `mapContentKey` (cle de CONTENU d'une carte, FNV-1a + longueur) a demenage
+// VERBATIM dans js/materialLibrary.js, d'ou elle est importee : le format
+// projet et la bibliotheque de matieres designent tous deux une carte par son
+// contenu, et deux fonctions qui decrivent la meme identite doivent etre LA
+// MEME fonction — sinon une carte partagee par le projet cesserait un jour de
+// l'etre par la bibliotheque, en silence.
+
+// ── Bibliotheque de matieres par COULEUR FreeCAD ─────────────────────────────
+//
+// Elle vit HORS projet (IndexedDB, comme le brouillon de reprise) : son interet
+// est justement de traverser les projets — la matiere reglee sur un batiment
+// sert au suivant. La decision (quelle matiere pour quelle couleur) est PURE et
+// testee dans js/materialLibrary.js ; il ne reste ici que le va-et-vient avec
+// le disque et la resolution des entrees de carte, qui touche le DOM.
+
+const MATERIAL_LIBRARY_KEY = 'materialLibrary';
+let _materialLibrary = null;   // cache memoire, relu une fois par session
+
+async function getMaterialLibrary() {
+  if (_materialLibrary) return _materialLibrary;
+  try {
+    _materialLibrary = normalizeLibrary(await idbGet(MATERIAL_LIBRARY_KEY));
+  } catch (err) {
+    // IndexedDB indisponible (fenetre privee, quota) : on degrade vers une
+    // bibliotheque vide plutot que de casser le chargement d'un modele.
+    console.warn('Material library unavailable:', err);
+    _materialLibrary = emptyLibrary();
   }
-  return 'm' + (h >>> 0).toString(36) + '-' + dataUrl.length.toString(36);
+  return _materialLibrary;
+}
+
+async function setMaterialLibrary(lib) {
+  _materialLibrary = lib;
+  try { await idbSet(MATERIAL_LIBRARY_KEY, lib); }
+  catch (err) { console.warn('Material library not saved:', err); }
+}
+
+/** Serialise la matiere d'un slot a la forme que stocke la bibliotheque. */
+function _slotMaterialPayload(slot) {
+  // pickSlotMaterial est la SOURCE UNIQUE de "ce qu'est une matiere" (carte +
+  // reglages artistiques, cles d'export globales retirees) : le pinceau de
+  // materiau et la bibliotheque doivent repondre la meme chose, sinon copier
+  // une matiere et la memoriser ne donneraient pas le meme resultat.
+  const m = pickSlotMaterial(slot);
+  const activeIsCustom = !!m.activeMapEntry?.isCustom;
+  const customEntry = m.customMapEntry || (activeIsCustom ? m.activeMapEntry : null);
+  const url = customEntry ? customMapEntryToDataUrl(customEntry) : null;
+  return {
+    material: {
+      activeMapType: activeIsCustom ? 'custom' : (m.activeMapEntry ? 'preset' : null),
+      presetName: !activeIsCustom && m.activeMapEntry ? m.activeMapEntry.name : null,
+      customMapName: customEntry ? customEntry.name : null,
+      customMapKey: url ? mapContentKey(url) : null,
+      settings: { ...(m.settings || {}) },
+    },
+    mapDataUrl: url,
+  };
+}
+
+/**
+ * Memorise la matiere de chaque slot PORTEUR D'UNE COULEUR FreeCAD.
+ * Les slots peints a la main n'en ont pas : ils sont ignores en silence, il n'y
+ * aurait rien a quoi accrocher leur matiere.
+ */
+async function rememberSlotMaterials() {
+  saveActiveSlotState();
+  let lib = await getMaterialLibrary();
+  let n = 0, sansCouleur = 0;
+  for (const slot of textureSlots) {
+    if (!slot.colorKey) { if (hasSlotMaterial(slot)) sansCouleur++; continue; }
+    if (!hasSlotMaterial(slot)) continue;
+    const { material, mapDataUrl } = _slotMaterialPayload(slot);
+    if (!material.activeMapType) continue;        // pas de carte : rien a rejouer
+    lib = putMaterial(lib, keyToRgb(slot.colorKey),
+                      { name: slot.name, material, mapDataUrl });
+    n++;
+  }
+  await setMaterialLibrary(lib);
+  showToast(t('matlib.remembered', { n, total: librarySize(lib) }),
+            { type: n ? 'success' : 'info', duration: 4500 });
+  if (sansCouleur) {
+    console.info(`${sansCouleur} slot(s) sans couleur FreeCAD : rien a memoriser pour eux.`);
+  }
+}
+
+/** Pose sur un slot une matiere venue de la bibliotheque (cartes resolues). */
+async function _applyLibraryMaterial(slot, hit) {
+  slot.settings = { ...(hit.material.settings || {}) };
+  slot.activeMapEntry = null;
+  slot.customMapEntry = null;
+  if (hit.material.activeMapType === 'custom' && hit.mapDataUrl) {
+    const entry = await customEntryFromDataUrl(
+      hit.mapDataUrl, hit.material.customMapName || `${slot.name}.png`);
+    slot.customMapEntry = entry;
+    slot.activeMapEntry = entry;
+  } else if (hit.material.presetName) {
+    const entry = await getPresetEntryByName(hit.material.presetName);
+    if (entry) slot.activeMapEntry = entry;
+  }
+  // Le NOM voyage avec la matiere : sans lui le slot garderait celui de sa
+  // piece dominante ("FW_Storey"), qui ne dit rien de la matiere. Nomme une
+  // fois, retrouve a chaque batiment.
+  if (hit.name) slot.name = hit.name;
 }
 
 function customMapEntryToDataUrl(entry) {
@@ -2904,6 +3030,10 @@ function serializeProjectTextureSlots() {
         return { customMapKey: key };
       })(),
       selectionMode: typeof slot.selectionMode === 'boolean' ? slot.selectionMode : true,
+      // Identite de couleur FreeCAD. Un projet ROUVERT doit pouvoir memoriser
+      // ses matieres sans qu'on redepose le STEP : sans elle, il faudrait
+      // repasser par l'import colore pour retrouver a quoi les accrocher.
+      colorKey: slot.colorKey || null,
       ...serializeSlotFaces(slot, currentGeometry),
       settings: { ...(slot.settings || {}) }
     };
@@ -2958,6 +3088,7 @@ textureSlots = savedSlots.map((saved, index) => ({
       slot.customMapEntry = null;
       slot.excludedFaces = new Set();
       slot.assignedFaces = new Set();
+      slot.colorKey = null;
       slot.settings = {};
       restoredFaceSets.set(slot.id, { excludedFaces: new Set(), assignedFaces: new Set() });
       continue;
@@ -2970,6 +3101,9 @@ textureSlots = savedSlots.map((saved, index) => ({
     // connues). Couvre AUSSI l'export multi-slots d'un slot jamais activé.
     _migrateSnapshotScaleToMm(slot.settings);
     slot.selectionMode = typeof saved.selectionMode === 'boolean' ? saved.selectionMode : true;
+    // Champ AJOUTE : absent des projets deja enregistres, il vaut alors null et
+    // le slot se comporte comme un slot peint a la main — aucune migration.
+    slot.colorKey = typeof saved.colorKey === 'string' ? saved.colorKey : null;
 
     // Face restore (pure, in slotState): UI faces + material faces, the latter
     // resolved from position signatures so a re-indexed mesh still maps.
@@ -3819,7 +3953,7 @@ function wireEvents() {
     // re-export (snapshot wins).
     const nothingPainted = textureSlots.every(s => getSlotState(s).excludedFaces.size === 0);
     if (currentFaceSidecar && !snapshot && stepData?.colorGroupOfFace && nothingPainted) {
-      _autoSlotsFromColorGroups(stepData);
+      await _autoSlotsFromColorGroups(stepData);
     }
     // Live link: keep tagged FreeCAD models hot — watch the file and auto-reload
     // on re-export. Untagged models would lose their selections on reload, so
@@ -3836,7 +3970,7 @@ function wireEvents() {
   // and braces would average them into a wrong grain), which measured 9 wood
   // groups on a real half-timbered building — plus the material groups. At a cap
   // of 6 the smaller groups were dropped silently, with no texture at all.
-  function _autoSlotsFromColorGroups(stepData) {
+  async function _autoSlotsFromColorGroups(stepData) {
     const groups = groupFacesByColor(stepData.colorGroupOfFace, currentFaceSidecar,
                                      stepData.partOfFace, 16);
     if (groups.length < 2) return; // single color = nothing worth splitting
@@ -3851,13 +3985,41 @@ function wireEvents() {
       slot.selectionMode = true;
       slot.excludedFaces = new Set(tris);
       slot.assignedFaces = new Set(tris);
+      // ⚠️ LA COULEUR EST UNE IDENTITE, PAS SEULEMENT UN CRITERE DE TRI.
+      // Jusqu'ici elle servait a grouper puis etait jetee : le slot arrivait
+      // nu, nomme d'apres sa PIECE dominante. Retenue, elle devient la cle
+      // stable a laquelle accrocher une matiere — stable la ou la POSITION ne
+      // l'est pas, groupFacesByColor triant les groupes par nombre de
+      // triangles, donc les reordonnant d'un batiment a l'autre.
+      slot.colorKey = colorKey(stepData.palette?.[g.colorGroup]) || null;
     });
+
+    // Matieres deja memorisees pour ces couleurs (bibliotheque hors projet).
+    let applied = 0;
+    try {
+      const lib = await getMaterialLibrary();
+      const plan = planFromGroups(lib, groups.map((g, i) => ({
+        rgb: keyToRgb(textureSlots[i].colorKey),
+      })));
+      for (let i = 0; i < groups.length; i++) {
+        if (!plan[i]) continue;
+        await _applyLibraryMaterial(textureSlots[i], plan[i]);
+        applied++;
+      }
+    } catch (err) {
+      // La bibliotheque est un CONFORT : son echec ne doit jamais empecher les
+      // slots d'exister, qui sont le vrai resultat de cette fonction.
+      console.warn('Material library not applied:', err);
+    }
 
     activeTextureSlotId = textureSlots[0].id;
     renderTextureTabs();
     restoreSlotState(textureSlots[0]);
     markProjectDirty();
-    showToast(t('interop.autoSlots', { n: groups.length }), { type: 'success', duration: 4500 });
+    showToast(
+      applied ? t('matlib.autoApplied', { n: groups.length, m: applied })
+              : t('interop.autoSlots', { n: groups.length }),
+      { type: 'success', duration: 4500 });
   }
 
   // ── Live link: auto-reload on FreeCAD re-export ────────────────────────────

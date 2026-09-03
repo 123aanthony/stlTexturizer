@@ -330,5 +330,9 @@ export default {
   "interop.reapplied": "Selezioni riassociate: {n} faccia/e, {m} orfane",
   "interop.liveLinkOn": "Collegamento live: ricaricamento automatico a ogni esportazione FreeCAD",
   "interop.liveLinkFailed": "Collegamento live: ricaricamento non riuscito: {msg}",
-  "interop.autoSlots": "{n} slot creati dai colori FreeCAD"
+  "interop.autoSlots": "{n} slot creati dai colori FreeCAD",
+  "matlib.rememberBtn": "Memorizza materiali",
+  "matlib.rememberTitle": "Memorizza il materiale di ogni slot per il suo colore FreeCAD. Il prossimo STEP colorato su una scena vuota li ritrova da solo.",
+  "matlib.remembered": "{n} materiale/i memorizzato/i ({total} nella libreria)",
+  "matlib.autoApplied": "{n} slot creati dai colori FreeCAD — {m} materiale/i riconosciuto/i",
 };

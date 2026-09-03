@@ -326,5 +326,9 @@ export default {
   "interop.reapplied": "Selections re-matched: {n} face(s), {m} orphan(s)",
   "interop.liveLinkOn": "Live link: auto-reload on each FreeCAD export",
   "interop.liveLinkFailed": "Live link: reload failed: {msg}",
-  "interop.autoSlots": "{n} slots created from FreeCAD colors"
+  "interop.autoSlots": "{n} slots created from FreeCAD colors",
+  "matlib.rememberBtn": "Remember Materials",
+  "matlib.rememberTitle": "Remember every slot material for its FreeCAD colour. The next coloured STEP that lands on a blank slate gets them back automatically.",
+  "matlib.remembered": "{n} material(s) remembered ({total} in the library)",
+  "matlib.autoApplied": "{n} slots created from FreeCAD colors — {m} material(s) recognized",
 };

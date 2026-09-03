@@ -118,6 +118,42 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
   `stepImport.js` + `vendor/meshstep/` (import STEP direct), lien vif (fs.watch),
   auto-slots par couleur. Sélections ancrées aux faces BREP → survivent aux
   re-exports FreeCAD.
+- `materialLibrary.js` — **bibliothèque de matières indexée par COULEUR FreeCAD**
+  (pur, testé ; le va-et-vient IndexedDB et les entrées de carte restent dans
+  `main.js`). ⚠️ **La couleur ne servait qu'à GROUPER, puis était jetée** : le slot
+  arrivait NU et nommé d'après sa PIÈCE dominante (« FW_Storey »), qui ne dit rien
+  de la matière — seize matières à re-choisir par bâtiment. Le transfert de matière
+  EXISTAIT pourtant (`.stltprofile`) : ce qui manquait n'était pas la plomberie
+  mais une **IDENTITÉ** stable. ⚠️ Le profil est indexé par slot ACTIF, donc par une
+  **POSITION**, et la position n'est pas stable — `groupFacesByColor` trie les
+  groupes par nombre de triangles, un bâtiment aux autres proportions les réordonne
+  et chaque matière atterrit sur le mauvais slot ; il n'en applique d'ailleurs
+  qu'UNE, au slot actif. La couleur, elle, est posée par `fw_colorize`, une par
+  matière, constante d'un export à l'autre : chaque slot porte donc son `colorKey`
+  (`'#rrggbb'`, persisté au projet), un bouton « Mémoriser les matières » retient
+  *couleur → {nom, carte, réglages}* **hors projet** (IndexedDB — son intérêt est
+  de traverser les projets), et l'arrivée d'un STEP coloré sur une ardoise vierge
+  les rejoue, **nom compris**.
+  ⚠️ **Correspondance au PLUS PROCHE, jamais au premier sous le seuil** : un glouton
+  ferait dépendre le résultat de l'ordre de mémorisation, et il y a des teintes
+  voisines (`fw_colorize` découpe le bois en sous-couleurs de direction de fil) —
+  même leçon que la carte des fils côté FreeCAD. ⚠️ **Seuil SERRÉ** (0.02, ~5/255
+  par canal) : il absorbe l'aller-retour STEP, rien de plus ; les trois pierres de
+  `fw_colorize` sont volontairement CONTRASTÉES, un seuil large peindrait un
+  chaînage en voussoir sans que rien ne le signale. ⚠️ Une **copie** de slot
+  n'hérite pas du `colorKey` (deux slots de même couleur se disputeraient l'entrée,
+  la dernière mémorisée gagnerait — arbitrairement) ; `clearTextureSlot` l'efface
+  (la couleur est venue AVEC les faces). ⚠️ `mapContentKey` a **déménagé ici depuis
+  `main.js`** (verbatim) : projet et bibliothèque désignent tous deux une carte par
+  son contenu, et deux fonctions qui décrivent la même identité doivent être la
+  MÊME fonction. ⚠️ La bibliothèque est un **CONFORT** : son échec (IndexedDB
+  indisponible) ne doit jamais empêcher les slots d'exister, qui sont le vrai
+  résultat de l'import. Validé `test/materialLibrary.mjs` (28 contrôles) —
+  ⚠️ dont 6 de **CÂBLAGE** (lecture du source de `main.js`) parce que les défauts
+  qu'ils attrapent sont MUETS : `colorKey` écrit sans être relu (ou l'inverse), la
+  pose automatique plus attendue (`await`) donc appliquée après le rendu, une copie
+  locale de `mapContentKey` qui réapparaît. Un oracle de câblage ne remplace pas un
+  oracle de comportement — le comportement complet demande la vraie app.
 - **Format projet — cartes DÉDUPLIQUÉES** (`mapLibrary` + `customMapKey` par slot,
   empreinte de contenu FNV-1a). Chaque slot portait sa propre copie en data URL :
   sur un projet réel de 18 slots pour 3 textures distinctes, **57.7 Mo** — la même
@@ -178,9 +214,10 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
 ## Tests — workflow OBLIGATOIRE après tout changement géométrique
 
 ```bash
-npm test                    # 31 harnais headless, golden compris (liste dans package.json)
+npm test                    # 32 harnais headless, golden compris (liste dans package.json)
 npm run test:i18n           # parité des 8 packs vs en.js + clés réellement demandées par t()
 npm run test:parity:modes   # parite apercu<->export sur les 12 modes de projection
+npm run test:matlib         # bibliotheque de matieres par couleur FreeCAD (+ cablage)
 npm run test:golden         # golden seul (cube/sphère/cylindre/plaque + multi-slot + 2 STL réels)
 npm run fixtures            # régénère les modèles de référence
 npm run test:seamband       # caractérisation √k du lissage — HORS batterie (pas un invariant)

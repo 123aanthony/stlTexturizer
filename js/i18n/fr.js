@@ -323,6 +323,10 @@ export default {
   "interop.liveLinkOn": "Lien vif : rechargement auto à chaque export FreeCAD",
   "interop.liveLinkFailed": "Lien vif : rechargement échoué : {msg}",
   "interop.autoSlots": "{n} slots créés depuis les couleurs FreeCAD",
+  "matlib.rememberBtn": "Mémoriser les matières",
+  "matlib.rememberTitle": "Mémorise la matière de chaque slot pour sa couleur FreeCAD. Le prochain STEP coloré déposé sur une ardoise vierge les retrouve tout seul.",
+  "matlib.remembered": "{n} matière(s) mémorisée(s) ({total} dans la bibliothèque)",
+  "matlib.autoApplied": "{n} slots créés depuis les couleurs FreeCAD — {m} matière(s) reconnue(s)",
 
   // i18n catch-up pass: keys that had been shipping in English only. Grouped at
   // the end rather than merged into en.js's order — the point is to close the

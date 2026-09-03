@@ -330,5 +330,9 @@ export default {
   "interop.reapplied": "선택 재매칭: 면 {n}개, 고아 {m}개",
   "interop.liveLinkOn": "라이브 링크: FreeCAD에서 내보낼 때마다 자동 새로 고침",
   "interop.liveLinkFailed": "라이브 링크: 새로 고침 실패: {msg}",
-  "interop.autoSlots": "FreeCAD 색상에서 슬롯 {n}개를 생성했습니다"
+  "interop.autoSlots": "FreeCAD 색상에서 슬롯 {n}개를 생성했습니다",
+  "matlib.rememberBtn": "재질 기억하기",
+  "matlib.rememberTitle": "각 슬롯의 재질을 해당 FreeCAD 색상에 연결해 기억합니다. 빈 상태에서 다음 컬러 STEP을 불러오면 자동으로 복원됩니다.",
+  "matlib.remembered": "재질 {n}개를 기억했습니다 (라이브러리에 {total}개)",
+  "matlib.autoApplied": "FreeCAD 색상에서 슬롯 {n}개 생성 — 재질 {m}개 인식",
 };

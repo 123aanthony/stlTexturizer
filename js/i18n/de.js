@@ -330,5 +330,9 @@ export default {
   "interop.reapplied": "Auswahl neu zugeordnet: {n} Fläche(n), {m} verwaist",
   "interop.liveLinkOn": "Live-Link: automatisches Neuladen bei jedem FreeCAD-Export",
   "interop.liveLinkFailed": "Live-Link: Neuladen fehlgeschlagen: {msg}",
-  "interop.autoSlots": "{n} Slots aus FreeCAD-Farben erstellt"
+  "interop.autoSlots": "{n} Slots aus FreeCAD-Farben erstellt",
+  "matlib.rememberBtn": "Materialien merken",
+  "matlib.rememberTitle": "Merkt sich das Material jedes Slots zu seiner FreeCAD-Farbe. Das nächste farbige STEP auf einer leeren Szene erhält sie automatisch zurück.",
+  "matlib.remembered": "{n} Material(ien) gemerkt ({total} in der Bibliothek)",
+  "matlib.autoApplied": "{n} Slots aus FreeCAD-Farben erstellt — {m} Material(ien) erkannt",
 };

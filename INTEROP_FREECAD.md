@@ -22,7 +22,9 @@ ré-appariement, lien vif, slots) est partagé.
    `BumpForge_Link`) et **chaque Ctrl+S ré-exporte automatiquement** ce STEP.
 2. **BumpForge** : déposer le `.step` une fois. Toasts : « N faces reconnues » +
    « Lien vif » + « N slots créés depuis les couleurs ».
-3. Choisir une texture par slot (les faces sont déjà assignées par couleur).
+3. Choisir une texture par slot (les faces sont déjà assignées par couleur),
+   puis **« Mémoriser les matières »** : au bâtiment suivant, les mêmes couleurs
+   reviennent déjà texturées et nommées (cf. « Bibliothèque de matières »).
 4. **Modifier dans FreeCAD → Ctrl+S** : le STEP se ré-exporte, BumpForge se
    recharge et ré-apparie les sélections tout seul. **Un seul geste.**
 
@@ -75,6 +77,47 @@ STEP coloré + **aucune face peinte** nulle part → un slot par groupe de coule
 pré-assignées en include-only. Jamais sur un re-export (les sélections
 ré-appariées priment). Une texture déjà choisie ne bloque pas (elle reste sur le
 slot renommé).
+
+### Bibliothèque de matières par couleur (03/09)
+
+⚠️ **La couleur ne servait qu'à GROUPER : elle était jetée juste après.** Le
+slot arrivait donc **nu** — sans carte ni réglages — et nommé d'après sa PIÈCE
+dominante (« FW_Storey »), qui ne dit rien de la matière. Sur un bâtiment réel
+de seize groupes, seize matières à re-choisir, **à chaque bâtiment**.
+
+Le transfert de matière EXISTAIT pourtant (`.stltprofile`) : ce qui manquait
+n'était pas la plomberie mais une **IDENTITÉ** stable à quoi accrocher une
+matière. ⚠️ Le profil est indexé par slot **ACTIF**, donc par une POSITION — et
+la position n'est pas stable : `groupFacesByColor` trie les groupes par nombre
+de triangles, si bien qu'un bâtiment aux proportions différentes les réordonne
+et que chaque matière atterrit sur le mauvais slot. Il n'applique d'ailleurs
+qu'**une** matière, au slot actif : pour seize slots, seize chargements.
+
+La couleur, elle, est stable — c'est `fw_colorize` qui la pose, une par matière,
+avec des valeurs constantes d'un export à l'autre. Chaque slot porte donc
+désormais son `colorKey` (`'#rrggbb'`, persisté dans le projet), et
+`js/materialLibrary.js` (**pur, testé**) tient une bibliothèque *couleur →
+{nom, carte, réglages}* rangée **hors projet** (IndexedDB, comme le brouillon de
+reprise : son intérêt est justement de traverser les projets).
+
+- **Mémoriser** : bouton « Mémoriser les matières », à côté des deux boutons de
+  profil. Il retient la matière de tous les slots porteurs d'une couleur.
+- **Rejouer** : à l'arrivée d'un STEP coloré sur une ardoise vierge — le même
+  garde que les auto-slots, jamais sur un re-export — chaque groupe retrouve sa
+  matière **et son nom**. Toast : « N slots créés — M matière(s) reconnue(s) ».
+
+⚠️ **La correspondance se fait au PLUS PROCHE, pas au premier sous le seuil** :
+un glouton ferait dépendre le résultat de l'ordre de mémorisation, et il y a des
+teintes voisines — `fw_colorize` découpe le bois en sous-couleurs de **direction
+de fil**. Même leçon que la carte des fils côté FreeCAD.
+⚠️ **Et le seuil est SERRÉ** (0.02, ~5/255 par canal) : il absorbe l'aller-retour
+STEP, pas davantage. Les trois pierres de `fw_colorize` sont volontairement
+CONTRASTÉES — un seuil large peindrait un chaînage en voussoir sans que rien ne
+le signale.
+⚠️ Une **copie** de slot n'hérite pas du `colorKey` : deux slots de même couleur
+se disputeraient l'entrée, et la dernière mémorisée gagnerait, arbitrairement.
+⚠️ La bibliothèque est un **CONFORT** : son échec (IndexedDB indisponible) ne doit
+jamais empêcher les slots d'exister, qui sont le vrai résultat de l'import.
 
 ## Périmètre et fil du bois (FW « Coloriser », 13/08)
 

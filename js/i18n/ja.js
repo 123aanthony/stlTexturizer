@@ -330,5 +330,9 @@ export default {
   "interop.reapplied": "選択を再マッチしました: {n} 面、孤立 {m} 件",
   "interop.liveLinkOn": "ライブリンク: FreeCAD のエクスポートごとに自動再読み込み",
   "interop.liveLinkFailed": "ライブリンク: 再読み込みに失敗しました: {msg}",
-  "interop.autoSlots": "FreeCAD の色から {n} 個のスロットを作成しました"
+  "interop.autoSlots": "FreeCAD の色から {n} 個のスロットを作成しました",
+  "matlib.rememberBtn": "マテリアルを記憶",
+  "matlib.rememberTitle": "各スロットのマテリアルを FreeCAD の色に紐づけて記憶します。次に空の状態へ読み込んだ色付き STEP に自動で適用されます。",
+  "matlib.remembered": "{n} 件のマテリアルを記憶しました（ライブラリ内 {total} 件）",
+  "matlib.autoApplied": "FreeCAD の色から {n} スロットを作成 — {m} 件のマテリアルを認識",
 };
