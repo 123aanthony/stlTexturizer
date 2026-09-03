@@ -11,8 +11,17 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-export async function launchApp(appRoot) {
-  const userData = mkdtempSync(join(tmpdir(), 'bumpforge-e2e-'));
+/**
+ * @param appRoot        racine de l'app
+ * @param opts.userData  profil a REUTILISER. Sans lui, un profil neuf par appel
+ *   (le comportement historique, inchange). Le passer permet de relancer l'app
+ *   sur le MEME profil : c'est ainsi qu'on eprouve ce qui doit survivre a la
+ *   fermeture — la bibliotheque de matieres vit dans IndexedDB, donc dans ce
+ *   dossier, et un test qui ne quitterait jamais l'app ne prouverait rien de sa
+ *   durabilite. Le profil rendu permet a l'appelant de le reutiliser.
+ */
+export async function launchApp(appRoot, { userData: reuse = null } = {}) {
+  const userData = reuse || mkdtempSync(join(tmpdir(), 'bumpforge-e2e-'));
   const app = await electron.launch({
     args: [appRoot],
     env: { ...process.env, BF_TEST_USERDATA: userData },
@@ -36,5 +45,5 @@ export async function launchApp(appRoot) {
   await page.waitForTimeout(600);
   if (await gotIt.isVisible().catch(() => false)) await gotIt.click();
 
-  return { app, page, bootErrors };
+  return { app, page, bootErrors, userData };
 }

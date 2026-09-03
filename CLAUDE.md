@@ -153,7 +153,25 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
   qu'ils attrapent sont MUETS : `colorKey` écrit sans être relu (ou l'inverse), la
   pose automatique plus attendue (`await`) donc appliquée après le rendu, une copie
   locale de `mapContentKey` qui réapparaît. Un oracle de câblage ne remplace pas un
-  oracle de comportement — le comportement complet demande la vraie app.
+  oracle de comportement — d'où **`test/e2e/materialLibrary.spec.mjs`**, qui fait
+  le trajet entier dans la vraie app sur un VRAI export GUI FreeCAD
+  (`interop_colored.step`, 5 couleurs) : auto-slots → renommer → carte + amplitude
+  → « Mémoriser » → **QUITTER** → relancer sur le MÊME profil → le slot revient
+  avec son nom, sa carte et son amplitude.
+  ⚠️ **La fermeture EST le test** : mémoriser et relire dans la même session serait
+  vert même si rien n'était jamais écrit sur le disque, le cache mémoire
+  (`_materialLibrary`) suffisant à satisfaire l'assertion. D'où le paramètre
+  `userData` de `launchApp` (additif, défaut inchangé) pour relancer sur le même
+  profil. Prouvé VIVANT par neutralisation ASSERTÉE (pose de la matière
+  neutralisée) : le slot revient nommé **« FW_Arch »** — sa pièce dominante,
+  exactement le défaut que ce lot corrige.
+  ⚠️ **Et la première sonde était FAUSSE** : le cas positif cherchait
+  `/reconnue|recognized/` dans les toasts, ce qui attrape « Modèle FreeCAD : 308
+  faces RECONNUES » — un message sans rapport, présent à CHAQUE chargement. Le cas
+  positif serait donc passé au vert sans qu'aucune matière ne soit appliquée.
+  C'est le cas NÉGATIF (« un profil vierge ne reconnaît rien ») qui l'a révélé, et
+  c'est sa seule raison d'exister : sans lui, l'oracle se serait contenté d'être
+  vert.
 - **Format projet — cartes DÉDUPLIQUÉES** (`mapLibrary` + `customMapKey` par slot,
   empreinte de contenu FNV-1a). Chaque slot portait sa propre copie en data URL :
   sur un projet réel de 18 slots pour 3 textures distinctes, **57.7 Mo** — la même
@@ -222,7 +240,7 @@ npm run test:golden         # golden seul (cube/sphère/cylindre/plaque + multi-
 npm run fixtures            # régénère les modèles de référence
 npm run test:seamband       # caractérisation √k du lissage — HORS batterie (pas un invariant)
 npm run test:interop:update # régénère les fixtures FreeCAD (pilote FreeCADCmd)
-npm run test:e2e            # Playwright-Electron : 6 specs (machine GPU, app fermée)
+npm run test:e2e            # Playwright-Electron : 8 specs / 13 cas (app fermée)
 ```
 - `npm test` tourne en **headless** (Node + `three@0.170.0`, sans DOM/Electron) et
   est lancé **à chaque commit** par le hook `.githooks/pre-commit`
