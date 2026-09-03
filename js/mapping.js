@@ -17,6 +17,7 @@ export const MODE_WOOD_AUTO   = 7;
 export const MODE_WOOD_X      = 8;
 export const MODE_WOOD_Y      = 9;
 export const MODE_WOOD_Z      = 10;
+export const MODE_POLAR       = 11;
 
 const TWO_PI = Math.PI * 2;
 const CUBIC_AXIS_EPSILON = 1e-4;
@@ -116,6 +117,66 @@ export function getCubicBlendWeights(normal, blend, seamBandWidth = 0.35) {
  *     d'arc, V normalisé par le même C dans computeUV)
  *   sphérique : arc équatorial pour U, arc méridien pôle-à-pôle pour V
  */
+/**
+ * PROJECTION POLAIRE — pourquoi elle existe.
+ *
+ * Une arche de pierre est faite de CLAVEAUX : des joints qui RAYONNENT depuis
+ * un centre, et des rangs concentriques. Aucun des dix autres modes ne sait
+ * dire ca. Le cylindrique en approche : ses joints rayonnent bien sur
+ * l'intrados... mais son axe est code en dur sur +Z, et surtout la face qu'on
+ * REGARDE — celle qui vit dans le plan du mur — a sa normale LE LONG de cet
+ * axe : c'est un « cap », et le cylindrique lui applique une projection
+ * PLANAIRE. Une grille droite sur la face avant, exactement le defaut qui rend
+ * un cadre texture ridicule ; et a `mappingBlend = 0` elle prend l'autre
+ * chemin et sort ETIREE, la coordonnee le long de l'axe y etant constante.
+ *
+ * Ce mode repond aux deux a la fois, avec UN seul repere :
+ *   - u = ANGLE autour de l'axe, pour toutes les faces sans exception ;
+ *   - v = position LE LONG de l'axe sur les flancs (intrados, extrados),
+ *         v = RAYON sur les faces frontales.
+ * Les joints tombent donc au meme angle des deux cotes de l'arete : ils se
+ * rejoignent, comme le fait un vrai claveau.
+ *
+ * ⚠️ LE MELANGE FLANC/FACE N'EST PAS OPTIONNEL ICI. Le cylindrique ne calcule
+ * son cap que si `mappingBlend > 0`, et son defaut est 0 : transposer ce garde
+ * aurait laisse la face avant streakee tant qu'on n'a pas trouve un reglage
+ * sans rapport apparent. La face frontale EST la raison de ce mode.
+ *
+ * ⚠️ VALABLE POUR UN ARC CIRCULAIRE. Une ogive, un tudor ou une anse de panier
+ * changent de centre de courbure en route : avec un centre unique les joints
+ * rayonnent juste pres du centre choisi et derivent aux naissances. Mesurable,
+ * souvent acceptable a l'echelle d'une maquette — mais ce n'est pas exact, et
+ * mieux vaut le savoir que le decouvrir.
+ */
+
+/**
+ * Les deux axes du PLAN de projection, puis l'axe de revolution.
+ * Ordre cyclique DROITIER (x->y->z->x) : sans lui, un axe sur deux renverrait
+ * un angle qui tourne a l'envers, et les claveaux d'une arche se liraient en
+ * miroir selon la face du batiment.
+ */
+export function polarPlaneAxes(axis) {
+  if (axis === 'x') return ['y', 'z', 'x'];
+  if (axis === 'y') return ['z', 'x', 'y'];
+  return ['x', 'y', 'z'];
+}
+
+/**
+ * Repere polaire resolu : axes, centre et rayon de reference. SOURCE UNIQUE —
+ * `computeUV`, `getScaleReferenceLengths` et l'ajustement automatique doivent
+ * lire le meme centre, sinon la texture et le gizmo decrivent deux arches.
+ * Centre et rayon a `null` = deduits de la boite englobante.
+ */
+export function polarFrame(settings, bounds) {
+  const [a1, a2, ax] = polarPlaneAxes(settings.polarAxis || 'z');
+  const { center, size } = bounds;
+  const c1 = settings.polarCenter1 ?? center[a1];
+  const c2 = settings.polarCenter2 ?? center[a2];
+  const R  = Math.max(
+    settings.polarRadius ?? Math.max(size[a1], size[a2]) * 0.5, 1e-6);
+  return { a1, a2, ax, c1, c2, R };
+}
+
 export function getScaleReferenceLengths(mode, settings, bounds) {
   const { size } = bounds;
   const md = Math.max(size.x, size.y, size.z, 1e-6);
@@ -128,6 +189,13 @@ export function getScaleReferenceLengths(mode, settings, bounds) {
     case MODE_SPHERICAL: {
       const R = Math.max(0.5 * md, 1e-6);
       return { refU: TWO_PI * R, refV: Math.PI * R };
+    }
+    case MODE_POLAR: {
+      // Meme normalisation que le cylindrique : une tuile de N mm couvre N mm
+      // d'arc en U et N mm de rayon en V. C'est ce qui rend un reglage
+      // comparable entre les deux modes, et lisible comme une taille de pierre.
+      const C = TWO_PI * polarFrame(settings, bounds).R;
+      return { refU: C, refV: C };
     }
     default:
       return { refU: md, refV: md };
@@ -311,6 +379,67 @@ export function computeUV(pos, normal, mode, settings, bounds) {
       // Combine seam-blended side samples with cap sample
       const samples = sideSamples.map(s => ({ u: s.u, v: s.v, w: s.w * (1 - capW) }));
       samples.push({ u: tCap.u, v: tCap.v, w: capW });
+      return { triplanar: true, samples };
+    }
+
+    case MODE_POLAR: {
+      const { a1, a2, ax, c1, c2, R } = polarFrame(settings, bounds);
+      const C = TWO_PI * R;
+      const p1 = pos[a1] - c1;
+      const p2 = pos[a2] - c2;
+
+      const uRaw  = Math.atan2(p2, p1) / TWO_PI + 0.5;
+      const vSide = (pos[ax] - min[ax]) / C;     // flancs : le long de l'axe
+      const vCap  = Math.hypot(p1, p2) / C;      // faces  : le rayon
+
+      // Poids de la face frontale. TOUJOURS calcule — voir l'en-tete : c'est
+      // cette face que le mode existe pour servir.
+      //
+      // ⚠️ LA BANDE DE FONDU EST SOUS LE SEUIL, PAS A CHEVAL DESSUS. Le
+      // cylindrique centre la sienne sur `capThreshold` : avec les valeurs par
+      // defaut (capAngle 20 -> seuil 0.940, demi-bande 0.25) son bord haut
+      // tombe a 1.19, au-dela du maximum atteignable. MESURE : une face
+      // PARFAITEMENT alignee sur l'axe — celle qu'on regarde — ne recevait que
+      // **0.62** de poids frontal, les 38 % restants venant du flanc, c'est-a-dire
+      // de la projection ETIREE. Le defaut que ce mode corrige serait revenu par
+      // la fenetre, aux reglages par defaut.
+      //
+      // Ici le seuil est le bord HAUT : « a moins de capAngle de l'axe, c'est une
+      // face » devient une promesse tenue, et le fondu s'etale en dessous.
+      const capThreshold = Math.cos((settings.capAngle ?? 20) * Math.PI / 180);
+      const band = Math.max((settings.seamBandWidth ?? 0.5), 1e-3);
+      const capLo = Math.max(0, capThreshold - band);
+      const capT = Math.max(0, Math.min(1,
+        (Math.abs(normal[ax]) - capLo) / Math.max(capThreshold - capLo, 1e-6)));
+      const capW = capT * capT * (3 - 2 * capT);   // smoothstep, comme le shader
+
+      // Couture a l'enroulement d'atan2 : meme fondu croise que le cylindrique.
+      // Sur une arche elle tombe sous les naissances, donc hors matiere ; sur
+      // une rosace ou un anneau complet elle serait visible sans lui.
+      const seamBand = (settings.seamBandWidth ?? 0.5) * 0.1;
+      const seamDist = Math.min(uRaw, 1.0 - uRaw);
+      let uParts;
+      if (seamBand > 0.001 && seamDist < seamBand) {
+        const d = uRaw < 0.5 ? uRaw : uRaw - 1.0;
+        const tRaw = (d + seamBand) / (2.0 * seamBand);
+        const t = tRaw * tRaw * (3 - 2 * tRaw);
+        uParts = [{ u: d, w: t }, { u: 1.0 + d, w: 1 - t }];
+      } else {
+        uParts = [{ u: uRaw, w: 1 }];
+      }
+
+      const samples = [];
+      for (const part of uParts) {
+        if (capW < 1) {
+          const tr = applyTransform(part.u, vSide, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
+          samples.push({ u: tr.u, v: tr.v, w: part.w * (1 - capW) });
+        }
+        if (capW > 0) {
+          const tr = applyTransform(part.u, vCap, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
+          samples.push({ u: tr.u, v: tr.v, w: part.w * capW });
+        }
+      }
+      if (samples.length === 1) return { u: samples[0].u, v: samples[0].v };
       return { triplanar: true, samples };
     }
 

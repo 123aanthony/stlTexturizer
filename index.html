@@ -426,6 +426,7 @@
             <option value="9">Wood Y (manual)</option>
             <option value="10">Wood Z (manual)</option>
             <option value="3" data-i18n-opt="projection.cylindrical">Cylindrical</option>
+            <option value="11" data-i18n-opt="projection.polar">Polar (arch / voussoirs)</option>
             <option value="4" data-i18n-opt="projection.spherical">Spherical</option>
             <option value="0" data-i18n-opt="projection.planarXY">Planar XY</option>
             <option value="1" data-i18n-opt="projection.planarXZ">Planar XZ</option>
@@ -459,6 +460,33 @@
             <input type="checkbox" id="cylinder-snap-toggle" checked />
             <span data-i18n="labels.snapSeamless">Snap to seamless wrap ⓘ</span>
           </label>
+        </div>
+        <div class="form-row" id="polar-axis-row" style="display:none">
+          <label for="polar-axis" data-i18n="labels.polarAxis">Arch axis</label>
+          <select id="polar-axis">
+            <option value="x">X</option>
+            <option value="y">Y</option>
+            <option value="z" selected>Z</option>
+          </select>
+        </div>
+        <div class="form-row" id="polar-center-row" style="display:none">
+          <label data-i18n="labels.polarCentre">Arch centre</label>
+          <div class="cylinder-axis-controls">
+            <input type="number" id="polar-center-1" step="0.1" class="polar-num" />
+            <input type="number" id="polar-center-2" step="0.1" class="polar-num" />
+            <input type="number" id="polar-radius" step="0.1" min="0.01" class="polar-num" />
+          </div>
+        </div>
+        <div class="form-row" id="polar-fit-row" style="display:none">
+          <label></label>
+          <div class="cylinder-axis-controls">
+            <button id="polar-autofit-btn" type="button" class="cylinder-axis-btn"
+              data-i18n="ui.polarAutofit" data-i18n-title="tooltips.polarAutofit"
+              title="Fit a circle to the selected faces (least-squares) to find the arch centre and radius.">Auto-fit</button>
+            <button id="polar-reset-btn" type="button" class="cylinder-axis-btn"
+              data-i18n="ui.polarReset" data-i18n-title="tooltips.polarReset"
+              title="Back to the bounding-box centre and radius.">Reset</button>
+          </div>
         </div>
         <div class="form-row" id="cylinder-axis-row" style="display:none">
           <label data-i18n="labels.cylinderAxis">Cylinder Axis</label>

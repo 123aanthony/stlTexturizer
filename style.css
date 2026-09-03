@@ -2538,3 +2538,9 @@ a[href*="github.com/cnckitchen"] {
 /* Case grisee : la carte des couleurs ne se pose pas sur un maillage bake. */
 .wireframe-toggle.disabled { opacity: 0.45; }
 .wireframe-toggle.disabled input { cursor: not-allowed; }
+
+/* Trois champs numeriques cote a cote : centre (2 axes) + rayon de reference. */
+.polar-num {
+  width: 60px;
+  min-width: 0;
+}

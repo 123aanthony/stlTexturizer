@@ -26,7 +26,7 @@ import { computeAssignedFaces,
          pickSlotMaterial, hasSlotMaterial, applySlotMaterial } from './slotState.js';
 import { runMultiSlotExport, snapBottomToFlat, decimateWithGuard } from './exportPipeline.js';
 import { resolveScaleU, snapScaleUForSeamlessWrap, SCALE_MM_INPUT_MIN, SCALE_MM_INPUT_MAX } from './scaleSnap.js';
-import { getScaleReferenceLengths } from './mapping.js';
+import { getScaleReferenceLengths, polarPlaneAxes, polarFrame } from './mapping.js';
 import { recommendedSmoothing } from './mipPyramid.js';
 import { computeSmoothNormals } from './smoothNormals.js';
 import { prepareMap, isMapPrepActive, MAP_PREP_DEFAULTS, measureLevels } from './mapPrep.js';
@@ -1223,6 +1223,13 @@ const settings = {
   cylinderCenterY:  null,
   cylinderRadius:   null,
   cylinderPanelMinimized: false,
+  // Projection POLAIRE (claveaux). Centre et rayon a null = deduits de la
+  // boite englobante ; l'ajustement automatique les remplit par une vraie
+  // mesure sur les faces selectionnees.
+  polarAxis:        'z',
+  polarCenter1:     null,
+  polarCenter2:     null,
+  polarRadius:      null,
   // Regularize Mesh (Advanced/Beta).  Two-step pipeline applied after the
   // initial subdivide: collapse sliver chains, then re-subdivide stretched
   // edges back to a configurable multiple of refineLength.  All knobs here
@@ -1680,6 +1687,15 @@ const capAngleRow            = document.getElementById('cap-angle-row');
 const cylinderSnapRow        = document.getElementById('cylinder-snap-row');
 const cylinderSnapToggle     = document.getElementById('cylinder-snap-toggle');
 const cylinderAxisRow        = document.getElementById('cylinder-axis-row');
+const polarAxisRow           = document.getElementById('polar-axis-row');
+const polarCenterRow         = document.getElementById('polar-center-row');
+const polarFitRow            = document.getElementById('polar-fit-row');
+const polarAxisSelect        = document.getElementById('polar-axis');
+const polarCenter1Input      = document.getElementById('polar-center-1');
+const polarCenter2Input      = document.getElementById('polar-center-2');
+const polarRadiusInput       = document.getElementById('polar-radius');
+const polarAutofitBtn        = document.getElementById('polar-autofit-btn');
+const polarResetBtn          = document.getElementById('polar-reset-btn');
 const cylinderAutofitBtn     = document.getElementById('cylinder-autofit-btn');
 const cylinderResetBtn       = document.getElementById('cylinder-reset-btn');
 const cylinderPanel          = document.getElementById('cylinder-panel');
@@ -2243,7 +2259,34 @@ cylinderCanvas.addEventListener('wheel', _cylinderWheel, { passive: false });
 // before it interrupts the drag.
 cylinderCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
+/**
+ * Les champs du mode polaire. Ils affichent la valeur RESOLUE quand le
+ * reglage est a null (deduit de la boite englobante) : un champ vide ne dirait
+ * pas ou tombe le centre, et c'est precisement ce qu'on regle ici.
+ */
+function updatePolarUI() {
+  const isPolar = settings.mappingMode === 11 /* MODE_POLAR */;
+  for (const row of [polarAxisRow, polarCenterRow, polarFitRow]) {
+    if (row) row.style.display = isPolar ? '' : 'none';
+  }
+  if (!isPolar) return;
+  if (polarAxisSelect) polarAxisSelect.value = settings.polarAxis || 'z';
+  if (!currentBounds) return;
+  const pf = polarFrame(settings, currentBounds);
+  const [a1, a2] = polarPlaneAxes(settings.polarAxis || 'z');
+  if (polarCenter1Input) {
+    polarCenter1Input.value = pf.c1.toFixed(2);
+    polarCenter1Input.title = a1.toUpperCase();
+  }
+  if (polarCenter2Input) {
+    polarCenter2Input.value = pf.c2.toFixed(2);
+    polarCenter2Input.title = a2.toUpperCase();
+  }
+  if (polarRadiusInput) polarRadiusInput.value = pf.R.toFixed(2);
+}
+
 function updateCylinderUIVisibility() {
+  updatePolarUI();
   const isCyl = settings.mappingMode === 3 /* MODE_CYLINDRICAL */;
   cylinderSnapRow.style.display = isCyl ? '' : 'none';
   cylinderAxisRow.style.display = isCyl ? '' : 'none';
@@ -2255,6 +2298,85 @@ function updateCylinderUIVisibility() {
     if (currentGeometry) _buildCylinderSilhouette();
     _scheduleCylinderPanelRedraw();
   }
+}
+
+/**
+ * Centre et rayon d'arche, par ajustement de cercle (Kasa) dans le plan
+ * perpendiculaire a l'axe choisi.
+ *
+ * DEUX DIFFERENCES AVEC `autoFitCylinderAxis`, et chacune compte ici :
+ *
+ * 1. L'AXE EST UN PARAMETRE. L'ajustement cylindrique lit x et y en dur et
+ *    ecarte les triangles par |n.z| — il ne sait donc trouver qu'un cylindre
+ *    d'axe Z. L'axe d'une arche est HORIZONTAL, perpendiculaire au mur.
+ *
+ * 2. ON AJUSTE SUR LA SELECTION, PAS SUR LE MODELE ENTIER. Un cadre complet",
+ *    seuil et montants compris, tire le cercle vers le bas : la bbox d'une
+ *    arche a son centre a mi-hauteur, pas a la naissance. Sur les seules faces
+ *    du slot actif — l'arche — le cercle tombe ou il faut. Sans selection on
+ *    retombe sur le modele entier, avec le meme avertissement implicite.
+ *
+ * Rend false sans rien ecrire si l'ajustement echoue : mieux vaut garder le
+ * centre precedent que poser un centre aberrant en silence.
+ */
+function autoFitPolarCentre() {
+  if (!currentGeometry || !currentBounds) return false;
+  const [a1, a2, ax] = polarPlaneAxes(settings.polarAxis || 'z');
+  const IDX = { x: 0, y: 1, z: 2 };
+  const i1 = IDX[a1], i2 = IDX[a2], iax = IDX[ax];
+
+  const pos = currentGeometry.attributes.position.array;
+  const idx = currentGeometry.index ? currentGeometry.index.array : null;
+  const fn  = triangleFaceNormals;
+  const triCount = idx ? (idx.length / 3) : (pos.length / 9);
+
+  // Faces du slot actif si l'utilisateur en a peint ; sinon tout le modele.
+  const sel = getAssignedFacesForCurrentSlot();
+  const useSel = sel && sel.size > 0 && sel.size < triCount;
+
+  let n = 0;
+  let Sx = 0, Sy = 0, Sxx = 0, Syy = 0, Sxy = 0, Sxz = 0, Syz = 0, Sz = 0;
+  for (let t = 0; t < triCount; t++) {
+    if (useSel && !sel.has(t)) continue;
+    // On ecarte les faces FRONTALES : leur normale est le long de l'axe, elles
+    // ne disent rien du rayon. Ce sont les flancs — intrados et extrados — qui
+    // portent le cercle.
+    const nax = fn ? fn[t * 3 + iax] : 0;
+    if (Math.abs(nax) >= 0.5) continue;
+    for (let v = 0; v < 3; v++) {
+      const i = idx ? idx[t * 3 + v] : (t * 3 + v);
+      const x = pos[i * 3 + i1];
+      const y = pos[i * 3 + i2];
+      const z = x * x + y * y;
+      Sx += x; Sy += y; Sxx += x * x; Syy += y * y; Sxy += x * y;
+      Sxz += x * z; Syz += y * z; Sz += z;
+      n++;
+    }
+  }
+  if (n < 10) return false;
+
+  const M = [[Sxx, Sxy, Sx], [Sxy, Syy, Sy], [Sx, Sy, n]];
+  const b = [Sxz, Syz, Sz];
+  const det = (m) =>
+      m[0][0]*(m[1][1]*m[2][2] - m[1][2]*m[2][1])
+    - m[0][1]*(m[1][0]*m[2][2] - m[1][2]*m[2][0])
+    + m[0][2]*(m[1][0]*m[2][1] - m[1][1]*m[2][0]);
+  const D = det(M);
+  if (Math.abs(D) < 1e-12) return false;
+  const colReplace = (col) => M.map((row, i) => row.map((v, j) => j === col ? b[i] : v));
+  const c1 = det(colReplace(0)) / D / 2;
+  const c2 = det(colReplace(1)) / D / 2;
+  const Cc = det(colReplace(2)) / D;
+  const r2 = Cc + c1 * c1 + c2 * c2;
+  if (!Number.isFinite(r2) || r2 <= 0) return false;
+  const r = Math.sqrt(r2);
+  const maxReasonable = Math.max(currentBounds.size[a1], currentBounds.size[a2]) * 5;
+  if (r > maxReasonable || r < 1e-3) return false;
+
+  settings.polarCenter1 = c1;
+  settings.polarCenter2 = c2;
+  settings.polarRadius  = r;
+  return true;
 }
 
 // Least-squares circle fit (Kasa method). Fits to vertices of triangles whose
@@ -3891,6 +4013,49 @@ function wireEvents() {
     updatePreview();
   });
 
+  polarAxisSelect?.addEventListener('change', () => {
+    settings.polarAxis = polarAxisSelect.value;
+    // Changer d'axe change le PLAN : un centre saisi pour l'ancien n'a plus de
+    // sens dans le nouveau. On revient a la deduction par boite englobante
+    // plutot que de garder deux nombres qui designent maintenant autre chose.
+    settings.polarCenter1 = null;
+    settings.polarCenter2 = null;
+    settings.polarRadius  = null;
+    updatePolarUI();
+    updatePreview();
+  });
+
+  const _polarNum = (el, key) => {
+    el?.addEventListener('change', () => {
+      const v = parseFloat(el.value);
+      settings[key] = Number.isFinite(v) ? v : null;
+      updatePolarUI();
+      updatePreview();
+    });
+  };
+  _polarNum(polarCenter1Input, 'polarCenter1');
+  _polarNum(polarCenter2Input, 'polarCenter2');
+  _polarNum(polarRadiusInput,  'polarRadius');
+
+  polarAutofitBtn?.addEventListener('click', () => {
+    const ok = autoFitPolarCentre();
+    showToast(t(ok ? 'toasts.polarFitOk' : 'toasts.polarFitFail'),
+              { type: ok ? 'success' : 'error' });
+    if (!ok) return;
+    updatePolarUI();
+    updatePreview();
+    if (typeof _autoSaveSettings === 'function') _autoSaveSettings();
+  });
+
+  polarResetBtn?.addEventListener('click', () => {
+    settings.polarCenter1 = null;
+    settings.polarCenter2 = null;
+    settings.polarRadius  = null;
+    updatePolarUI();
+    updatePreview();
+    if (typeof _autoSaveSettings === 'function') _autoSaveSettings();
+  });
+
   cylinderSnapToggle.addEventListener('change', () => {
     settings.snapSeamlessWrap = cylinderSnapToggle.checked;
     if (settings.snapSeamlessWrap && settings.mappingMode === 3) {
@@ -5058,6 +5223,12 @@ function handlePlaceOnFaceClick(e) {
   settings.cylinderCenterX = null;
   settings.cylinderCenterY = null;
   settings.cylinderRadius  = null;
+  // Meme raison pour le repere polaire : un centre d'arche mesure AVANT la
+  // rotation designe un point qui n'est plus la. Le garder, c'est retexturer
+  // de travers sans un mot.
+  settings.polarCenter1 = null;
+  settings.polarCenter2 = null;
+  settings.polarRadius  = null;
   _cylSilhouetteCanvas = null;
   _cylSilhouetteGeometry = null;
   _cylSilhouetteAnchor = null;
@@ -5903,6 +6074,12 @@ async function handleModelFile(file) {
     settings.cylinderCenterX = null;
     settings.cylinderCenterY = null;
     settings.cylinderRadius  = null;
+    // Idem pour l'arche : un centre ajuste sur le modele PRECEDENT n'a aucun
+    // sens sur celui-ci. (Une restauration de projet le reecrit ensuite si
+    // elle porte des valeurs explicites.)
+    settings.polarCenter1 = null;
+    settings.polarCenter2 = null;
+    settings.polarRadius  = null;
     _cylSilhouetteCanvas = null;
     _cylSilhouetteGeometry = null;
     _cylSilhouetteAnchor = null;
@@ -9109,6 +9286,9 @@ const PERSISTED_KEYS = [
   // null means "fall back to AABB defaults", which is what fresh loads get.
   'snapSeamlessWrap', 'cylinderCenterX', 'cylinderCenterY', 'cylinderRadius',
   'cylinderPanelMinimized',
+  // Projection polaire. Centre et rayon sont NULLABLES : null veut dire
+  // « deduis de la boite englobante », ce que recoit un chargement neuf.
+  'polarAxis', 'polarCenter1', 'polarCenter2', 'polarRadius',
 ];
 
 function getSettingsSnapshot() {
@@ -9268,6 +9448,10 @@ function _applySettingsSnapshotInner(snap) {
   if ('cylinderCenterX' in snap) settings.cylinderCenterX = snap.cylinderCenterX;
   if ('cylinderCenterY' in snap) settings.cylinderCenterY = snap.cylinderCenterY;
   if ('cylinderRadius'  in snap) settings.cylinderRadius  = snap.cylinderRadius;
+  if (snap.polarAxis) settings.polarAxis = snap.polarAxis;
+  if ('polarCenter1' in snap) settings.polarCenter1 = snap.polarCenter1;
+  if ('polarCenter2' in snap) settings.polarCenter2 = snap.polarCenter2;
+  if ('polarRadius'  in snap) settings.polarRadius  = snap.polarRadius;
   if ('cylinderPanelMinimized' in snap) {
     settings.cylinderPanelMinimized = !!snap.cylinderPanelMinimized;
     cylinderPanel.classList.toggle('minimized', settings.cylinderPanelMinimized);

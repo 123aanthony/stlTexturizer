@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { scaleMmToRelative } from './mapping.js';
+import { scaleMmToRelative, polarFrame } from './mapping.js';
 
 // Mapping mode constants (must match index.html <option value="…">)
 export const MODE_PLANAR_XY   = 0;
@@ -8,6 +8,7 @@ export const MODE_PLANAR_YZ   = 2;
 export const MODE_CYLINDRICAL = 3;
 export const MODE_SPHERICAL   = 4;
 export const MODE_TRIPLANAR   = 5;
+export const MODE_POLAR       = 11;
 export const MODE_CUBIC       = 6;
 export const MODE_WOOD_AUTO   = 7;
 export const MODE_WOOD_X      = 8;
@@ -54,6 +55,9 @@ const sharedGLSL = /* glsl */`
   uniform vec3      boundsCenter;
   uniform vec2      cylinderCenter;
   uniform float     cylinderRadius;
+  uniform int       polarAxis;      // 0 = X, 1 = Y, 2 = Z
+  uniform vec2      polarCenter;    // dans le PLAN perpendiculaire a l'axe
+  uniform float     polarRadius;
   uniform float     bottomAngleLimit;
   uniform float     topAngleLimit;
   uniform float     mappingBlend;
@@ -240,6 +244,49 @@ const sharedGLSL = /* glsl */`
       float capW = smoothstep(capThreshold - blendHalf, capThreshold + blendHalf, abs(blendN.z));
       float hCap  = sampleMap(vec2(cylRel2.x / C + 0.5, cylRel2.y / C + 0.5));
       return mix(hSide, hCap, capW);
+
+    } else if (mappingMode == 11) {
+      // POLAIRE — miroir EXACT de mapping.js case MODE_POLAR. Les deux
+      // implementations decrivent la meme transformation ; test/previewParity
+      // les compare terme a terme, parce qu'une divergence ici ne se verrait
+      // pas : chacune a l'air correcte prise seule.
+      //
+      // Ordre cyclique DROITIER, comme polarPlaneAxes : x->(y,z), y->(z,x),
+      // z->(x,y). Un ordre different renverrait un angle qui tourne a l'envers.
+      vec3 pAx;   // (p1, p2, le-long-de-l-axe)
+      vec3 nAx;   // normale reordonnee de la meme facon
+      vec3 mnAx;  // boundsMin reordonne
+      if (polarAxis == 0)      { pAx = pos.yzx; nAx = blendN.yzx; mnAx = boundsMin.yzx; }
+      else if (polarAxis == 1) { pAx = pos.zxy; nAx = blendN.zxy; mnAx = boundsMin.zxy; }
+      else                     { pAx = pos.xyz; nAx = blendN.xyz; mnAx = boundsMin.xyz; }
+
+      vec2  pol2 = pAx.xy - polarCenter;
+      float Rp   = max(polarRadius, 1e-4);
+      float Cp   = TWO_PI * Rp;
+      float u_pol  = atan(pol2.y, pol2.x) / TWO_PI + 0.5;
+      float v_side = (pAx.z - mnAx.z) / Cp;   // flancs : le long de l'axe
+      float v_cap  = length(pol2) / Cp;       // faces  : le rayon
+
+      // Bande de fondu SOUS le seuil (voir mapping.js) : une face alignee sur
+      // l'axe doit recevoir 1.0, pas 0.62.
+      float capThr = cos(radians(capAngle));
+      float band   = max(seamBandWidth, 1e-3);
+      float capLo  = max(0.0, capThr - band);
+      float capW   = smoothstep(capLo, max(capThr, capLo + 1e-6), abs(nAx.z));
+
+      float seamBandP = seamBandWidth * 0.1;
+      float seamDistP = min(u_pol, 1.0 - u_pol);
+      float hSideP, hCapP;
+      if (seamBandP > 0.001 && seamDistP < seamBandP) {
+        float d = u_pol < 0.5 ? u_pol : u_pol - 1.0;
+        float t = smoothstep(0.0, 1.0, (d + seamBandP) / (2.0 * seamBandP));
+        hSideP = mix(sampleMap(vec2(1.0 + d, v_side)), sampleMap(vec2(d, v_side)), t);
+        hCapP  = mix(sampleMap(vec2(1.0 + d, v_cap )), sampleMap(vec2(d, v_cap )), t);
+      } else {
+        hSideP = sampleMap(vec2(u_pol, v_side));
+        hCapP  = sampleMap(vec2(u_pol, v_cap ));
+      }
+      return mix(hSideP, hCapP, capW);
 
     } else if (mappingMode == 4) {
       float r     = length(rel);
@@ -591,6 +638,14 @@ export function updateMaterial(material, displacementTexture, settings) {
   u.mappingBlend.value            = settings.mappingBlend            ?? 0.0;
   u.seamBandWidth.value           = settings.seamBandWidth           ?? 0.35;
   u.capAngle.value                = settings.capAngle                ?? 20.0;
+  {
+    // Repere polaire : resolu par la SOURCE UNIQUE de mapping.js, jamais
+    // recopie ici — le shader et le CPU doivent viser le meme centre.
+    const pf = polarFrame(settings, settings.bounds || { center: { x: 0, y: 0, z: 0 }, size: { x: 1, y: 1, z: 1 } });
+    u.polarAxis.value = pf.ax === 'x' ? 0 : pf.ax === 'y' ? 1 : 2;
+    u.polarCenter.value.set(pf.c1, pf.c2);
+    u.polarRadius.value = pf.R;
+  }
   u.symmetricDisplacement.value   = settings.symmetricDisplacement   ? 1 : 0;
   u.noDownwardZ.value             = settings.noDownwardZ             ? 1 : 0;
   u.useDisplacement.value         = settings.useDisplacement         ? 1 : 0;
@@ -640,6 +695,9 @@ function buildUniforms(tex, settings) {
     mappingBlend:             { value: settings.mappingBlend            ?? 0.0 },
     seamBandWidth:            { value: settings.seamBandWidth            ?? 0.35 },
     capAngle:                 { value: settings.capAngle                 ?? 20.0 },
+    polarAxis:        { value: 2 },
+    polarCenter:      { value: new THREE.Vector2(0, 0) },
+    polarRadius:      { value: 1 },
     symmetricDisplacement:    { value: settings.symmetricDisplacement   ? 1 : 0 },
     noDownwardZ:              { value: settings.noDownwardZ             ? 1 : 0 },
     useDisplacement:          { value: settings.useDisplacement         ? 1 : 0 },
