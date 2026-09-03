@@ -41,7 +41,7 @@ const MAIN = join(HERE, '..', 'js', 'main.js');
 // deliberé, qu'on fait apres avoir extrait quelque chose. Les MONTER demande
 // une justification dans le message de commit — et il n'y en a qu'une de
 // valable : « ce cablage ne peut pas vivre ailleurs ».
-const LIMITE_LIGNES   = 10521;   // mesure au 03/09/2026, apres retrait du 2e ecrivain STL
+const LIMITE_LIGNES   = 10492;   // 03/09/2026, apres le 2e ecrivain STL et la passe d hygiene
 const LIMITE_MUTABLES = 113;     // `let` / `var` au niveau module
 
 // Marge toleree avant de demander un resserrage. Assez large pour qu'un

@@ -2,9 +2,14 @@
 //
 // Pure geometry/data helpers, extracted verbatim from main.js so they can be
 // unit-tested headless (they were buried in the 8.5k-line UI module). No DOM,
-// no module globals — everything is passed in. The console.log debug lines are
-// kept as-is for a strictly behavior-preserving extraction; they will be
-// removed in the hygiene pass.
+// no module globals — everything is passed in.
+//
+// Les traces de debogage laissees a l'extraction (« Export All Slots union
+// subdivision mask », « Exclusive slot mask triangle counts ») ont ete retirees
+// a la passe d'hygiene du 03/09 : elles s'imprimaient a CHAQUE export, dans la
+// console de l'utilisateur comme dans la sortie de tous les harnais, sans que
+// personne ne les lise. Ce qui reste de trace vit dans main.js, et encadre
+// l'operation (« Export All Slots requested / done ») au lieu de la commenter.
 
 import * as THREE from 'three';
 import { buildFaceWeights } from './exclusion.js';
@@ -76,11 +81,6 @@ export function buildUnionExcludedFacesForSlots(readySlots, geometry) {
     if (!owned.has(i)) excluded.add(i);
   }
 
-  console.log('Export All Slots union subdivision mask:', {
-    triCount,
-    owned: owned.size,
-    excluded: excluded.size
-  });
 
   return excluded;
 }
@@ -144,6 +144,5 @@ export function buildExclusiveSlotFaceMasks(faceParentId, readySlots) {
     }
   }
 
-  console.log('Exclusive slot mask triangle counts:', counts);
   return { masks, counts };
 }

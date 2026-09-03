@@ -73,16 +73,30 @@ Cumul : `main.js` ≈ −485 lignes nettes (1a→1d) ; 31 vérifs headless (21 u
 
 Reste backlog : regularize multi-slot (toujours OFF, à décider) ; retrait des `console.log` debug ; ~~supprimer le doublon `js/index.html`~~ (FAIT 10/08 — il a coûté un portage UI invisible : Electron sert la RACINE) ; README amont à actualiser.
 
-### Bug à vérifier — échelle de texture qui dérive au save/reload de projet
-Signalé : après sauvegarde puis réouverture d'un projet, l'échelle de texture (`scaleU`)
-a changé. Investigation : `restoreSlotState` préserve pourtant `scaleU` (pas un réglage
-global). Donc cause plus subtile — 3 suspects :
-1. Snapping cylindrique `_snapScaleUForSeamlessWrap` (main.js:1366) via `_applyScaleU`
-   (main.js:3049) → arrondit `scaleU` en mode cylindrique.
-2. Défauts de preset `selectPreset(..., applyDefaults=true)` (main.js:2410/2420) qui
-   réécrit `scaleU` avec `entry.defaultScale`.
-3. Aspect d'une texture custom rechargée depuis dataURL → échelle visuelle `scaleU/aspect`.
-Repro à préciser : mode de projection (cylindrique ?) + preset vs upload.
+### ~~Bug à vérifier — échelle de texture qui dérive au save/reload~~ (TRANCHÉ 03/09)
+
+Le ticket portait trois suspects et aucune mesure. Il est mesuré, sur le projet
+réel de l'utilisateur (7 slots), par `test/e2e/scaleRoundTrip.spec.mjs` :
+
+- **Le FICHIER est fidèle** : archive source contre archive écrite, **7 slots sur
+  7 identiques**, échelle globale comprise. Rien n'est perdu au disque. C'est
+  désormais un test permanent.
+- **Suspect n°1 (snap cylindrique)** : écarté. En mode cylindrique, l'échelle
+  affichée et l'échelle écrite coïncident — test permanent lui aussi.
+- **Suspects n°2 et n°3 (défauts de preset, aspect d'une carte custom)** : ils ne
+  se manifestent pas sur ce projet, qui exerce pourtant les deux cas (un slot
+  preset *Voronoi*, six cartes personnalisées dont quatre à aspect non carré,
+  U 49.7 / V 41.9 conservés).
+- **Ce qui dérive vraiment, c'est l'AFFICHAGE**, et seulement après un
+  **re-import par-dessus un projet déjà ouvert** : le panneau montre alors
+  l'échelle du slot ACTIF pour tous les onglets. Intermittent — reproduit 6 fois
+  sur 8 lancements. Reporté dans `TODOS.md` avec ses mesures ; pas de test dans
+  la batterie, un test instable coûterait plus qu'il ne rapporte.
+- ⚠️ **Une hypothèse de cause a été RÉFUTÉE par la mesure** : `handleModelFile`
+  remet `isRestoringProject` à faux dans son `finally` alors que l'import de
+  projet l'appelle au milieu de sa restauration — la fenêtre non gardée semblait
+  évidente. Essai fait, drapeau restauré au lieu d'éteint : **aucun changement**
+  (6/7 avant comme après, 3 lancements chacun). Correctif annulé.
 
 **Validation app** (utilisateur, après 1a/1b) : peinture 2 slots → save/reload projet
 (sélections restaurées) → Export All Slots. Le chemin réel de `main.js` — non couvert

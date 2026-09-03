@@ -21,7 +21,7 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
 
 ## Architecture (modules `js/`)
 
-- `main.js` — **monolithe 10 521 lignes** : bootstrap, UI, état global, slots,
+- `main.js` — **monolithe 10 492 lignes** : bootstrap, UI, état global, slots,
   orchestration d'export. **Cible du refacto en cours** (voir REFACTOR.md), tenue
   par un **CLIQUET** (`test/mainSize.mjs`, en tête de `npm test`).
   ⚠️ **Le refacto ne perdait pas — il était DÉPASSÉ PAR LE FLUX.** MESURÉ :
@@ -338,7 +338,7 @@ npm run test:golden         # golden seul (cube/sphère/cylindre/plaque + multi-
 npm run fixtures            # régénère les modèles de référence
 npm run test:seamband       # caractérisation √k du lissage — HORS batterie (pas un invariant)
 npm run test:interop:update # régénère les fixtures FreeCAD (pilote FreeCADCmd)
-npm run test:e2e            # Playwright-Electron : 8 specs / 13 cas (app fermée)
+npm run test:e2e            # Playwright-Electron : 9 specs / 15 cas (app fermée)
 ```
 - `npm test` tourne en **headless** (Node + `three@0.170.0`, sans DOM/Electron) et
   est lancé **à chaque commit** par le hook `.githooks/pre-commit`

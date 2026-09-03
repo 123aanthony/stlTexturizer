@@ -419,7 +419,6 @@ function clearTextureSlot(slotId = activeTextureSlotId) {
   refreshTextureTabsUI();
   requestRender();
 
-  console.log('Cleared texture slot:', slot.id);
 }
 
 function applyTextureTabInlineStyle(btn, isActive, isUsed, hasOverlap = false) {
@@ -2696,8 +2695,6 @@ document.getElementById('texture-tabs')?.addEventListener('click', (e) => {
   restoreSlotState(slot);
   refreshTextureTabsUI();
 
-  console.log('Switched texture slot:', activeTextureSlotId);
-  console.log('Active texture slot:', activeTextureSlotId);
 });
 
 // ─────────────────────────────────────────────
@@ -3005,7 +3002,6 @@ async function saveMaterialProfileToFile() {
 
   await _downloadBlob(blob, `${base}_material_profile.stltprofile`);
 
-  console.log('Saved material profile:', profile);
 }
 
 async function getPresetEntryByName(name) {
@@ -3167,13 +3163,6 @@ textureSlots = savedSlots.map((saved, index) => ({
     slot.excludedFaces = new Set(restoredSet);
     slot.assignedFaces = new Set(restoredAssignedSet);
 
-    console.log('Restore slot faces detail:', {
-      id: slot.id,
-      rawExcluded: saved.excludedFaces,
-      signatures: saved.faceSignatures ? saved.faceSignatures.length : 0,
-      triCount,
-      restoredUi: Array.from(restoredSet), restoredAssigned: Array.from(restoredAssignedSet)
-    });
 
     slot.activeMapEntry = null;
     slot.customMapEntry = null;
@@ -3243,11 +3232,6 @@ textureSlots = savedSlots.map((saved, index) => ({
   updatePreview();
   requestRender();
 
-  console.log('Restored project slots faces:', textureSlots.map(slot => ({
-    id: slot.id,
-    faces: Array.from(slot.excludedFaces || []),
-    map: slot.activeMapEntry ? slot.activeMapEntry.name : null
-  })));
 
   isRestoringProject = false;
 }
@@ -3311,11 +3295,6 @@ if (sourceSlot.name) {
 renderTextureTabs();
   restoreSlotState(targetSlot);
 
-  console.log('Applied material profile to current slot:', {
-    targetSlot: targetSlot.id,
-    sourceSlot: sourceSlot.id,
-    profile
-  });
 }
 
 async function loadMaterialProfileFromFile(file) {
@@ -3707,7 +3686,6 @@ async function scanElectronTextureLibrary(folderPath, { remember = false, replac
     await window.bumpforgeElectron.saveSetting('textureLibraryRoot', folderPath);
   }
 
-  console.log('Scanned personal texture library:', folderPath, groups);
 }
 
 async function rescanElectronTextureLibrary() {
@@ -3733,7 +3711,6 @@ async function clearElectronTextureLibrary() {
     await window.bumpforgeElectron.saveSetting('textureLibraryRoot', null);
   }
 
-  console.log('Cleared personal texture library');
 }
 
 async function autoLoadElectronTextureLibrary() {
@@ -8807,12 +8784,6 @@ if (slotSettings.decimateEnabled !== false && dispTriCount > slotSettings.maxTri
 
 setSlotProgress(0.95, `Finished ${slot.name}`);
 
-console.log(
-  'Built geometry for slot:',
-  slot.name,
-  finalGeometry.attributes.position.count / 3,
-  'triangles'
-);
 
 return finalGeometry;
 }

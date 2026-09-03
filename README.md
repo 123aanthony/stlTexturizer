@@ -1,174 +1,102 @@
-# BumpMesh by CNC Kitchen
+# BumpForge
 
-**Live:** https://bumpmesh.com  
-**GitHub:** https://github.com/CNCKitchen/stlTexturizer
-**Author:** Stefan Hermann
+*Fork de [CNCKitchen/stlTexturizer](https://github.com/CNCKitchen/stlTexturizer)
+(BumpMesh, Stefan Hermann) — voir « Amont et licence » en bas. English speakers:
+this is a French-documented fork; the upstream project is at the link above.*
 
-A browser-based tool for applying surface displacement textures to 3D meshes — no installation required.
+Application **Electron** de **texturisation par displacement** pour maquettes et
+dioramas imprimés en **FDM**. On charge un modèle nu, on lui grave des reliefs à
+partir de cartes de hauteur (pierre, bois, tuile, torchis…), et on exporte un STL
+déplacé prêt à trancher.
 
-Load an STL, OBJ, or 3MF file, pick a texture, tune the parameters, and export a new displaced STL ready for slicing.
+Ce que le fork ajoute à l'amont, et pourquoi :
 
-## Recent Updates
+| | |
+|---|---|
+| **Multi-slots** | Un bâtiment n'a pas *une* matière. Un slot = une carte + une sélection de faces ; l'export les applique en une passe, sans double déplacement aux frontières. |
+| **Wood mapping orienté** | Le fil du bois suit l'axe **propre de la pièce** (PCA par slot), pas un axe du monde — une poutre inclinée n'a plus un veinage de travers. |
+| **Interop FreeCAD** | Import **STEP direct**, sélections ancrées aux **faces BREP** (elles survivent aux re-exports), lien vif, slots créés depuis les couleurs, matières mémorisées par couleur. |
+| **Audit d'impression** | Avant écriture : topologie du maillage exporté et épaisseur de paroi restante après creusement. |
+| **Export sans interface** | `npm run export -- projet.bforge` — un projet, ou un lot. |
+| **Electron** | Fichiers sur disque, lien vif avec FreeCAD, récupération après crash. |
 
-- Save / load project files (`.bumpmesh`)
-- Undo / redo history
-- Part rotation gizmo
-- Mesh diagnostics
-- Smooth masking borders
-- New languages: Italian, Spanish, Portuguese, Japanese, French
-- 2–3× speed improvement
-- 3MF export
-- Mouse-wheel fine tuning of values
-- Quality of life improvements
-
-## Features
-
-### Textures
-- **24 built-in seamless textures** — basket, brick, bubble, carbon fiber, crystal, dots, grid, grip surface, hexagon, hexagons, isogrid, knitting, knurling, leather 2, noise, stripes (×2 variants), voronoi, weave (×3 variants), wood (×3 variants)
-- **Custom textures** — upload your own image as a displacement map
-- **Texture smoothing** — configurable blur to soften the displacement map before applying
-
-### Projection Modes
-- **Triplanar** (default) — blends three planar projections based on surface normals; best for complex shapes
-- **Cubic (Box)** — projects from 6 box faces with edge-seam blending and smart axis dominance
-- **Cylindrical** — wraps texture around a cylindrical axis with configurable cap angle
-- **Spherical** — maps texture spherically around the object
-- **Planar XY / XZ / YZ** — flat axis-aligned projections
-
-### UV & Transform Controls
-- **Scale U/V** — independent or locked scaling (0.05–10×, logarithmic)
-- **Offset U/V** — position the texture on each axis
-- **Rotation** — rotate texture before projection
-- **Seam Blend Strength** — softens hard edges where Cubic/Cylindrical projection faces meet
-- **Seam Band Width** — controls blending zone width at seam edges
-- **Cap Angle** (Cylindrical) — threshold for switching to top/bottom cap projection
-
-### Displacement
-- **Amplitude** — scales displacement depth from 0 % to 100 %
-- **Symmetric displacement** — 50 % grey stays neutral, white pushes out, black pushes in (preserves volume)
-- **3D displacement preview** — real-time GPU-accelerated preview toggle showing actual vertex displacement
-- **Amplitude overlap warning** — alerts when depth exceeds 10 % of the smallest model dimension
-
-### Surface Masking
-- **Angle masking** — suppress texture on near-horizontal top and/or bottom faces (0°–90° threshold each)
-- **Face exclusion / inclusion painting** — paint individual faces to exclude (orange) or exclusively include (green) them
-  - Brush tool — single-triangle click or adjustable-radius circle brush
-  - Bucket fill — flood-fills adjacent faces up to a configurable dihedral-angle threshold
-  - Erase — hold Shift to undo painted faces
-  - Clear all — reset masking
-
-### Mesh Processing
-- **Adaptive subdivision** — subdivides edges until they are ≤ a target length; respects sharp creases (>30° dihedral)
-- **QEM decimation** — simplifies the result to a target triangle count using Quadric Error Metrics with boundary protection, link-condition checks, normal-flip rejection, and crease preservation
-- **Mesh diagnostics** — automatic checks for open edges and shell count, with advanced diagnostics and overlay highlights for problem areas
-- **Safety cap** — hard limit of 10 M triangles during subdivision to prevent out-of-memory
-
-### 3D Viewer
-- **Orbit / pan / zoom** controls
-- **Wireframe toggle** — visualise mesh topology
-- **Mesh info** — live triangle count, file size, bounding-box dimensions
-- **Grid & axes indicator** — X = red, Y = green, Z = blue
-- **Place on Face** — click a face to orient it downward onto the print bed
-
-### File Support
-- **.STL** — binary and ASCII
-- **.OBJ** — via Three.js OBJLoader
-- **.3MF** — ZIP-based format (via fflate decompression)
-
-### Export
-- Downloads a **binary STL** with displacement baked in
-- Progress reporting through subdivision → displacement → decimation → writing stages
-- Configurable edge-length threshold and output triangle limit
-
-### Other
-- **Light / Dark theme** — respects OS preference, persisted per browser
-- **Multilingual** — English and German UI with auto-detection
-
-## Usage
-
-1. Open `index.html` in a modern browser (Chrome, Edge, Firefox, Safari).
-2. Drop a model onto the viewport or click **Load STL…** (supports STL, OBJ, 3MF).
-3. Select a texture preset from the sidebar (or upload a custom image).
-4. Choose a projection mode and adjust UV scale, offset, rotation, and amplitude.
-5. Optionally mask or exclude surfaces with the angle sliders or paint tools.
-6. Click **Export STL** to download the displaced mesh.
-
-> **Note:** All processing runs entirely in the browser — no data is uploaded to any server.
-
-## Project Structure
-
-```
-index.html            # Main entry point
-style.css             # Styles (light / dark theme)
-logo.png              # Favicon & header logo
-CNAME                 # Custom domain (bumpmesh.com)
-textures/             # Built-in JPG/PNG displacement map images (24 textures)
-js/
-  main.js             # App bootstrap & UI wiring
-  viewer.js           # Three.js scene / camera / controls
-  stlLoader.js        # Binary & ASCII STL parser
-  presetTextures.js   # Built-in texture presets + custom upload
-  previewMaterial.js  # Three.js material for live & displacement preview
-  mapping.js          # UV projection logic (7 modes)
-  displacement.js     # Vertex displacement baking
-  subdivision.js      # Adaptive mesh subdivision
-  decimation.js       # QEM mesh decimation
-  exclusion.js        # Face exclusion / inclusion painting
-  exporter.js         # Binary STL export
-  i18n.js             # Translations (EN / DE)
-```
-
-## Run Locally
-
-All processing runs entirely in the browser — no backend or build step is needed. You just need a local HTTP server because browsers block ES module imports and texture loading from `file://` URLs.
+## Démarrer
 
 ```bash
-# Clone the repository
-git clone https://github.com/CNCKitchen/stlTexturizer.git
-cd stlTexturizer
+npm install
+npm start
 ```
 
-Then start any static file server from the project root. Pick whichever you have installed:
+Node ≥ 20 et une machine avec WebGL. L'app est en JS **vanilla**, sans framework
+ni bundler : `index.html` charge `js/` en modules ES.
 
-**Python (3.x)**
+## Le flux FreeCAD, en un geste
+
+C'est le cœur du fork et il tient en une boucle :
+
+1. **FreeCAD** — commande *FW Coloriser*, puis *Lier à BumpForge* : la sélection
+   et le fichier `.step` cible sont mémorisés dans le document.
+2. **BumpForge** — déposer le `.step` une fois. Les slots sont créés depuis les
+   couleurs, faces déjà assignées ; les matières déjà mémorisées reviennent avec
+   leur nom.
+3. **Ctrl+S dans FreeCAD** — le STEP se ré-exporte, BumpForge se recharge et
+   ré-apparie les sélections tout seul.
+
+Détail complet, contrat des clés de faces et pièges : **[INTEROP_FREECAD.md](INTEROP_FREECAD.md)**.
+
+## Export en ligne de commande
+
 ```bash
-python -m http.server 8000
+npm run export -- projet.bforge                    # un projet
+npm run export -- a.bforge b.bforge c.bforge       # un lot
 ```
 
-**Python (2.x)**
+Écrit `<nom>_all_slots.stl` à côté de chaque projet, avec l'audit d'impression en
+sortie. Tout est partagé avec l'application, jusqu'aux octets du STL — le fichier
+produit est celui qu'aurait écrit la GUI.
+
+⚠️ Deux limites, dites plutôt qu'approximées : le **flou de texture**
+(`textureSmoothing > 0`) est refusé — c'est un filtre Canvas2D qu'aucune
+bibliothèque Node ne reproduit au pixel près ; et la **variation par pièce** est
+ignorée, parce que l'application l'ignore aussi sur ce chemin d'export.
+
+## Tests
+
 ```bash
-python -m SimpleHTTPServer 8000
+npm test          # 36 harnais headless, golden-master compris
+npm run test:e2e  # Playwright-Electron : l'app réelle
 ```
 
-**Node.js (npx, no install needed)**
+`npm test` tourne **sans DOM ni Electron** (Node + `three` épinglé) et est lancé
+à chaque commit par `.githooks/pre-commit` — à activer une fois par clone :
+
 ```bash
-npx serve .
+git config core.hooksPath .githooks
 ```
 
-**PHP**
-```bash
-php -S localhost:8000
-```
+La règle du dépôt : **toute empreinte golden qui change est une régression**,
+sauf changement voulu — auquel cas `npm run test:golden:update`, avec la
+justification dans le message de commit.
 
-Open http://localhost:8000 in your browser and you're ready to go.
+## Documentation
 
-> **Tip:** Any static server will work — the app has no server-side dependencies.
+| | |
+|---|---|
+| [CLAUDE.md](CLAUDE.md) | Architecture module par module, pièges mesurés, workflow de test. Le document à lire en premier. |
+| [INTEROP_FREECAD.md](INTEROP_FREECAD.md) | Les deux pipelines FreeCAD, contrat des clés de faces, lien vif, auto-slots. |
+| [REFACTOR.md](REFACTOR.md) | Méthode du refacto de `main.js`, journal des extractions. |
+| [SAVE_AUDIT.md](SAVE_AUDIT.md) · [AUDIT.md](AUDIT.md) | Audits sauvegarde/persistance et slots. |
+| [TODOS.md](TODOS.md) | Ce qui reste, avec les mesures qui le justifient. |
 
-## Dependencies
+## Amont et licence
 
-Loaded via CDN ([jsDelivr](https://www.jsdelivr.com/)) — no build step or npm install needed:
+Ce dépôt est un fork de **stlTexturizer / BumpMesh**, de **Stefan Hermann**
+(CNC Kitchen) — https://bumpmesh.com. Le moteur de displacement, la
+subdivision adaptative, l'échelle absolue en millimètres et les courbes de
+lissage du masque viennent de là ; le multi-slot, le Wood mapping orienté,
+l'interop FreeCAD, l'audit d'impression et l'export en ligne de commande sont
+des ajouts du fork.
 
-| Library | Version | License | Usage |
-|---------|---------|---------|-------|
-| [Three.js](https://threejs.org/) | 0.170.0 | MIT | 3D rendering, scene management, materials |
-| — [OrbitControls](https://threejs.org/docs/#examples/en/controls/OrbitControls) | 0.170.0 | MIT | Camera orbit / pan / zoom |
-| — [STLLoader](https://threejs.org/docs/#examples/en/loaders/STLLoader) | 0.170.0 | MIT | Binary & ASCII STL import |
-| — [OBJLoader](https://threejs.org/docs/#examples/en/loaders/OBJLoader) | 0.170.0 | MIT | OBJ mesh import |
-| — [LineSegments2 / LineSegmentsGeometry / LineMaterial](https://threejs.org/docs/#examples/en/lines/LineSegments2) | 0.170.0 | MIT | Wide-line wireframe overlay |
-| [fflate](https://github.com/101arrowz/fflate) | 0.8.2 | MIT | ZIP compression & decompression for 3MF import/export |
-
-All dependencies are MIT-licensed.
-
-## License
-
-GNU AGPL v3.0 — see [LICENSE](LICENSE).
+**AGPL v3** (voir [LICENSE](LICENSE)) — Copyright (C) 2026 CNCKitchen
+(Stefan Hermann). Le vendoring de [meshStep](https://github.com/CNCKitchen/meshStep)
+dans `js/vendor/meshstep/` est sous la même licence.

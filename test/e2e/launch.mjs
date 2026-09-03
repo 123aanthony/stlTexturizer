@@ -7,9 +7,39 @@
 // profile removes that and makes runs reproducible.
 
 import { _electron as electron } from '@playwright/test';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+// ⚠️ LES PROFILS TEMPORAIRES NE SE NETTOYAIENT JAMAIS. Chaque lancement en cree
+// un ; chaque `npm run test:e2e` en laisse une quinzaine derriere lui, pour
+// toujours. MESURE le 03/09 sur la machine de developpement : **322 dossiers,
+// 2.5 Go**. Rien ne casse — c'est juste une fuite lente, du genre qu'on ne
+// remarque qu'en cherchant autre chose.
+//
+// Le balayage se fait a l'OUVERTURE et par AGE, pas a la fermeture : un profil
+// encore en service ne peut pas etre supprime sous Windows, et une suppression
+// en fin de test echouerait en silence sur le premier cas interrompu. Une heure
+// de sursis suffit a ne jamais toucher un profil du run en cours, meme quand
+// plusieurs suites s'enchainent.
+const AGE_MAX_MS = 60 * 60 * 1000;
+
+function balayerAnciensProfils() {
+  const base = tmpdir();
+  let retires = 0;
+  try {
+    for (const nom of readdirSync(base)) {
+      if (!nom.startsWith('bumpforge-e2e-')) continue;
+      const p = join(base, nom);
+      try {
+        if (Date.now() - statSync(p).mtimeMs < AGE_MAX_MS) continue;
+        rmSync(p, { recursive: true, force: true });
+        retires++;
+      } catch { /* profil verrouille ou deja parti : tant pis, on reessaiera */ }
+    }
+  } catch { /* pas de /tmp lisible : le nettoyage n'est pas la mission */ }
+  if (retires) console.log(`  (nettoyage : ${retires} profil(s) e2e perime(s) retire(s))`);
+}
 
 /**
  * @param appRoot        racine de l'app
@@ -21,6 +51,7 @@ import { join } from 'node:path';
  *   durabilite. Le profil rendu permet a l'appelant de le reutiliser.
  */
 export async function launchApp(appRoot, { userData: reuse = null } = {}) {
+  if (!reuse) balayerAnciensProfils();
   const userData = reuse || mkdtempSync(join(tmpdir(), 'bumpforge-e2e-'));
   const app = await electron.launch({
     args: [appRoot],

@@ -66,3 +66,31 @@
   fonctions (`wireEvents` 979, `handleExport` 222,
   `computeBoundaryFalloffAttr` 211) touchent toutes le DOM ou l'état global :
   elles se découpent, elles ne se déplacent pas telles quelles.
+
+- [ ] **L'affichage de l'échelle dérive après un RE-import de projet.** Après
+  avoir ouvert un projet **par-dessus un projet déjà ouvert**, le panneau montre
+  l'échelle du slot ACTIF pour tous les onglets — mesuré : 6 slots sur 7
+  affichent 51.7 (la valeur du slot actif) au lieu de 25 / 105 / 49.7.
+  **Le fichier, lui, est intact** (7/7 identiques, test permanent) : c'est un
+  défaut d'affichage, pas de données — mais il se lit comme « mon échelle a
+  changé », et c'est très probablement l'origine du ticket qui dormait dans
+  `REFACTOR.md`. **Intermittent** (6 fois sur 8 lancements), donc pas de test
+  dans la batterie. Repro : `npx playwright test scaleRoundTrip` en rétablissant
+  le cas « AFFICHAGE » commenté en tête du fichier.
+  ⚠️ **Piste déjà réfutée** : le `isRestoringProject = false` du `finally` de
+  `handleModelFile` (appelée au milieu de l'import) — le restaurer ne change
+  rien. Chercher ailleurs : un autre écrivain de `saveActiveSlotState`, ou un
+  `restoreSlotState` non rejoué quand les onglets sont recréés à l'identique.
+
+- [ ] **Les e2e ne tiennent plus quand la machine est chargée.** MESURÉ le
+  03/09, même machine, même code : un cas passe en **14 s** au repos et en
+  **3,6 min** en fin de journée ; un autre (deux lancements d'Electron) dépasse
+  **6 min** là où il en met 14 s. Les délais ont été élargis (ce sont des gardes
+  anti-blocage, pas des mesures de vitesse), mais **inflater n'est pas une
+  réponse** : au-delà, c'est la suite entière qui devient inexploitable — 16 min
+  pour 15 cas. **Piste** : les cas lourds rechargent le même STEP et relancent
+  l'app pour chaque test ; mutualiser une instance par fichier de spec (fixture
+  `test.describe` + `beforeAll`) diviserait le temps par deux ou trois.
+  ⚠️ Vérifier sur machine au repos avant de conclure quoi que ce soit d'un
+  échec e2e : deux échecs du 03/09 étaient des expirations, PAS des régressions
+  (bissection à `76c8a60` : mêmes échecs, code d'alors).
