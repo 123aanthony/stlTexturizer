@@ -147,6 +147,39 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
   (26 contrôles, dont 4 de câblage) — ⚠️ le **déclenchement réel** passe par une boîte
   de dialogue native (`saveBlob` → IPC) qu'un e2e ne peut pas franchir : il reste à
   vérifier à la main, une fois, sur un vrai export.
+- `scripts/bumpforge-export.mjs` — **export d'un `.bforge` SANS interface**
+  (`npm run export -- projet.bforge`, plusieurs fichiers = lot). Le pipeline était
+  déjà sans DOM (`runMultiSlotExport`, extrait pour ça) : il ne manquait que de quoi
+  lui donner un projet. Deux usages : le **LOT** (un diorama, c'est N bâtiments ; après
+  une modif FreeCAD il fallait rouvrir chaque projet et cliquer) et l'**ORACLE** —
+  `exportProject()` est appelable depuis un test, et les 13 cas du golden sont des
+  cubes, aucun ne traverse un `.bforge` à sept slots, c'est-à-dire le chemin où
+  vivent les défauts. MESURÉ sur le projet réel `housev2.bforge` : **9,28 M
+  triangles en 52 s**, avec l'audit d'impression en sortie (1704 arêtes non-manifold,
+  paroi 0.30 mm, creusement 0.98 mm).
+  ⚠️ **Tout est PARTAGÉ avec l'app**, jusqu'aux octets : `runMultiSlotExport`,
+  `restoreSlotFaces`, `prepareMap` + `mapPrepOptsOf`/`splitTexelsOf` (extraits de
+  `main.js` vers `mapPrep.js` pour ça), `buildSTLBuffer` (extrait de `exportSTL`),
+  `printAudit`, et la table `IMAGE_PRESETS` pour retrouver un preset par son nom
+  AFFICHÉ. Une seconde écriture de l'un d'eux divergerait, et le lot rendrait autre
+  chose que la GUI **sans que rien ne le dise**.
+  ⚠️ **Deux limites, mesurées et DITES** — un outil de lot qui rendrait « presque » le
+  bon fichier serait pire qu'aucun outil. (1) `textureSmoothing > 0` : le flou est un
+  `filter: blur()` de Canvas2D qu'aucune bibliothèque Node ne reproduit au pixel
+  près ⇒ **REFUS explicite**, jamais d'approximation (mesuré : 0 slot sur 7 l'utilise
+  dans le projet réel, et le défaut d'usine est 0). (2) La variation par PIÈCE est
+  ignorée — **parce que l'app l'ignore aussi sur ce chemin** : MESURÉ, `pieceOffset`/
+  `pieceRotate` ne changent **rien** à « Export All Slots » (**0 sommet différent sur
+  633 312**), alors qu'ils agissent sur le chemin mono-slot. La CLI reproduit la GUI,
+  défaut compris ; corriger l'app le corrigera ici par le même code (au backlog).
+  ⚠️ `fflate` devient une **devDependency épinglée 0.8.2** — la version exacte que
+  l'import map sert au navigateur, comme `three` est épinglé sur celle du CDN.
+  Validé `test/cliExport.mjs` (13 contrôles sur des `.bforge` fabriqués au format
+  réel) : aller-retour STL **exact**, déterminisme, refus chiffrés, slot sans
+  sélection **annoncé** et non avalé — et surtout **les niveaux de carte changent
+  vraiment la sortie** (23 336 sommets déplacés), l'invariant qui attrape le défaut
+  silencieux à craindre : une reconstruction incomplète rend un STL parfaitement
+  valide qui n'est pas celui de l'écran. Prouvé vivant par neutralisation ASSERTÉE.
 - `exportPipeline.js` — orchestration export multi-slot sans DOM (+`decimateWithGuard`
   watertight). `scaleSnap.js` — snap d'échelle cylindrique (fix dérive au reload).
 - `beamAxis.js` — **Wood Auto orienté poutre** : PCA des faces du slot ; V classifié
@@ -271,11 +304,13 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
 ## Tests — workflow OBLIGATOIRE après tout changement géométrique
 
 ```bash
-npm test                    # 33 harnais headless, golden compris (liste dans package.json)
+npm test                    # 35 harnais headless, golden compris (liste dans package.json)
 npm run test:i18n           # parité des 8 packs vs en.js + clés réellement demandées par t()
 npm run test:parity:modes   # parite apercu<->export sur les 12 modes de projection
 npm run test:matlib         # bibliotheque de matieres par couleur FreeCAD (+ cablage)
 npm run test:printaudit     # audit d'imprimabilite : topologie, epaisseur, verdict
+npm run export -- p.bforge  # export d'un projet SANS interface (lot : plusieurs .bforge)
+npm run test:cli            # le lecteur de projet de la CLI (reconstruction, refus, audit)
 npm run test:golden         # golden seul (cube/sphère/cylindre/plaque + multi-slot + 2 STL réels)
 npm run fixtures            # régénère les modèles de référence
 npm run test:seamband       # caractérisation √k du lissage — HORS batterie (pas un invariant)

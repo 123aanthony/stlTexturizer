@@ -253,3 +253,30 @@ export function measureLevels(imageData, { low = 0.01, high = 0.99 } = {}) {
     ok: true,
   };
 }
+
+// ── Options de preparation, depuis les reglages ──────────────────────────────
+//
+// Extraites de main.js (_mapPrepOpts / _splitTexels) pour que l'export en ligne
+// de commande prepare la carte EXACTEMENT comme l'application. Deux lectures des
+// memes reglages divergeraient au premier ajout de champ, et le lot batch
+// rendrait alors une autre matiere que la GUI — sans que rien ne le dise.
+export function mapPrepOptsOf(settings) {
+  return {
+    black: settings.mapBlack, white: settings.mapWhite, gamma: settings.mapGamma,
+    macroGain: settings.mapMacro, microGain: settings.mapMicro,
+    splitMm: settings.mapSplitMm,
+  };
+}
+
+/**
+ * Frontiere macro/micro en TEXELS, depuis les millimetres regles.
+ * @param texPerMm  la fonction de mipPyramid.js, INJECTEE : ce module n'a
+ *                  aucune dependance, et les deux appelants l'importent deja.
+ *                  C'est la MEME source que le prefiltre mip — les deux doivent
+ *                  decrire la meme empreinte.
+ */
+export function splitTexelsOf(settings, w, h, texPerMm) {
+  const tmax = Math.max(w, h, 1);
+  const ss = { ...settings, textureAspectU: tmax / Math.max(w, 1), textureAspectV: tmax / Math.max(h, 1) };
+  return Math.max(0, settings.mapSplitMm * texPerMm(ss, w, h));
+}

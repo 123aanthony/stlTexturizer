@@ -32,6 +32,19 @@ function triggerDownload(buffer, filename, mime = 'application/octet-stream') {
  * @param {string} [filename]
  */
 export function exportSTL(geometry, filename = 'textured.stl') {
+  triggerDownload(buildSTLBuffer(geometry), filename);
+}
+
+/**
+ * Les OCTETS du STL binaire, sans les ecrire.
+ *
+ * Extrait de `exportSTL` (verbatim) pour que l'export en ligne de commande
+ * (scripts/bumpforge-export.mjs) produise le MEME fichier que l'application :
+ * une seconde ecriture du format divergerait un jour — normales, ordre des
+ * sommets, en-tete — et le lot en lot batch cesserait silencieusement de valoir
+ * l'export de l'app.
+ */
+export function buildSTLBuffer(geometry) {
   const posArr = geometry.attributes.position.array;
   const norArr = geometry.attributes.normal
     ? geometry.attributes.normal.array
@@ -78,7 +91,7 @@ export function exportSTL(geometry, filename = 'textured.stl') {
     // Attribute byte count: 0 (already zero-filled)
   }
 
-  triggerDownload(buffer, filename);
+  return buffer;
 }
 
 /**

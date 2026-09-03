@@ -29,7 +29,8 @@ import { resolveScaleU, snapScaleUForSeamlessWrap, SCALE_MM_INPUT_MIN, SCALE_MM_
 import { getScaleReferenceLengths, polarPlaneAxes, polarFrame } from './mapping.js';
 import { recommendedSmoothing } from './mipPyramid.js';
 import { computeSmoothNormals } from './smoothNormals.js';
-import { prepareMap, isMapPrepActive, MAP_PREP_DEFAULTS, measureLevels } from './mapPrep.js';
+import { prepareMap, isMapPrepActive, MAP_PREP_DEFAULTS, measureLevels,
+         mapPrepOptsOf, splitTexelsOf } from './mapPrep.js';
 import { isPieceVariationActive, buildPieceXforms, PIECE_VARIATION_DEFAULTS } from './pieceVariation.js';
 import { texPerMm } from './mipPyramid.js';
 import { computeBeamFrame } from './beamAxis.js';
@@ -7254,13 +7255,9 @@ function _mapPrepControls() {
 }
 
 /** Reglages de preparation, dans la forme qu'attend js/mapPrep.js. */
-function _mapPrepOpts() {
-  return {
-    black: settings.mapBlack, white: settings.mapWhite, gamma: settings.mapGamma,
-    macroGain: settings.mapMacro, microGain: settings.mapMicro,
-    splitMm: settings.mapSplitMm,
-  };
-}
+// Les DEUX derivations vivent desormais dans mapPrep.js : l'export en ligne
+// de commande les lit de la, pour preparer la carte exactement comme ici.
+function _mapPrepOpts() { return mapPrepOptsOf(settings); }
 
 /**
  * La frontiere macro/micro est reglee en MILLIMETRES du modele — la seule unite
@@ -7269,11 +7266,7 @@ function _mapPrepOpts() {
  * mip : les deux doivent decrire la meme empreinte, sinon la frontiere affichee
  * ne serait pas celle appliquee.
  */
-function _splitTexels(w, h) {
-  const tmax = Math.max(w, h, 1);
-  const ss = { ...settings, textureAspectU: tmax / Math.max(w, 1), textureAspectV: tmax / Math.max(h, 1) };
-  return Math.max(0, settings.mapSplitMm * texPerMm(ss, w, h));
-}
+function _splitTexels(w, h) { return splitTexelsOf(settings, w, h, texPerMm); }
 
 // ── Identifiants de PIÈCE ────────────────────────────────────────────────────
 // Composantes connexes du maillage d'ORIGINE, mémoïsées : l'adjacence est déjà

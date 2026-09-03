@@ -44,3 +44,15 @@
   mais le déclenchement réel passe par la boîte de dialogue native `saveBlob`
   qu'un e2e ne peut pas franchir. Exporter une pièce, regarder la console
   (`Audit impression — …`) et, sur une pièce mince, le toast.
+
+- [ ] **La variation par PIÈCE ne fait RIEN sur « Export All Slots ».**
+  MESURÉ : `pieceOffset` / `pieceRotate` actifs ⇒ **0 sommet différent sur
+  633 312** par rapport aux mêmes réglages désactivés. Cause : `main.js` passe
+  `pieceOfTri` à `applyDisplacement` sur le chemin **mono-slot** (`:8537`) mais
+  `exportPipeline.runMultiSlotExport` ne le passe pas — le moteur teste
+  `settings.pieceOfTri` et se désactive donc en silence. Le réglage marche à
+  l'aperçu et sur l'export d'un seul slot : c'est cette asymétrie qui le rend
+  invisible. **Trouvé en écrivant la CLI**, qui reproduit fidèlement la GUI —
+  donc le même défaut. **Comment** : injecter `pieceOfTri` (via `faceParentId`,
+  comme `pieceOfTriFor`) dans `runMultiSlotExport`. ⚠️ La sortie CHANGERA sur
+  tout projet qui utilise la variation ⇒ golden à rebaseliner, avec mesure.
