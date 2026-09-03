@@ -111,7 +111,14 @@ const sharedGLSL = /* glsl */`
     softWeights /= dot(softWeights, vec3(1.0)) + 1e-6;
 
     vec3 blendedWeights = mix(oneHot, softWeights, seamMix);
-    return blendedWeights / (dot(blendedWeights, vec3(1.0)) + 1e-6);
+    // ⚠️ max(somme, eps) et NON somme + eps : cote CPU
+    // (mapping.js getCubicBlendWeights) la normalisation finale divise par la
+    // somme EXACTE, sans garde. Un + eps attenue donc l'apercu de ~1e-6 en
+    // permanence, la ou un max ne change rien tant que la somme est saine et
+    // protege quand meme du zero (normale degeneree + melange a fond). La
+    // normalisation des poids DOUX juste au-dessus garde son + 1e-6 : celle-la
+    // est ecrite pareil des deux cotes.
+    return blendedWeights / max(dot(blendedWeights, vec3(1.0)), 1e-6);
   }
 
   // Sample after applying scale + tiling (aspect-corrected)
@@ -202,7 +209,7 @@ const sharedGLSL = /* glsl */`
   float computeHeightAtPoint(vec3 pos, vec3 projN, vec3 blendN) {
     vec3 rel = pos - boundsCenter;
     float maxDim = max(boundsSize.x, max(boundsSize.y, boundsSize.z));
-    float md = max(maxDim, 1e-4);
+    float md = max(maxDim, 1e-6);   // plancher de garde aligne sur mapping.js (il valait 1e-4)
 
     if (mappingMode == 0) {
       return sampleMap(vec2((pos.x - boundsMin.x) / md, (pos.y - boundsMin.y) / md));
@@ -217,7 +224,7 @@ const sharedGLSL = /* glsl */`
       // Cylinder axis is +Z. Center XY and radius are user-controllable so
       // pie-slice / off-center parts can be projected without distortion.
       vec2 cylRel2 = pos.xy - cylinderCenter;
-      float r = max(cylinderRadius, 1e-4);
+      float r = max(cylinderRadius, 1e-6);   // aligne sur mapping.js (il valait 1e-4)
       float C = TWO_PI * r;
       float u_cyl = atan(cylRel2.y, cylRel2.x) / TWO_PI + 0.5;
       float v_cyl = (pos.z - boundsMin.z) / C;
@@ -241,7 +248,15 @@ const sharedGLSL = /* glsl */`
       if (mappingBlend < 0.001) return hSide;
       float capThreshold = cos(radians(capAngle));
       float blendHalf = seamBandWidth * 0.5;
-      float capW = smoothstep(capThreshold - blendHalf, capThreshold + blendHalf, abs(blendN.z));
+      // ⚠️ RAMPE LINEAIRE, PAS un smoothstep : miroir EXACT de mapping.js
+      // (case MODE_CYLINDRICAL, capW). Les deux ecritures partageaient les
+      // memes BORNES mais pas la meme COURBE — donc un ecart maximal au
+      // MILIEU de la bande, la ou aucune des deux ne parait fausse prise
+      // seule : jusqu'a 9.62 % de poids, a 37.3 deg de l'axe, AUX REGLAGES
+      // D'USINE. Trouve par test/mappingParity.mjs. Decision PO : c'est
+      // l'APERCU qui s'aligne sur l'export, jamais l'inverse — sinon on
+      // change la geometrie deja imprimee pour corriger un affichage.
+      float capW = clamp((abs(blendN.z) - (capThreshold - blendHalf)) / (2.0 * blendHalf + 1e-6), 0.0, 1.0);
       float hCap  = sampleMap(vec2(cylRel2.x / C + 0.5, cylRel2.y / C + 0.5));
       return mix(hSide, hCap, capW);
 
@@ -290,7 +305,7 @@ const sharedGLSL = /* glsl */`
 
     } else if (mappingMode == 4) {
       float r     = length(rel);
-      float phi   = acos(clamp(rel.z / max(r, 1e-4), -1.0, 1.0));
+      float phi   = acos(clamp(rel.z / max(r, 1e-6), -1.0, 1.0));   // aligne sur mapping.js
       float u_sph = atan(rel.y, rel.x) / TWO_PI + 0.5;
       float v_sph = phi / PI;
 
@@ -312,7 +327,11 @@ const sharedGLSL = /* glsl */`
     } else if (mappingMode == 5) {
       vec3 blend = abs(projN);
       blend = pow(blend, vec3(4.0));
-      blend /= dot(blend, vec3(1.0)) + 1e-4;
+      // ⚠️ 1e-6, comme mapping.js (case MODE_TRIPLANAR) — il valait 1e-4 ici.
+      // Un epsilon pose contre la division par zero est aussi un ATTENUATEUR :
+      // les poids sommaient a 1-3e-4 a l'apercu contre 1-3e-6 a l'export, donc
+      // 0.03 % de hauteur perdue sur une normale diagonale.
+      blend /= dot(blend, vec3(1.0)) + 1e-6;
       // Flip U based on normal sign so opposite faces show correct (non-mirrored) text.
       float yzU = (pos.y - boundsMin.y) / md;
       if (projN.x < 0.0) yzU = -yzU;

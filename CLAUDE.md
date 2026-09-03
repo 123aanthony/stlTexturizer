@@ -178,8 +178,9 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
 ## Tests — workflow OBLIGATOIRE après tout changement géométrique
 
 ```bash
-npm test                    # 25 harnais headless, golden compris (liste dans package.json)
+npm test                    # 31 harnais headless, golden compris (liste dans package.json)
 npm run test:i18n           # parité des 8 packs vs en.js + clés réellement demandées par t()
+npm run test:parity:modes   # parite apercu<->export sur les 12 modes de projection
 npm run test:golden         # golden seul (cube/sphère/cylindre/plaque + multi-slot + 2 STL réels)
 npm run fixtures            # régénère les modèles de référence
 npm run test:seamband       # caractérisation √k du lissage — HORS batterie (pas un invariant)
@@ -205,6 +206,60 @@ npm run test:e2e            # Playwright-Electron : 6 specs (machine GPU, app fe
     les gardes de câblage du premier étaient DÉJÀ posés — la vraie cause était
     ailleurs (un `setInterval` de 500 ms). Un oracle de câblage ne remplace pas un
     oracle de comportement.
+  - `mappingParity.mjs` — **parité APERÇU ↔ EXPORT sur les 12 modes de
+    projection**. L'aperçu déplace en GLSL (`previewMaterial.js`), l'export sur CPU
+    (`mapping.js computeUV`) : deux écritures de la même transformation, dont la
+    divergence ne se voit pas — chacune a l'air correcte prise seule. `previewParity`
+    couvrait le mode 0 et `polarMapping` le mode 11 ; les **10 autres n'avaient aucun
+    oracle**. ⚠️ On compare des **HAUTEURS, pas des UV** : `computeUV` rend tantôt un
+    UV, tantôt une liste d'échantillons PONDÉRÉS (triplanaire, cubique, couture,
+    calotte) que le GLSL, lui, mélange à l'intérieur de `computeHeightAtPoint` —
+    apparier ces structures reviendrait à écrire un oracle qui épouse
+    l'implémentation, et surtout les POIDS resteraient hors mesure, là où vivait la
+    divergence trouvée. Texture **analytique** (périodique, gradient borné ≈ 7.9) et
+    non une image : un sampler ferait disparaître tout écart d'UV sous le texel ; là,
+    le seuil de 1e-6 mord dès 1.3e-7 d'UV. **3 divergences MESURÉES à la pose, les 3
+    CORRIGÉES le jour même** — décision PO du 03/09 : **c'est l'APERÇU qui s'aligne
+    sur l'export, jamais l'inverse** (corriger le CPU aurait changé une géométrie
+    déjà imprimée pour rattraper un affichage), donc les 3 correctifs sont dans
+    `previewMaterial.js` et **le golden est resté bit-identique** :
+    **cylindrique 4.4e-2** — `capW` était une rampe LINÉAIRE côté CPU
+    (`mapping.js:364`) et un SMOOTHSTEP côté shader ; mêmes BORNES, courbe
+    différente, donc l'écart maximal au MILIEU de la bande, là où aucune des deux ne
+    paraît fausse : **9.62 % de poids** à 37.3° de l'axe, **aux réglages d'usine** ;
+    **triplanaire 2.2e-4** — epsilon de garde `+1e-6` (CPU) contre `+1e-4` (GLSL) :
+    un epsilon posé contre la division par zéro agit aussi comme **ATTÉNUATEUR** ;
+    **cubique ~1e-6** — normalisation finale `somme + eps` côté shader contre somme
+    EXACTE côté CPU, d'où `max(somme, eps)` (qui garde la protection sans atténuer).
+    Après : **12 modes sur 12 à ~1e-14**. La table `KNOWN` reste en place, VIDE,
+    pour la prochaine — avec sa garde qui fait ÉCHOUER une entrée dont l'écart est
+    retombé : un pansement ne survit pas à sa plaie.
+    ⚠️ **UN ORACLE QUI VISE LE MAUVAIS CHEMIN NE MESURE RIEN** : la 1re version
+    comparait le mode CUBIQUE à la branche `MODE_CUBIC` de `computeUV`, alors que
+    `displacement.js` a un chemin RAPIDE dédié qui la court-circuite (`continue`) —
+    à l'export cette branche n'est atteinte que si les 3 poids sont nuls, ce qui
+    n'arrive pas. Elle annonçait donc une divergence de 1.3e-4 (le court-circuit
+    `w > 0.999` de `computeUV`) **qui n'existe pas entre l'aperçu et l'export** :
+    c'était du code MORT. Le test reproduit désormais le chemin rapide
+    (`getCubicBlendWeights` déjà partagée + `_cubicUV`, exporté pour ça).
+    ⚠️ **Ce que ce fichier ne prouve pas** : il n'EXÉCUTE pas le GLSL (pas de GPU en
+    headless), `glslHeight` en est une TRANSCRIPTION — d'où les contrôles
+    STRUCTURELS qui lisent le source du shader, sur une copie DÉBARRASSÉE DE SES
+    COMMENTAIRES (sans quoi une ligne mise en commentaire laisserait le test vert,
+    piège déjà payé par `previewParity`). Le lot qui fermerait ce trou : exporter
+    `sharedGLSL`, l'envelopper dans un shader jetable et le faire tourner dans les
+    e2e Playwright-Electron, pixels relus contre le CPU. Prouvé VIVANT par
+    neutralisation ASSERTÉE (smoothstep remis dans le shader, compte d'ancres
+    vérifié) : rouge sur `cylindrique` à 4.43e-2, vert après restauration.
+  - ⚠️ **Deux miroirs restent NON couverts, et c'est publié en fin de fichier** :
+    le préfiltre mip (le shader échantillonne sans LOD) ; et surtout
+    **`seamBlendWidthMm` n'a AUCUN miroir dans le shader** (vérifié : le nom
+    n'apparaît que dans `displacement.js` et `main.js`) — le réglage « Seam Blend »
+    ne change RIEN à l'aperçu, seulement à l'export.
+  - ⚠️ **Un commentaire dans le bloc GLSL ne doit contenir NI backtick NI `${`** :
+    `sharedGLSL` est un template literal, un backtick de prose y ferme la chaîne et
+    `main.js` cesse d'être un module — l'app est morte à l'écran. Vécu en écrivant
+    ce lot, attrapé par `moduleSyntax.mjs` (`node --check` rend 0, lui).
 - ⚠️ **Les oracles de performance COMPTENT, ils ne chronomètrent pas.** Un seuil en
   millisecondes dépend de la machine, de la charge et du GC ; un oracle instable
   finit ignoré. `e2e/tabThumbs.spec.mjs` compte les appels à `toDataURL` — une

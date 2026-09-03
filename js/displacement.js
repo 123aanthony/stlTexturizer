@@ -915,7 +915,7 @@ if (maskedOut || isFaceExcluded || isSealedBoundary) {
 
 /** Apply scale/offset/rotation to raw UV for cubic projection.
  *  Mirrors the private applyTransform helper in mapping.js. */
-function _cubicUV(rawU, rawV, settings, rotRad, aspectU, aspectV, relScale, px) {
+export function _cubicUV(rawU, rawV, settings, rotRad, aspectU, aspectV, relScale, px) {
   // relScale = scaleMmToRelative(...) — settings.scaleU/scaleV sont des mm.
   // `px` (transformation de pièce) est optionnel : absent, les `?? 0` rendent
   // 0 et le miroir vaut 1, donc les deux lignes sont IDENTIQUES au legacy.
