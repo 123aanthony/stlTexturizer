@@ -331,4 +331,9 @@ export default {
   "matlib.rememberTitle": "Remember every slot material for its FreeCAD colour. The next coloured STEP that lands on a blank slate gets them back automatically.",
   "matlib.remembered": "{n} material(s) remembered ({total} in the library)",
   "matlib.autoApplied": "{n} slots created from FreeCAD colors — {m} material(s) recognized",
+  "audit.notWatertight": "Exported mesh is not closed: {open} open edge(s), {nm} non-manifold edge(s) out of {edges}. The slicer may or may not close it — lower the amplitude or the subdivision fineness, or repair before printing.",
+  "audit.underNozzle": "Thinnest wall {wall} mm, minus {cut} mm carved from both sides = {after} mm — under the {limit} mm nozzle. Fix: symmetric amplitude ≤ {amp} mm, or thicken the part.",
+  "audit.thin": "Thinnest wall after carving: {after} mm — printable, but under the comfortable {limit} mm.",
+  "audit.notMeasurable": "Wall thickness not measurable: none of the {samples} probes hit an opposite wall (open mesh, or flipped normals).",
+  "audit.upperBound": "Upper bound: the actual darkest level of the maps was not measured.",
 };

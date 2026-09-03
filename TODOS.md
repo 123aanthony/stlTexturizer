@@ -29,3 +29,18 @@
   `test/mappingParity.mjs` (§4, limites publiées). **Décision** : porter les poids
   étalés en attribut de sommet côté aperçu, ou l'assumer et le DIRE dans l'UI —
   un réglage sans effet visible vaut moins qu'un réglage absent.
+
+- [ ] **Resserrer la borne d'amincissement avec le creux RÉEL des cartes.**
+  `printAudit.inwardBudget` accepte déjà `greyMin` par slot (mesuré, testé), mais
+  `main.js` ne le fournit pas : l'audit annonce donc un **majorant** (il le dit).
+  **Pourquoi** : à amplitude 0.5 symétrique il suppose 0.50 mm retirés là où une
+  carte qui ne descend jamais sous 0.2 n'en retire que 0.30 — donc des alertes
+  qui n'ont pas lieu d'être, et un avertissement qu'on cesse de lire.
+  **Comment** : `greyMinOf(imageData)` sur l'ImageData que le chemin d'export a
+  déjà en main (`getSlotImageData`). **Dépend de** : rien.
+
+- [ ] **Vérifier À LA MAIN, une fois, que l'audit d'impression se déclenche.**
+  Il est câblé sur les deux chemins d'export (contrôlé par lecture du source),
+  mais le déclenchement réel passe par la boîte de dialogue native `saveBlob`
+  qu'un e2e ne peut pas franchir. Exporter une pièce, regarder la console
+  (`Audit impression — …`) et, sur une pièce mince, le toast.

@@ -335,4 +335,9 @@ export default {
   "matlib.rememberTitle": "Recuerda el material de cada slot para su color de FreeCAD. El siguiente STEP coloreado sobre una escena vacía los recupera automáticamente.",
   "matlib.remembered": "{n} material(es) recordado(s) ({total} en la biblioteca)",
   "matlib.autoApplied": "{n} slots creados desde los colores de FreeCAD — {m} material(es) reconocido(s)",
+  "audit.notWatertight": "La malla exportada no está cerrada: {open} arista(s) abierta(s), {nm} arista(s) no-manifold de {edges}. El laminador quizá la cierre, pero no está garantizado — baja la amplitud o la finura de subdivisión, o repárala antes de imprimir.",
+  "audit.underNozzle": "Pared más fina {wall} mm, menos {cut} mm excavados por ambos lados = {after} mm — por debajo de la boquilla de {limit} mm. Solución: amplitud simétrica ≤ {amp} mm, o engrosar la pieza.",
+  "audit.thin": "Pared más fina tras el excavado: {after} mm — imprimible, pero por debajo de los {limit} mm cómodos.",
+  "audit.notMeasurable": "Espesor no medible: ninguno de los {samples} rayos alcanzó una pared opuesta (malla abierta o normales invertidas).",
+  "audit.upperBound": "Cota superior: no se midió el nivel más oscuro real de los mapas.",
 };

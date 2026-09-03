@@ -37,6 +37,7 @@ import { idbGet, idbSet, idbDel } from './idbStore.js';
 import { shouldOfferRecovery, recoveryAgeParts } from './recovery.js';
 import { migrateProjectPayload } from './projectMigrate.js';
 import { parseFaceSidecar, facesToTriangleSet, selectionToFaceKeys, matchFaceKeys, groupFacesByColor } from './faceGroups.js';
+import { auditEdges, minWallThickness, inwardBudget, auditReport } from './printAudit.js';
 import { colorKey, keyToRgb, mapContentKey, emptyLibrary, normalizeLibrary,
          putMaterial, planFromGroups, librarySize } from './materialLibrary.js';
 
@@ -2787,6 +2788,54 @@ function _installProfileButtons() {
 // MEME fonction — sinon une carte partagee par le projet cesserait un jour de
 // l'etre par la bibliotheque, en silence.
 
+// ── Audit d'imprimabilite, juste avant l'ecriture ────────────────────────────
+//
+// L'app promet « FDM sans support, parois >= ~0.8 mm » et ne mesurait rien de
+// tel : `isWatertight` ne servait que de garde a la DECIMATION, et le mot
+// "thickness" n'existait nulle part. Ici on regarde le maillage REELLEMENT
+// ecrit, et on DIT ce qu'on trouve — sans jamais bloquer : c'est la piece de
+// l'utilisateur, et un audit qui refuserait un export serait contourne des la
+// premiere fausse alerte.
+//
+// ⚠️ L'epaisseur se mesure sur le maillage D'ENTREE (quelques milliers de
+// triangles) et l'amincissement se DEDUIT des reglages : auditer les dizaines
+// de millions de triangles de la sortie pour retrouver un chiffre qu'on peut
+// borner par le calcul couterait tres cher pour une reponse moins sure.
+// ⚠️ La borne est un MAJORANT tant que le creux reel des cartes n'est pas
+// mesure (`greyMin`) — le message le declare, sinon elle passerait pour un fait.
+function auditExportedMesh(finalGeometry, slots) {
+  try {
+    const edges = auditEdges(finalGeometry);
+    const thickness = currentGeometry ? minWallThickness(currentGeometry) : null;
+    const inward = inwardBudget(slots || []);
+    const rapport = auditReport({ edges, thickness, inward });
+
+    console.log(
+      `Audit impression — ${edges.triCount} tris, ${edges.edgeCount} aretes, ` +
+      `${edges.open} ouverte(s), ${edges.nonManifold} non-manifold` +
+      (thickness && Number.isFinite(thickness.p01)
+        ? ` | paroi ${thickness.p01.toFixed(2)} mm (min strict ${thickness.min.toFixed(3)})` +
+          ` | creusement max ${(2 * inward.mm).toFixed(2)} mm`
+        : ''));
+
+    for (const f of rapport.findings) {
+      // ⚠️ Une borne non mesuree se DECLARE : sans cette phrase, un majorant
+      // passerait pour un fait, et l'utilisateur epaissirait une piece qui
+      // n'en avait pas besoin.
+      const texte = t(f.code, f.params) +
+        (f.params && f.params.bound ? ' ' + t('audit.upperBound') : '');
+      if (f.level === 'warn') console.warn(texte); else console.info(texte);
+      showToast(texte, { type: f.level === 'warn' ? 'error' : 'info', duration: 9000 });
+    }
+    return rapport;
+  } catch (err) {
+    // Un audit qui echoue ne doit PAS empecher l'export : le fichier est le
+    // livrable, l'audit n'est qu'un avis.
+    console.warn('Audit impression indisponible :', err);
+    return null;
+  }
+}
+
 // ── Bibliotheque de matieres par COULEUR FreeCAD ─────────────────────────────
 //
 // Elle vit HORS projet (IndexedDB, comme le brouillon de reprise) : son interet
@@ -4541,6 +4590,8 @@ exportAllSlotsBtn?.addEventListener('click', async () => {
 
     finalGeometry = await buildExportGeometryForAllSlots(readySlots, myToken);
     if (exportToken !== myToken) return;
+
+    auditExportedMesh(finalGeometry, readySlots);
 
     setProgress(0.97, 'Writing STL');
     exportSTL(
@@ -8577,6 +8628,8 @@ const texLabel = activeMapEntry.isCustom
 const ampLabel = settings.amplitude.toFixed(2).replace('.', 'p');
 
 const baseName = `${currentStlName}_${slotLabel}_${texLabel}_amp${ampLabel}`;
+
+    auditExportedMesh(finalGeometry, [{ settings }]);
 
     if (format === '3mf') {
       setProgress(0.97, t('progress.writing3mf'));

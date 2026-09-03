@@ -335,4 +335,9 @@ export default {
   "matlib.rememberTitle": "각 슬롯의 재질을 해당 FreeCAD 색상에 연결해 기억합니다. 빈 상태에서 다음 컬러 STEP을 불러오면 자동으로 복원됩니다.",
   "matlib.remembered": "재질 {n}개를 기억했습니다 (라이브러리에 {total}개)",
   "matlib.autoApplied": "FreeCAD 색상에서 슬롯 {n}개 생성 — 재질 {m}개 인식",
+  "audit.notWatertight": "내보낸 메시가 닫혀 있지 않습니다: 열린 모서리 {open}개, 비다양체 모서리 {nm}개 (전체 {edges}개). 슬라이서가 메울 수도 있지만 보장되지 않습니다 — 진폭이나 분할 세밀도를 낮추거나 출력 전에 복구하세요.",
+  "audit.underNozzle": "가장 얇은 벽 {wall} mm에서 양면 {cut} mm를 깎아 {after} mm — 노즐 {limit} mm 미만입니다. 해결: 대칭 진폭을 {amp} mm 이하로 하거나 부품을 두껍게 하세요.",
+  "audit.thin": "깎은 뒤 가장 얇은 벽: {after} mm — 출력은 가능하지만 여유 있는 {limit} mm 미만입니다.",
+  "audit.notMeasurable": "두께를 측정할 수 없습니다: {samples}개의 광선 중 어느 것도 반대쪽 벽에 닿지 않았습니다 (열린 메시 또는 뒤집힌 법선).",
+  "audit.upperBound": "상한값입니다: 맵의 실제 최저 명도는 측정하지 않았습니다.",
 };

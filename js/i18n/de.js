@@ -335,4 +335,9 @@ export default {
   "matlib.rememberTitle": "Merkt sich das Material jedes Slots zu seiner FreeCAD-Farbe. Das nächste farbige STEP auf einer leeren Szene erhält sie automatisch zurück.",
   "matlib.remembered": "{n} Material(ien) gemerkt ({total} in der Bibliothek)",
   "matlib.autoApplied": "{n} Slots aus FreeCAD-Farben erstellt — {m} Material(ien) erkannt",
+  "audit.notWatertight": "Exportiertes Netz nicht geschlossen: {open} offene Kante(n), {nm} Non-Manifold-Kante(n) von {edges}. Der Slicer schließt es vielleicht — Amplitude oder Unterteilungsfeinheit verringern, oder vor dem Druck reparieren.",
+  "audit.underNozzle": "Dünnste Wand {wall} mm, minus {cut} mm beidseitig ausgehöhlt = {after} mm — unter der Düse ({limit} mm). Abhilfe: symmetrische Amplitude ≤ {amp} mm, oder Teil verdicken.",
+  "audit.thin": "Dünnste Wand nach dem Aushöhlen: {after} mm — druckbar, aber unter den komfortablen {limit} mm.",
+  "audit.notMeasurable": "Wandstärke nicht messbar: keiner der {samples} Strahlen traf eine Gegenwand (offenes Netz oder umgedrehte Normalen).",
+  "audit.upperBound": "Obere Schranke: der tatsächlich dunkelste Wert der Karten wurde nicht gemessen.",
 };

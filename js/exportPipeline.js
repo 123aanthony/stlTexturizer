@@ -18,6 +18,7 @@ import { decimate } from './decimation.js';
 import { buildUnionExcludedFacesForSlots, buildCombinedFaceWeights,
          buildExclusiveSlotFaceMasks } from './slotMasks.js';
 import { withGlobalQuality } from './slotState.js';
+import { auditEdges } from './printAudit.js';
 
 // ── Watertight guard for decimation ──────────────────────────────────────────
 // QEM decimation can open a closed mesh at aggressive targets — measured on both
@@ -26,30 +27,19 @@ import { withGlobalQuality } from './slotState.js';
 // impossible to ship: if decimation breaks a previously-watertight mesh, we keep
 // the un-decimated one (larger file, but printable).
 
-/** True if every edge is shared by exactly two triangles (quantized to 1e-4 mm). */
+/**
+ * True if every edge is shared by exactly two triangles (quantized to 1e-4 mm).
+ *
+ * DELEGUE a `printAudit.auditEdges` : l'audit d'imprimabilite pose exactement la
+ * meme question, en comptant au lieu de repondre oui/non. Deux ecritures de la
+ * meme topologie divergeraient un jour en silence — et ce garde-ci deciderait
+ * alors autre chose que ce que l'audit annonce a l'utilisateur.
+ * ⚠️ Le corps d'origine s'arretait au premier defaut ; la perte est nulle, la
+ * sortie anticipee ne vivait que dans la boucle FINALE sur les aretes, et c'est
+ * la construction des tables qui coute.
+ */
 export function isWatertight(geometry) {
-  const pos = geometry.attributes.position.array;
-  const triCount = (pos.length / 9) | 0;
-  const vid = new Map();
-  const idOf = (o) => {
-    const k = Math.round(pos[o] * 1e4) + ',' + Math.round(pos[o + 1] * 1e4) + ',' + Math.round(pos[o + 2] * 1e4);
-    let v = vid.get(k);
-    if (v === undefined) { v = vid.size; vid.set(k, v); }
-    return v;
-  };
-  const edges = new Map();
-  const addEdge = (a, b) => {
-    if (a === b) return;
-    const k = a < b ? (a + '_' + b) : (b + '_' + a);
-    edges.set(k, (edges.get(k) || 0) + 1);
-  };
-  for (let t = 0; t < triCount; t++) {
-    const o = t * 9;
-    const a = idOf(o), b = idOf(o + 3), c = idOf(o + 6);
-    addEdge(a, b); addEdge(b, c); addEdge(c, a);
-  }
-  for (const cnt of edges.values()) if (cnt !== 2) return false;
-  return true;
+  return auditEdges(geometry).watertight;
 }
 
 /**

@@ -335,4 +335,9 @@ export default {
   "matlib.rememberTitle": "Memorizza il materiale di ogni slot per il suo colore FreeCAD. Il prossimo STEP colorato su una scena vuota li ritrova da solo.",
   "matlib.remembered": "{n} materiale/i memorizzato/i ({total} nella libreria)",
   "matlib.autoApplied": "{n} slot creati dai colori FreeCAD — {m} materiale/i riconosciuto/i",
+  "audit.notWatertight": "Mesh esportata non chiusa: {open} spigolo/i aperto/i, {nm} spigolo/i non-manifold su {edges}. Lo slicer forse la chiuderà, ma non è garantito — abbassa l’ampiezza o la finezza di suddivisione, oppure ripara prima di stampare.",
+  "audit.underNozzle": "Parete più sottile {wall} mm, meno {cut} mm scavati da entrambi i lati = {after} mm — sotto l’ugello da {limit} mm. Rimedio: ampiezza simmetrica ≤ {amp} mm, o ispessire il pezzo.",
+  "audit.thin": "Parete più sottile dopo lo scavo: {after} mm — stampabile, ma sotto i {limit} mm confortevoli.",
+  "audit.notMeasurable": "Spessore non misurabile: nessuno dei {samples} raggi ha colpito una parete opposta (mesh aperta o normali invertite).",
+  "audit.upperBound": "Limite superiore: il livello più scuro reale delle mappe non è stato misurato.",
 };

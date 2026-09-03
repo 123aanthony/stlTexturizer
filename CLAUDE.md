@@ -108,6 +108,45 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
   dans les globales, pas dans ses champs stockés → `saveActiveSlotState()`
   AVANT de lire la source, et `restoreSlotState(cible)` après si la cible est
   active, sinon le prochain save réécrirait l'ancien matériau par-dessus.
+- `printAudit.js` — **audit d'imprimabilité, juste avant l'écriture** (pur, testé).
+  L'app promet « FDM sans support, parois ≥ ~0.8 mm » et ne mesurait **rien** de tel :
+  `isWatertight` ne servait que de garde à la DÉCIMATION — personne ne regardait le
+  maillage réellement écrit — et le mot `thickness` n'existait **nulle part** dans
+  `js/`, alors que c'est BumpForge qui amincit les murs. MESURÉ sur une fixture du
+  dépôt : `cubeWithSmallFillets.stl` entre **étanche** et ressort avec **2239 arêtes
+  non-manifold** ; le golden l'enregistrait en `✓ real-fillets watertight=false`,
+  donc vert pour toujours — une baseline qui note un défaut le rend permanent et muet.
+  ⚠️ **La topologie se mesure sur la SORTIE, l'épaisseur sur l'ENTRÉE.** Ce n'est pas
+  un pis-aller : le maillage d'entrée fait quelques milliers de triangles là où
+  l'exporté peut en faire des dizaines de millions, et l'amincissement se **déduit**
+  des réglages — `disp = falloff × (1−masked) × centeredGrey × amplitude`, donc
+  enfoncement nul en NON symétrique (le déplacement y est toujours sortant) et
+  `(0.5 − greyMin) × amplitude` en symétrique. Auditer 30 M de triangles pour
+  retrouver un chiffre qu'on borne par le calcul coûterait cher pour une réponse
+  moins sûre. ⚠️ La borne est un **MAJORANT** tant que `greyMin` n'est pas fourni —
+  et elle **se déclare** (`audit.upperBound`), sinon elle passerait pour un fait.
+  ⚠️ **LE MINIMUM STRICT D'ÉPAISSEUR MESURE LES BISEAUX, PAS LES PAROIS** : là où
+  deux parois se rejoignent, l'épaisseur perpendiculaire tend vers zéro en approchant
+  de l'arête — c'est de la géométrie, pas un défaut. MESURÉ sur `laserPlate.stl`, une
+  plaque de **2.000 mm** : le minimum vaut **0.0024 mm**, sur une facette de
+  0.00135 mm² qui touche sa voisine d'en face. Le verdict se fonde donc sur `p01`,
+  l'épaisseur sous laquelle vit **1 % de l'aire** échantillonnée (mesuré : **2.000 mm**
+  sur cette même plaque) — une vraie paroi mince est une SURFACE mince. Le minimum
+  reste rendu : il informe, il ne juge pas.
+  ⚠️ Second piège du lancer de rayon, trouvé par le test avant le code : sur une
+  paroi courbe FACETTÉE vue de son côté concave, la facette voisine penche vers le
+  rayon et le coupe à quelques microns — d'où `FACING_MIN`, qui n'accepte que les
+  faces dont la normale **nous fait face** (critère exact, pas un seuil bricolé : une
+  voisine du même mur a le cosinus opposé).
+  ⚠️ Le module rend des **CONSTATS `{code, level, params}`**, jamais des phrases : le
+  texte vit dans les 8 paquets i18n. Les tests y gagnent — ils épinglent des chiffres,
+  pas de la prose. `exportPipeline.isWatertight` **délègue** désormais à `auditEdges`
+  (même question, une seule écriture ; la sortie anticipée perdue ne vivait que dans
+  la boucle finale, la construction des tables domine). L'audit **ne bloque jamais**
+  l'export : le fichier est le livrable, l'audit un avis. Validé `test/printAudit.mjs`
+  (26 contrôles, dont 4 de câblage) — ⚠️ le **déclenchement réel** passe par une boîte
+  de dialogue native (`saveBlob` → IPC) qu'un e2e ne peut pas franchir : il reste à
+  vérifier à la main, une fois, sur un vrai export.
 - `exportPipeline.js` — orchestration export multi-slot sans DOM (+`decimateWithGuard`
   watertight). `scaleSnap.js` — snap d'échelle cylindrique (fix dérive au reload).
 - `beamAxis.js` — **Wood Auto orienté poutre** : PCA des faces du slot ; V classifié
@@ -232,10 +271,11 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
 ## Tests — workflow OBLIGATOIRE après tout changement géométrique
 
 ```bash
-npm test                    # 32 harnais headless, golden compris (liste dans package.json)
+npm test                    # 33 harnais headless, golden compris (liste dans package.json)
 npm run test:i18n           # parité des 8 packs vs en.js + clés réellement demandées par t()
 npm run test:parity:modes   # parite apercu<->export sur les 12 modes de projection
 npm run test:matlib         # bibliotheque de matieres par couleur FreeCAD (+ cablage)
+npm run test:printaudit     # audit d'imprimabilite : topologie, epaisseur, verdict
 npm run test:golden         # golden seul (cube/sphère/cylindre/plaque + multi-slot + 2 STL réels)
 npm run fixtures            # régénère les modèles de référence
 npm run test:seamband       # caractérisation √k du lissage — HORS batterie (pas un invariant)

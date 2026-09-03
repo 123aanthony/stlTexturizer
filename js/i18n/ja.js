@@ -335,4 +335,9 @@ export default {
   "matlib.rememberTitle": "各スロットのマテリアルを FreeCAD の色に紐づけて記憶します。次に空の状態へ読み込んだ色付き STEP に自動で適用されます。",
   "matlib.remembered": "{n} 件のマテリアルを記憶しました（ライブラリ内 {total} 件）",
   "matlib.autoApplied": "FreeCAD の色から {n} スロットを作成 — {m} 件のマテリアルを認識",
+  "audit.notWatertight": "エクスポートしたメッシュが閉じていません：開いたエッジ {open} 本、非多様体エッジ {nm} 本（全 {edges} 本）。スライサーが塞ぐ場合もありますが保証はありません — 振幅か分割の細かさを下げるか、印刷前に修復してください。",
+  "audit.underNozzle": "最薄部 {wall} mm から両面 {cut} mm 彫り込み = {after} mm。ノズル径 {limit} mm を下回ります。対処：対称振幅を {amp} mm 以下にするか、部品を厚くしてください。",
+  "audit.thin": "彫り込み後の最薄部：{after} mm。印刷は可能ですが、余裕のある {limit} mm を下回ります。",
+  "audit.notMeasurable": "肉厚を測定できません：{samples} 本のレイがいずれも対向面に当たりませんでした（開いたメッシュ、または法線の反転）。",
+  "audit.upperBound": "上限値です：マップの実際の最暗レベルは測定していません。",
 };

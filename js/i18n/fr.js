@@ -327,6 +327,11 @@ export default {
   "matlib.rememberTitle": "Mémorise la matière de chaque slot pour sa couleur FreeCAD. Le prochain STEP coloré déposé sur une ardoise vierge les retrouve tout seul.",
   "matlib.remembered": "{n} matière(s) mémorisée(s) ({total} dans la bibliothèque)",
   "matlib.autoApplied": "{n} slots créés depuis les couleurs FreeCAD — {m} matière(s) reconnue(s)",
+  "audit.notWatertight": "Maillage exporté non fermé : {open} arête(s) ouverte(s), {nm} arête(s) non-manifold sur {edges}. Le trancheur refermera peut-être, mais rien ne le garantit — baisser l’amplitude ou la finesse de subdivision, ou réparer avant impression.",
+  "audit.underNozzle": "Paroi la plus fine {wall} mm, moins {cut} mm creusés des deux côtés = {after} mm — sous la buse de {limit} mm. Remède : amplitude symétrique ≤ {amp} mm, ou épaissir la pièce.",
+  "audit.thin": "Paroi la plus fine après creusement : {after} mm — imprimable, mais sous les {limit} mm confortables.",
+  "audit.notMeasurable": "Épaisseur non mesurable : aucun des {samples} tirs n’a touché de paroi opposée (maillage ouvert, ou normales retournées).",
+  "audit.upperBound": "Majorant : le creux réel des cartes n’a pas été mesuré.",
 
   // i18n catch-up pass: keys that had been shipping in English only. Grouped at
   // the end rather than merged into en.js's order — the point is to close the
