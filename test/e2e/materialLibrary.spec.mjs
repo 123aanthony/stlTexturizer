@@ -72,13 +72,13 @@ const labelOnglet = (page, i) =>
   page.locator('.texture-tab .texture-tab-label').nth(i);
 
 test('une matiere memorisee pour sa couleur revient apres fermeture de l app', async () => {
-  // ⚠️ Large a dessein : ce delai garde contre un BLOCAGE, il ne mesure pas la
-  // vitesse. MESURE le 03/09 : le meme test passe en 14 s sur une machine au
-  // repos et en 44 s la meme journee sous charge — a 180 s il tombait alors en
-  // expiration, et un test qui depend de l'humeur de la machine finit ignore.
-  // Ce cas lance Electron DEUX fois et charge le STEP deux fois : sous charge il
-  // a ete mesure a plus de 6 minutes, la ou il en met 14 secondes a vide.
-  test.setTimeout(600_000);
+  // ⚠️ Ce delai a ete gonfle a 360 puis 600 s sur un DIAGNOSTIC FAUX (« la
+  // machine est chargee »). Le test ne ralentissait pas : il bloquait a la
+  // FERMETURE, sur le dialogue natif de sauvegarde — voir launch.mjs. Une fois
+  // la vraie cause traitee, ce cas passe en 3.5 s. On revient donc au budget
+  // d'origine : un delai qu'on augmente pour faire taire un echec est un delai
+  // qui cache un defaut.
+  test.setTimeout(180_000);
 
   rmSync(TMP, { recursive: true, force: true });
   mkdirSync(TMP, { recursive: true });
@@ -178,7 +178,7 @@ test('un profil VIERGE ne reconnait rien (l oracle ne se contente pas d etre ver
   // etat, ou si le toast d'arrivee etait devenu le toast par defaut. On verifie
   // donc que sur un profil NEUF le message est celui du depart, PAS celui de
   // l'arrivee : les deux chemins doivent rester distinguables.
-  test.setTimeout(240_000);
+  test.setTimeout(90_000);
 
   rmSync(TMP, { recursive: true, force: true });
   mkdirSync(TMP, { recursive: true });

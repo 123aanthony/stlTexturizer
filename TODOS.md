@@ -82,15 +82,20 @@
   rien. Chercher ailleurs : un autre écrivain de `saveActiveSlotState`, ou un
   `restoreSlotState` non rejoué quand les onglets sont recréés à l'identique.
 
-- [ ] **Les e2e ne tiennent plus quand la machine est chargée.** MESURÉ le
-  03/09, même machine, même code : un cas passe en **14 s** au repos et en
-  **3,6 min** en fin de journée ; un autre (deux lancements d'Electron) dépasse
-  **6 min** là où il en met 14 s. Les délais ont été élargis (ce sont des gardes
-  anti-blocage, pas des mesures de vitesse), mais **inflater n'est pas une
-  réponse** : au-delà, c'est la suite entière qui devient inexploitable — 16 min
-  pour 15 cas. **Piste** : les cas lourds rechargent le même STEP et relancent
-  l'app pour chaque test ; mutualiser une instance par fichier de spec (fixture
-  `test.describe` + `beforeAll`) diviserait le temps par deux ou trois.
-  ⚠️ Vérifier sur machine au repos avant de conclure quoi que ce soit d'un
-  échec e2e : deux échecs du 03/09 étaient des expirations, PAS des régressions
-  (bissection à `76c8a60` : mêmes échecs, code d'alors).
+- [x] **~~Les e2e ne tiennent plus quand la machine est chargée~~ — c'était FAUX,
+  et la vraie cause est trouvée** (04/09). Trois cas échouaient par expiration ;
+  j'ai accusé la charge machine (mesures à l'appui : 14 s au repos contre 3,6 min
+  le soir) et élargi les délais. **Le diagnostic était faux.** Les tests ne
+  ralentissaient pas : ils **bloquaient à la FERMETURE**. `electron-main.js`
+  intercepte `close` et ouvre, projet sale, un dialogue NATIF modal
+  « Enregistrer / Ne pas enregistrer / Annuler » — personne ne clique en e2e,
+  `app.close()` ne rend jamais la main. MESURÉ : app vide fermée en **0,2 s**,
+  app avec un modèle chargé **jamais**. `launchApp` répond désormais « Ne pas
+  enregistrer ». Suite complète : **12/15 en 21 min → 15/15 en 2,6 min**, et le
+  cas à deux phases passe de 600 s d'expiration à **3,5 s**. Délais remis à leurs
+  valeurs d'origine.
+  ⚠️ **Le symptôme trompait deux fois** : Playwright impute le blocage au test qui
+  vient de finir, donc à sa dernière assertion ; et le temps perdu au teardown
+  gonfle la durée du test SUIVANT, ce qui fabrique une fausse impression de
+  lenteur générale. C'est ce qui m'a fait conclure « machine chargée » alors que
+  le corps de chaque test s'exécutait en quelques secondes.

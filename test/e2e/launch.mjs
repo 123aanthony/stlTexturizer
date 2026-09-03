@@ -57,6 +57,25 @@ export async function launchApp(appRoot, { userData: reuse = null } = {}) {
     args: [appRoot],
     env: { ...process.env, BF_TEST_USERDATA: userData },
   });
+  // ⚠️ LE DIALOGUE DE FERMETURE BLOQUE LA FIN DE CHAQUE TEST.
+  // `electron-main.js` intercepte `close` et, projet SALE, ouvre un dialogue
+  // NATIF modal « Enregistrer / Ne pas enregistrer / Annuler ». C'est le bon
+  // comportement pour l'utilisateur — et un piege mortel en e2e : personne ne
+  // clique, `app.close()` ne rend jamais la main, Playwright annonce « Worker
+  // teardown timeout » et compte le test en ECHEC. MESURE : une app sans rien
+  // de charge se ferme en 0.2 s ; des qu'un modele est charge (donc le projet
+  // sali), la fermeture ne revient plus.
+  // ⚠️ Le symptome TROMPE : le test qui echoue est celui qui vient de finir, et
+  // il a l'air de bloquer sur sa DERNIERE assertion. On accuse la lenteur de la
+  // machine ou le chargement du STEP — nous l'avons fait — alors que tout le
+  // corps du test s'etait deroule en quelques secondes.
+  // On repond donc « Ne pas enregistrer » (index 1), le seul choix qui ferme
+  // sans ecrire : un test ne doit jamais laisser de fichier derriere lui.
+  await app.evaluate(async ({ dialog }) => {
+    dialog.showMessageBoxSync = () => 1;
+    dialog.showMessageBox = async () => ({ response: 1 });
+  });
+
   const page = await app.firstWindow();
 
   // ⚠️ ECOUTEURS ATTACHES IMMEDIATEMENT, avant le moindre delai.
