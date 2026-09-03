@@ -12,7 +12,7 @@ import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
 import { subdivide }          from './subdivision.js';
 import { regularizeMesh }     from './regularize.js';
 import { applyDisplacement }  from './displacement.js';
-import { exportSTL, export3MF } from './exporter.js';
+import { exportSTL, export3MF, buildSTLBuffer } from './exporter.js';
 import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights,
          buildSlotColorOverlayGeo, expandOwnerThroughParents } from './exclusion.js';
@@ -10157,34 +10157,22 @@ window.bumpforgeElectron?.onSaveRequest?.(async () => {
 
 updateProjectChrome();
 
-/** Pack a BufferGeometry into binary-STL bytes (80-byte header, uint32 count, 50 bytes per triangle). */
+/**
+ * Octets STL binaires du modele range dans le `.bforge`.
+ *
+ * ⚠️ C'ETAIT UNE SECONDE ECRITURE DU FORMAT. `exporter.js` en avait deja une
+ * (celle de « Exporter STL »), et les deux decrivaient le meme en-tete, le meme
+ * compte et les memes 50 octets par triangle. Deux ecritures d'un meme format
+ * divergent tot ou tard : le jour ou l'une gagne un champ ou change l'origine
+ * de sa normale, le modele RANGE dans le projet cesse d'etre celui qu'on
+ * EXPORTE, sans que rien ne le dise.
+ * ⚠️ Seul cas ou l'ancienne differait : sans attribut `normal`, elle laissait
+ * la normale a zero la ou `buildSTLBuffer` la CALCULE. Le cas ne se produit
+ * pas — `currentGeometry` est un maillage affiche, il porte toujours ses
+ * normales — et calculer vaut mieux que zero.
+ */
 function _geometryToBinarySTL(geo) {
-  const pos = geo.attributes.position.array;
-  const nor = geo.attributes.normal ? geo.attributes.normal.array : null;
-  const triCount = (pos.length / 9) | 0;
-  const buf = new ArrayBuffer(84 + 50 * triCount);
-  const bytes = new Uint8Array(buf);
-  const view = new DataView(buf);
-  view.setUint32(80, triCount, true);
-  // Copy per-triangle normal + 3 vertex positions. If no normal attribute,
-  // leave the normal slot as zeros — slicers compute per-face normals anyway.
-  for (let i = 0; i < triCount; i++) {
-    const dst = 84 + i * 50;
-    const srcPos = i * 9;
-    if (nor) {
-      const srcNor = i * 9;
-      view.setFloat32(dst,     nor[srcNor],     true);
-      view.setFloat32(dst + 4, nor[srcNor + 1], true);
-      view.setFloat32(dst + 8, nor[srcNor + 2], true);
-    }
-    for (let v = 0; v < 3; v++) {
-      const d = dst + 12 + v * 12;
-      view.setFloat32(d,     pos[srcPos + v * 3],     true);
-      view.setFloat32(d + 4, pos[srcPos + v * 3 + 1], true);
-      view.setFloat32(d + 8, pos[srcPos + v * 3 + 2], true);
-    }
-  }
-  return bytes;
+  return new Uint8Array(buildSTLBuffer(geo));
 }
 
 /**

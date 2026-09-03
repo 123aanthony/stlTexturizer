@@ -56,3 +56,13 @@
   donc le même défaut. **Comment** : injecter `pieceOfTri` (via `faceParentId`,
   comme `pieceOfTriFor`) dans `runMultiSlotExport`. ⚠️ La sortie CHANGERA sur
   tout projet qui utilise la variation ⇒ golden à rebaseliner, avec mesure.
+
+- [ ] **Desserrer `main.js` : les candidats mesurés.** Le cliquet
+  (`npm run test:size`) empêche la croissance ; le faire MAIGRIR demande des
+  extractions. Fonctions de premier niveau **sans DOM ni global** (donc pures,
+  donc déplaçables sans risque), mesurées le 03/09 : `updateFaceMask` (74),
+  `addSmoothNormals` (60), `distSqPointToTri` (46), `_paintSingleHit` (41),
+  `linkSlider` (38) — **418 lignes sur 10 fonctions** au total. Les grosses
+  fonctions (`wireEvents` 979, `handleExport` 222,
+  `computeBoundaryFalloffAttr` 211) touchent toutes le DOM ou l'état global :
+  elles se découpent, elles ne se déplacent pas telles quelles.

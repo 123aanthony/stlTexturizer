@@ -21,8 +21,30 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
 
 ## Architecture (modules `js/`)
 
-- `main.js` — **monolithe ~9.7k lignes** : bootstrap, UI, état global, slots,
-  orchestration d'export. **Cible du refacto en cours** (voir REFACTOR.md).
+- `main.js` — **monolithe 10 521 lignes** : bootstrap, UI, état global, slots,
+  orchestration d'export. **Cible du refacto en cours** (voir REFACTOR.md), tenue
+  par un **CLIQUET** (`test/mainSize.mjs`, en tête de `npm test`).
+  ⚠️ **Le refacto ne perdait pas — il était DÉPASSÉ PAR LE FLUX.** MESURÉ :
+  ~8 500 lignes au fork, ~9 700 quand cette doc a été écrite, **10 533** le
+  03/09 — et ce malgré une dizaine de modules extraits (slotMasks, slotState,
+  exportPipeline, scaleSnap, recovery, projectMigrate, materialLibrary,
+  printAudit…). Chaque lot ajoute son câblage et le solde reste positif : une
+  campagne d'extraction de plus ferait baisser le chiffre une fois, puis il
+  remonterait. Ce qu'il fallait est une **règle qui tient ENTRE les lots**.
+  ⚠️ **Ce n'est pas un plafond, c'est un cliquet** : il échoue aussi quand le
+  compte descend nettement sous la limite (marge > 150), pour forcer à la
+  RESSERRER — sinon la marge gagnée se reperd en silence au lot suivant.
+  ⚠️ **Il compte DEUX choses.** Les lignes disent la taille ; les **liaisons
+  mutables au niveau module** (113 aujourd'hui) disent l'**état partagé**, qui
+  est la vraie cause des divergences entre lecteurs que ce projet a déjà payées
+  (cf. `resolveSlotState`). Un lot peut retirer cent lignes et ajouter trois
+  globales : seul le second compteur le verrait.
+  En échouant, il liste les plus grosses fonctions du fichier (longueur mesurée
+  par ÉQUILIBRE DES ACCOLADES — compter « jusqu'à la fonction suivante » attribue
+  à une fonction le code de module qui la suit, et sortait `blurCanvas` à 218
+  lignes pour 24 réelles ; un chiffre faux ferait extraire la mauvaise). État :
+  `wireEvents` 979, `handleExport` 222, `computeBoundaryFalloffAttr` 211,
+  `bakeTextures` 174, `handleModelFile` 168.
 - `subdivision.js` — subdivision adaptative **sans T-jonction**, watertight préservé.
 - `displacement.js` — **cœur du displacement** : normale lisse unique par position
   (anti-fissures), support multi-slot en une passe.
@@ -304,13 +326,14 @@ l'app Electron et le **Wood mapping** sont des ajouts du fork.
 ## Tests — workflow OBLIGATOIRE après tout changement géométrique
 
 ```bash
-npm test                    # 35 harnais headless, golden compris (liste dans package.json)
+npm test                    # 36 harnais headless, golden compris (liste dans package.json)
 npm run test:i18n           # parité des 8 packs vs en.js + clés réellement demandées par t()
 npm run test:parity:modes   # parite apercu<->export sur les 12 modes de projection
 npm run test:matlib         # bibliotheque de matieres par couleur FreeCAD (+ cablage)
 npm run test:printaudit     # audit d'imprimabilite : topologie, epaisseur, verdict
 npm run export -- p.bforge  # export d'un projet SANS interface (lot : plusieurs .bforge)
 npm run test:cli            # le lecteur de projet de la CLI (reconstruction, refus, audit)
+npm run test:size           # cliquet sur main.js (lignes + etat partage)
 npm run test:golden         # golden seul (cube/sphère/cylindre/plaque + multi-slot + 2 STL réels)
 npm run fixtures            # régénère les modèles de référence
 npm run test:seamband       # caractérisation √k du lissage — HORS batterie (pas un invariant)
